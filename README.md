@@ -22,6 +22,3 @@ the project is a mono-repository for a Full Stack website
 - Backend: Java + Spring Boot
 - Database: Supabase PostgreSQL
 - Authentication: Spring Security + BCrypt + HTTP Sessions
-
-> [!NOTE]
-> For backend documentation, visit [Backend.md](backend.md)
