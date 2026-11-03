@@ -1,6 +1,5 @@
 package top.gnon.backend.auth;
 
-import java.util.Optional;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -23,45 +22,19 @@ public class AppUserDetailsService implements UserDetailsService {
     public UserDetails loadUserByUsername(String email)
             throws UsernameNotFoundException {
 
-        if (email == null || email.trim().isEmpty()) {
-            throw new UsernameNotFoundException("Account not found.");
-        }
+        AppUser user = userRepository.findByEmail(
+                email.trim().toLowerCase()
+        ).orElseThrow(() ->
+                new UsernameNotFoundException("Account not found.")
+        );
 
-        String formattedEmail = email.trim().toLowerCase();
-        Optional<AppUser> userOptional = userRepository.findByEmail(formattedEmail);
+        boolean approved = user.getApprovalStatus().equals("APPROVED");
+        boolean enabled = approved && !user.isBlocked();
 
-        if (!userOptional.isPresent()) {
-            throw new UsernameNotFoundException("Account not found.");
-        }
-
-        AppUser user = userOptional.get();
-
-        String status = user.getApprovalStatus();
-        boolean isApproved = false;
-        if (status != null && status.equalsIgnoreCase("APPROVED")) {
-            isApproved = true;
-        }
-
-        boolean isBlocked = user.isBlocked();
-        boolean isEnabled = false;
-
-        if (isApproved && !isBlocked) {
-            isEnabled = true;
-        }
-
-        String rawRole = user.getRole();
-        String formattedRole = rawRole != null ? rawRole.toUpperCase() : "USER";
-
-        User.UserBuilder builder = User.withUsername(user.getEmail());
-        builder.password(user.getPasswordHash());
-        builder.roles(formattedRole);
-        
-        if (!isEnabled) {
-            builder.disabled(true);
-        } else {
-            builder.disabled(false);
-        }
-
-        return builder.build();
+        return User.withUsername(user.getEmail())
+                .password(user.getPasswordHash())
+                .roles(user.getRole().toUpperCase())
+                .disabled(!enabled)
+                .build();
     }
 }
