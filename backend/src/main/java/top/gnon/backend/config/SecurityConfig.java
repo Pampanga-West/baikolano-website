@@ -1,3 +1,4 @@
+
 package top.gnon.backend.config;
 
 import org.springframework.context.annotation.Bean;
@@ -13,9 +14,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.config.annotation.web.configurers.AuthorizeHttpRequestsConfigurer;
-import org.springframework.security.config.annotation.web.configurers.SecurityContextConfigurer;
-import org.springframework.security.config.annotation.web.configurers.SessionManagementConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 
 import org.springframework.security.web.SecurityFilterChain;
@@ -26,7 +24,6 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @Configuration
@@ -36,32 +33,24 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        List<String> origins = new ArrayList<>();
-        origins.add("http://localhost:5173");
-        origins.add("http://localhost:8443");
-        origins.add("http://localhost:8080");
-        configuration.setAllowedOrigins(origins);
+        configuration.setAllowedOrigins(
+                List.of("http://localhost:5173", "http://localhost:8443", "http://localhost:8080")
+        );
 
-        List<String> methods = new ArrayList<>();
-        methods.add("GET");
-        methods.add("POST");
-        methods.add("PUT");
-        methods.add("PATCH");
-        methods.add("DELETE");
-        methods.add("OPTIONS");
-        configuration.setAllowedMethods(methods);
+        configuration.setAllowedMethods(
+                List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+        );
 
-        List<String> headers = new ArrayList<>();
-        headers.add("Content-Type");
-        headers.add("X-CSRF-TOKEN");
-        configuration.setAllowedHeaders(headers);
+        configuration.setAllowedHeaders(
+                List.of("Content-Type", "X-CSRF-TOKEN")
+        );
 
-        Boolean allowCredentials = Boolean.TRUE;
-        configuration.setAllowCredentials(allowCredentials);
+        configuration.setAllowCredentials(true);
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        String pattern = "/**";
-        source.registerCorsConfiguration(pattern, configuration);
+        UrlBasedCorsConfigurationSource source =
+                new UrlBasedCorsConfigurationSource();
+
+        source.registerCorsConfiguration("/**", configuration);
 
         return source;
     }
@@ -71,9 +60,11 @@ public class SecurityConfig {
             UserDetailsService userDetailsService,
             PasswordEncoder passwordEncoder
     ) {
-        DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
-        provider.setUserDetailsService(userDetailsService);
+        DaoAuthenticationProvider provider =
+                new DaoAuthenticationProvider(userDetailsService);
+
         provider.setPasswordEncoder(passwordEncoder);
+
         return provider;
     }
 
@@ -81,16 +72,12 @@ public class SecurityConfig {
     public AuthenticationManager authenticationManager(
             AuthenticationProvider authenticationProvider
     ) {
-        List<AuthenticationProvider> providers = new ArrayList<>();
-        providers.add(authenticationProvider);
-        ProviderManager manager = new ProviderManager(providers);
-        return manager;
+        return new ProviderManager(authenticationProvider);
     }
 
     @Bean
     public SecurityContextRepository securityContextRepository() {
-        SecurityContextRepository repo = new HttpSessionSecurityContextRepository();
-        return repo;
+        return new HttpSessionSecurityContextRepository();
     }
 
     @Bean
@@ -99,54 +86,34 @@ public class SecurityConfig {
             SecurityContextRepository securityContextRepository
     ) throws Exception {
 
-        http.cors(Customizer.withDefaults());
+        http
+                .cors(Customizer.withDefaults())
 
-        http.securityContext(new Customizer<SecurityContextConfigurer<HttpSecurity>>() {
-            @Override
-            public void customize(SecurityContextConfigurer<HttpSecurity> context) {
-                context.securityContextRepository(securityContextRepository);
-            }
-        });
+                .securityContext(context -> context
+                        .securityContextRepository(securityContextRepository)
+                )
 
-        String ep1 = "/api/auth/me";
-        String ep2 = "/api/auth/csrf";
-        String ep3 = "/api/auth/register";
-        String ep4 = "/api/auth/login";
-        String ep5 = "/api/auth/logout";
-        String ep6 = "/api/auth/reset-password-request";
-        String ep7 = "/api/auth/reset-password";
-        String ep8 = "/";
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(
+                                "/api/auth/me",
+                                "/api/auth/csrf",
+                                "/api/auth/register",
+                                "/api/auth/login",
+                                "/api/auth/logout",
+                                "/api/auth/reset-password-request",
+                                "/api/auth/reset-password",
+                                "/"
+                        ).permitAll()
+                        .anyRequest().authenticated()
+                )
 
-        http.authorizeHttpRequests(new Customizer<AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry>() {
-            @Override
-            public void customize(AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry auth) {
-                auth.requestMatchers(ep1, ep2, ep3, ep4, ep5, ep6, ep7, ep8).permitAll();
-                auth.anyRequest().authenticated();
-            }
-        });
+                .sessionManagement(session -> session
+                        .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                )
 
-        http.sessionManagement(new Customizer<SessionManagementConfigurer<HttpSecurity>>() {
-            @Override
-            public void customize(SessionManagementConfigurer<HttpSecurity> session) {
-                session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED);
-            }
-        });
+                .formLogin(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable);
 
-        http.formLogin(new Customizer<AbstractHttpConfigurer<org.springframework.security.config.annotation.web.configurers.FormLoginConfigurer<HttpSecurity>, HttpSecurity>>() {
-            @Override
-            public void customize(org.springframework.security.config.annotation.web.configurers.FormLoginConfigurer<HttpSecurity> configurer) {
-                configurer.disable();
-            }
-        });
-
-        http.httpBasic(new Customizer<AbstractHttpConfigurer<org.springframework.security.config.annotation.web.configurers.HttpBasicConfigurer<HttpSecurity>, HttpSecurity>>() {
-            @Override
-            public void customize(org.springframework.security.config.annotation.web.configurers.HttpBasicConfigurer<HttpSecurity> configurer) {
-                configurer.disable();
-            }
-        });
-
-        SecurityFilterChain chain = http.build();
-        return chain;
+        return http.build();
     }
 }
