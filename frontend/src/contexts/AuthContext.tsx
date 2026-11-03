@@ -27,154 +27,102 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
 
-  function clearError() {
-    setError(null)
-  }
+  const clearError = () => setError(null)
 
-  async function checkSession() {
+  // Verify whether an active session already exists on application mount
+  const checkSession = async () => {
     setIsLoading(true)
-    let fetchedUser: AuthUser | null = null
-    let hasError = false
-
     try {
-      const responseUser = await authApi.me()
-      if (responseUser) {
-        fetchedUser = responseUser
-      } else {
-        fetchedUser = null
-      }
-    } catch (e) {
-      hasError = true
-      fetchedUser = null
-    }
-
-    if (!hasError && fetchedUser !== null) {
-      setUser(fetchedUser)
-    } else {
+      const currentUser = await authApi.me()
+      setUser(currentUser)
+    } catch {
       setUser(null)
+    } finally {
+      setIsLoading(false)
     }
-
-    setIsLoading(false)
   }
 
   useEffect(() => {
-    function initSession() {
-      checkSession()
-    }
-    initSession()
+    checkSession()
   }, [])
 
-  async function login(email: string, password: string) {
+  const login = async (email: string, password: string) => {
     setError(null)
     try {
-      const credentials = { email: email, password: password }
-      await authApi.login(credentials)
-      const currentUserProfile = await authApi.me()
-      if (currentUserProfile != null) {
-        setUser(currentUserProfile)
-      } else {
-        setUser(null)
-      }
+      await authApi.login({ email, password })
+      // Retrieve the authenticated user's profile
+      const currentUser = await authApi.me()
+      setUser(currentUser)
     } catch (err: any) {
-      let errorMessage = "Failed to log in."
-      if (err && err.message) {
-        errorMessage = String(err.message)
-      }
-      setError(errorMessage)
+      const msg = err.message || "Failed to log in."
+      setError(msg)
       throw err
     }
   }
 
-  async function register(email: string, password: string): Promise<AuthResponse> {
+  const register = async (email: string, password: string): Promise<AuthResponse> => {
     setError(null)
     try {
-      const registrationPayload = { email: email, password: password }
-      const res = await authApi.register(registrationPayload)
-      return res
+      const response = await authApi.register({ email, password })
+      return response
     } catch (err: any) {
-      let errorMessage = "Registration failed."
-      if (err && err.message) {
-        errorMessage = String(err.message)
-      }
-      setError(errorMessage)
+      const msg = err.message || "Registration failed."
+      setError(msg)
       throw err
     }
   }
 
-  async function logout() {
+  const logout = async () => {
     setError(null)
-    let logoutSuccess = false
     try {
       await authApi.logout()
-      logoutSuccess = true
-    } catch (err) {
-      logoutSuccess = false
+    } catch {
+      // Even if network error occurs, clear local state
     } finally {
       setUser(null)
     }
   }
 
-  async function updateProfile(data: {
+  const updateProfile = async (data: {
     firstName?: string
     lastName?: string
     currentPassword?: string
     newPassword?: string
-  }): Promise<AuthUser & { message: string }> {
+  }): Promise<AuthUser & { message: string }> => {
     setError(null)
     try {
-      const updatedUser = await authApi.updateProfile(data)
-      setUser((prevUser) => {
-        if (prevUser === null || prevUser === undefined) {
-          return updatedUser
+      const updated = await authApi.updateProfile(data)
+      setUser((prev) => {
+        if (!prev) return updated
+        return {
+          ...prev,
+          ...updated,
+          role: updated.role || prev.role,
         }
-        
-        let assignedRole = prevUser.role
-        if (updatedUser.role) {
-          assignedRole = updatedUser.role
-        }
-
-        const mergedUser: AuthUser = {
-          id: updatedUser.id ? updatedUser.id : prevUser.id,
-          email: updatedUser.email ? updatedUser.email : prevUser.email,
-          firstName: updatedUser.firstName !== undefined ? updatedUser.firstName : prevUser.firstName,
-          lastName: updatedUser.lastName !== undefined ? updatedUser.lastName : prevUser.lastName,
-          role: assignedRole,
-        }
-        return mergedUser
       })
-      return updatedUser
+      return updated
     } catch (err: any) {
-      let errorMessage = "Failed to update profile."
-      if (err && err.message) {
-        errorMessage = String(err.message)
-      }
-      setError(errorMessage)
+      const msg = err.message || "Failed to update profile."
+      setError(msg)
       throw err
     }
   }
 
-  let userIsAuthenticated = false
-  if (user !== null && user !== undefined) {
-    userIsAuthenticated = true
-  } else {
-    userIsAuthenticated = false
-  }
-
-  const contextValue: AuthContextType = {
-    user: user,
-    isAuthenticated: userIsAuthenticated,
-    isLoading: isLoading,
-    error: error,
-    login: login,
-    register: register,
-    logout: logout,
-    updateProfile: updateProfile,
-    checkSession: checkSession,
-    clearError: clearError,
-  }
-
   return (
-    <AuthContext.Provider value={contextValue}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated: !!user,
+        isLoading,
+        error,
+        login,
+        register,
+        logout,
+        updateProfile,
+        checkSession,
+        clearError,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )
@@ -182,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth(): AuthContextType {
   const context = useContext(AuthContext)
-  if (context === undefined || context === null) {
+  if (!context) {
     throw new Error("useAuth must be used within an AuthProvider")
   }
   return context
