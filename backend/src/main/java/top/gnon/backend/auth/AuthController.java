@@ -27,10 +27,7 @@ import org.springframework.web.bind.annotation.*;
 import top.gnon.backend.user.AppUser;
 import top.gnon.backend.user.UserRepository;
 
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -69,30 +66,27 @@ public class AuthController {
                     request.password()
             );
 
-            Map<String, Object> responseBody = new HashMap<>();
-            responseBody.put("message", "Account registered successfully.");
-            responseBody.put("id", user.getId());
-            responseBody.put("email", user.getEmail());
-            responseBody.put("role", user.getRole());
-            responseBody.put("approvalStatus", user.getApprovalStatus());
-
             return ResponseEntity
                     .status(HttpStatus.CREATED)
-                    .body(responseBody);
+                    .body(Map.of(
+                            "message", "Account registered successfully.",
+                            "id", user.getId(),
+                            "email", user.getEmail(),
+                            "role", user.getRole(),
+                            "approvalStatus", user.getApprovalStatus()
+                    ));
 
         } catch (IllegalArgumentException e) {
-            Map<String, String> errorMap = new HashMap<>();
-            errorMap.put("message", e.getMessage());
             return ResponseEntity
                     .badRequest()
-                    .body(errorMap);
+                    .body(Map.of("message", e.getMessage()));
 
         } catch (IllegalStateException | DataIntegrityViolationException e) {
-            Map<String, String> conflictMap = new HashMap<>();
-            conflictMap.put("message", "An account with this email already exists.");
             return ResponseEntity
                     .status(HttpStatus.CONFLICT)
-                    .body(conflictMap);
+                    .body(Map.of(
+                            "message", "An account with this email already exists."
+                    ));
         }
     }
 
@@ -103,108 +97,89 @@ public class AuthController {
             HttpServletResponse httpResponse
     ) {
         try {
-            UsernamePasswordAuthenticationToken authToken = 
+            Authentication authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(
                             request.email(),
                             request.password()
-                    );
+                    )
+            );
 
-            Authentication authentication = authenticationManager.authenticate(authToken);
+            // Change the session ID after successful authentication.
+            new ChangeSessionIdAuthenticationStrategy()
+                    .onAuthentication(authentication, httpRequest, httpResponse);
 
-            ChangeSessionIdAuthenticationStrategy sessionStrategy = 
-                    new ChangeSessionIdAuthenticationStrategy();
-            sessionStrategy.onAuthentication(authentication, httpRequest, httpResponse);
+            SecurityContext context =
+                    SecurityContextHolder.createEmptyContext();
 
-            SecurityContext context = SecurityContextHolder.createEmptyContext();
             context.setAuthentication(authentication);
+
             SecurityContextHolder.setContext(context);
 
+            // Save the authenticated user into the HTTP session.
             securityContextRepository.saveContext(
                     context,
                     httpRequest,
                     httpResponse
             );
 
-            Map<String, String> successResp = new HashMap<>();
-            successResp.put("message", "Login successful.");
-            successResp.put("email", authentication.getName());
-
-            return ResponseEntity.ok(successResp);
+            return ResponseEntity.ok(
+                    Map.of(
+                            "message", "Login successful.",
+                            "email", authentication.getName()
+                    )
+            );
 
         } catch (DisabledException e) {
-            Map<String, String> err = new HashMap<>();
-            err.put("message", "Your account is pending approval or blocked.");
             return ResponseEntity
                     .status(HttpStatus.FORBIDDEN)
-                    .body(err);
+                    .body(Map.of(
+                            "message", "Your account is pending approval or blocked."
+                    ));
 
         } catch (BadCredentialsException e) {
-            Map<String, String> err = new HashMap<>();
-            err.put("message", "Incorrect email or password.");
             return ResponseEntity
                     .status(HttpStatus.UNAUTHORIZED)
-                    .body(err);
+                    .body(Map.of(
+                            "message", "Incorrect email or password."
+                    ));
         }
     }
 
     @GetMapping("/csrf")
     public Map<String, String> getCsrfToken(CsrfToken csrfToken) {
-        Map<String, String> res = new HashMap<>();
-        res.put("token", csrfToken.getToken());
-        return res;
+        return Map.of(
+                "token", csrfToken.getToken()
+        );
     }
 
     @GetMapping("/me")
     public ResponseEntity<?> getCurrentUser(
             Authentication authentication
     ) {
-        if (authentication == null) {
-            Map<String, String> err = new HashMap<>();
-            err.put("message", "Not authenticated.");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(err);
-        }
-        
-        if (!authentication.isAuthenticated()) {
-            Map<String, String> err = new HashMap<>();
-            err.put("message", "Not authenticated.");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(err);
+        if (authentication == null
+                || !authentication.isAuthenticated()
+                || authentication.getName() == null) {
+
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("message", "Not authenticated."));
         }
 
-        if (authentication.getName() == null) {
-            Map<String, String> err = new HashMap<>();
-            err.put("message", "Not authenticated.");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(err);
-        }
-
-        Optional<AppUser> userOptional = userRepository.findByEmail(authentication.getName());
-
-        if (userOptional.isPresent()) {
-            AppUser user = userOptional.get();
-            Map<String, Object> map = new HashMap<>();
-            map.put("id", user.getId());
-            map.put("email", user.getEmail());
-
-            if (user.getFirstName() != null) {
-                map.put("firstName", user.getFirstName());
-            } else {
-                map.put("firstName", "");
-            }
-
-            if (user.getLastName() != null) {
-                map.put("lastName", user.getLastName());
-            } else {
-                map.put("lastName", "");
-            }
-
-            map.put("role", user.getRole());
-            map.put("approvalStatus", user.getApprovalStatus());
-            map.put("blocked", user.isBlocked());
-            return ResponseEntity.ok(map);
-        } else {
-            Map<String, String> err = new HashMap<>();
-            err.put("message", "Account not found.");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(err);
-        }
+        return userRepository.findByEmail(authentication.getName())
+                .map(user -> {
+                    java.util.Map<String, Object> map = new java.util.HashMap<>();
+                    map.put("id", user.getId());
+                    map.put("email", user.getEmail());
+                    map.put("firstName", user.getFirstName() != null ? user.getFirstName() : "");
+                    map.put("lastName", user.getLastName() != null ? user.getLastName() : "");
+                    map.put("role", user.getRole());
+                    map.put("approvalStatus", user.getApprovalStatus());
+                    map.put("blocked", user.isBlocked());
+                    return ResponseEntity.ok(map);
+                })
+                .orElseGet(() -> ResponseEntity
+                        .status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of("message", "Account not found.")));
     }
 
     public record ProfileUpdateRequest(
@@ -220,18 +195,13 @@ public class AuthController {
             Authentication authentication
     ) {
         if (authentication == null || authentication.getName() == null) {
-            Map<String, String> err = new HashMap<>();
-            err.put("message", "Not authenticated.");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(err);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "Not authenticated."));
         }
 
-        Optional<AppUser> userOpt = userRepository.findByEmail(authentication.getName());
-        if (!userOpt.isPresent()) {
-            throw new org.springframework.web.server.ResponseStatusException(
-                    HttpStatus.NOT_FOUND, "User not found."
-            );
-        }
-        AppUser user = userOpt.get();
+        AppUser user = userRepository.findByEmail(authentication.getName())
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "User not found."
+                ));
 
         if (req.firstName() != null) {
             user.setFirstName(req.firstName().trim());
@@ -241,74 +211,44 @@ public class AuthController {
         }
 
         boolean passwordChanged = false;
-        if (req.newPassword() != null) {
-            if (!req.newPassword().isBlank()) {
-                if (req.currentPassword() == null || req.currentPassword().isBlank()) {
-                    Map<String, String> err = new HashMap<>();
-                    err.put("message", "Current password is required to set a new password.");
-                    return ResponseEntity.badRequest().body(err);
-                }
-                
-                boolean matches = passwordEncoder.matches(req.currentPassword(), user.getPasswordHash());
-                if (!matches) {
-                    Map<String, String> err = new HashMap<>();
-                    err.put("message", "Incorrect current password.");
-                    return ResponseEntity.badRequest().body(err);
-                }
-                
-                if (req.newPassword().length() < 8) {
-                    Map<String, String> err = new HashMap<>();
-                    err.put("message", "New password must be at least 8 characters long.");
-                    return ResponseEntity.badRequest().body(err);
-                }
-                
-                byte[] bytes = req.newPassword().getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                if (bytes.length > 72) {
-                    Map<String, String> err = new HashMap<>();
-                    err.put("message", "New password is too long.");
-                    return ResponseEntity.badRequest().body(err);
-                }
-
-                String encodedPassword = passwordEncoder.encode(req.newPassword());
-                user.setPasswordHash(encodedPassword);
-                passwordChanged = true;
+        if (req.newPassword() != null && !req.newPassword().isBlank()) {
+            if (req.currentPassword() == null || req.currentPassword().isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Current password is required to set a new password."));
             }
+            if (!passwordEncoder.matches(req.currentPassword(), user.getPasswordHash())) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Incorrect current password."));
+            }
+            if (req.newPassword().length() < 8) {
+                return ResponseEntity.badRequest().body(Map.of("message", "New password must be at least 8 characters long."));
+            }
+            if (req.newPassword().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
+                return ResponseEntity.badRequest().body(Map.of("message", "New password is too long."));
+            }
+
+            user.setPasswordHash(passwordEncoder.encode(req.newPassword()));
+            passwordChanged = true;
         }
 
         AppUser saved = userRepository.save(user);
 
+        // Audit log entry (safe fallback so audit failures never break profile updates)
         try {
-            String auditAction = "EDIT";
-            if (passwordChanged) {
-                auditAction = "EDIT";
-            }
-            String query = "INSERT INTO audit_log (table_name, action, record_key, action_by, action_at) VALUES ('app_user', ?, ?, ?, CURRENT_TIMESTAMP)";
-            jdbc.update(query, auditAction, saved.getId().toString(), saved.getEmail());
+            String auditAction = passwordChanged ? "EDIT" : "EDIT";
+            jdbc.update(
+                    "INSERT INTO audit_log (table_name, action, record_key, action_by, action_at) VALUES ('app_user', ?, ?, ?, CURRENT_TIMESTAMP)",
+                    auditAction, saved.getId().toString(), saved.getEmail()
+            );
         } catch (Exception ex) {
+            // Log warning but allow profile update to succeed
             System.err.println("Could not write to audit_log during profile update: " + ex.getMessage());
         }
 
-        Map<String, Object> resp = new HashMap<>();
-        if (passwordChanged) {
-            resp.put("message", "Profile and password updated successfully.");
-        } else {
-            resp.put("message", "Profile updated successfully.");
-        }
+        java.util.Map<String, Object> resp = new java.util.HashMap<>();
+        resp.put("message", passwordChanged ? "Profile and password updated successfully." : "Profile updated successfully.");
         resp.put("id", saved.getId());
         resp.put("email", saved.getEmail());
-        
-        if (saved.getFirstName() != null) {
-            resp.put("firstName", saved.getFirstName());
-        } else {
-            resp.put("firstName", "");
-        }
-        
-        if (saved.getLastName() != null) {
-            resp.put("lastName", saved.getLastName());
-        } else {
-            resp.put("lastName", "");
-        }
-        
+        resp.put("firstName", saved.getFirstName() != null ? saved.getFirstName() : "");
+        resp.put("lastName", saved.getLastName() != null ? saved.getLastName() : "");
         resp.put("role", saved.getRole());
         resp.put("approvalStatus", saved.getApprovalStatus());
 
@@ -321,114 +261,118 @@ public class AuthController {
             HttpServletResponse response,
             Authentication authentication
     ) {
-        SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
+        SecurityContextLogoutHandler logoutHandler =
+                new SecurityContextLogoutHandler();
+
         logoutHandler.logout(request, response, authentication);
 
-        Map<String, String> res = new HashMap<>();
-        res.put("message", "Logout successful.");
-        return ResponseEntity.ok(res);
+        return ResponseEntity.ok(
+                Map.of("message", "Logout successful.")
+        );
     }
 
     public record ResetPasswordRequestDto(String email) {}
     public record ResetPasswordDto(String token, String newPassword) {}
 
+    /**
+     * S1-DEV-04: Password reset request
+     */
     @PostMapping("/reset-password-request")
     public ResponseEntity<?> requestPasswordReset(@RequestBody ResetPasswordRequestDto req) {
         if (req.email() == null || req.email().isBlank()) {
-            Map<String, String> err = new HashMap<>();
-            err.put("message", "Email is required.");
-            return ResponseEntity.badRequest().body(err);
+            return ResponseEntity.badRequest().body(Map.of("message", "Email is required."));
         }
-        
         String email = req.email().trim().toLowerCase(java.util.Locale.ROOT);
-        Optional<AppUser> userOpt = userRepository.findByEmail(email);
+        java.util.Optional<AppUser> userOpt = userRepository.findByEmail(email);
 
         String rawToken = java.util.UUID.randomUUID().toString();
         if (userOpt.isPresent()) {
             AppUser user = userOpt.get();
             String hashed = hashToken(rawToken);
 
-            String insertTokenQuery = "INSERT INTO password_reset_token (user_id, token_hash, expiry_at, used) VALUES (?, ?, CURRENT_TIMESTAMP + INTERVAL '1 hour', FALSE)";
-            jdbc.update(insertTokenQuery, user.getId(), hashed);
+            jdbc.update(
+                    "INSERT INTO password_reset_token (user_id, token_hash, expiry_at, used) " +
+                    "VALUES (?, ?, CURRENT_TIMESTAMP + INTERVAL '1 hour', FALSE)",
+                    user.getId(), hashed
+            );
 
-            String insertAuditQuery = "INSERT INTO audit_log (table_name, action, record_key, action_by, action_at) VALUES ('app_user', 'PASSWORD_RESET_REQUEST', ?, ?, CURRENT_TIMESTAMP)";
-            jdbc.update(insertAuditQuery, user.getId().toString(), email);
+            jdbc.update(
+                    "INSERT INTO audit_log (table_name, action, record_key, action_by, action_at) " +
+                    "VALUES ('app_user', 'PASSWORD_RESET_REQUEST', ?, ?, CURRENT_TIMESTAMP)",
+                    user.getId().toString(), email
+            );
         }
 
-        Map<String, String> resp = new HashMap<>();
-        resp.put("message", "If an account exists for this email, a password reset link has been dispatched.");
-        resp.put("token", rawToken);
-
-        return ResponseEntity.ok(resp);
+        return ResponseEntity.ok(Map.of(
+                "message", "If an account exists for this email, a password reset link has been dispatched.",
+                "token", rawToken
+        ));
     }
 
+    /**
+     * S1-DEV-04: Reset password with token
+     */
     @PostMapping("/reset-password")
     public ResponseEntity<?> resetPassword(@RequestBody ResetPasswordDto req) {
         if (req.token() == null || req.token().isBlank()) {
-            Map<String, String> err = new HashMap<>();
-            err.put("message", "Reset token is required.");
-            return ResponseEntity.badRequest().body(err);
+            return ResponseEntity.badRequest().body(Map.of("message", "Reset token is required."));
         }
         if (req.newPassword() == null || req.newPassword().length() < 8) {
-            Map<String, String> err = new HashMap<>();
-            err.put("message", "Password must be at least 8 characters long.");
-            return ResponseEntity.badRequest().body(err);
+            return ResponseEntity.badRequest().body(Map.of("message", "Password must be at least 8 characters long."));
         }
         if (req.newPassword().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
-            Map<String, String> err = new HashMap<>();
-            err.put("message", "Password is too long.");
-            return ResponseEntity.badRequest().body(err);
+            return ResponseEntity.badRequest().body(Map.of("message", "Password is too long."));
         }
 
         String hashedToken = hashToken(req.token().trim());
-        String selectQuery = "SELECT id, user_id, expiry_at, used FROM password_reset_token WHERE token_hash = ? AND used = FALSE AND expiry_at > CURRENT_TIMESTAMP";
-        List> rows = jdbc.queryForList(selectQuery, hashedToken);
+        java.util.List<java.util.Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT id, user_id, expiry_at, used FROM password_reset_token " +
+                "WHERE token_hash = ? AND used = FALSE AND expiry_at > CURRENT_TIMESTAMP",
+                hashedToken
+        );
 
-        if (rows.size() == 0) {
-            Map<String, String> err = new HashMap<>();
-            err.put("message", "Link expired or already used. Request a new secure link.");
-            return ResponseEntity.badRequest().body(err);
+        if (rows.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "message", "Link expired or already used. Request a new secure link."
+            ));
         }
 
-        Map<String, Object> tokenRow = rows.get(0);
+        java.util.Map<String, Object> tokenRow = rows.get(0);
         java.util.UUID tokenId = (java.util.UUID) tokenRow.get("id");
         java.util.UUID userId = (java.util.UUID) tokenRow.get("user_id");
 
-        Optional<AppUser> userOpt = userRepository.findById(userId);
-        if (!userOpt.isPresent()) {
-            throw new org.springframework.web.server.ResponseStatusException(
-                    HttpStatus.NOT_FOUND, "User account not found."
-            );
-        }
-        AppUser user = userOpt.get();
+        AppUser user = userRepository.findById(userId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "User account not found."
+                ));
 
+        // Update password
         user.setPasswordHash(passwordEncoder.encode(req.newPassword()));
         userRepository.save(user);
 
-        String updateTokenQuery = "UPDATE password_reset_token SET used = TRUE WHERE id = ?";
-        jdbc.update(updateTokenQuery, tokenId);
+        // Mark token used (expired/reused prevention S1-TST-02)
+        jdbc.update("UPDATE password_reset_token SET used = TRUE WHERE id = ?", tokenId);
 
-        String insertAuditQuery = "INSERT INTO audit_log (table_name, action, record_key, action_by, action_at) VALUES ('app_user', 'PASSWORD_RESET_SUCCESS', ?, ?, CURRENT_TIMESTAMP)";
-        jdbc.update(insertAuditQuery, userId.toString(), user.getEmail());
+        // Audit log
+        jdbc.update(
+                "INSERT INTO audit_log (table_name, action, record_key, action_by, action_at) " +
+                "VALUES ('app_user', 'PASSWORD_RESET_SUCCESS', ?, ?, CURRENT_TIMESTAMP)",
+                userId.toString(), user.getEmail()
+        );
 
-        Map<String, String> resp = new HashMap<>();
-        resp.put("message", "Password successfully updated. You can now sign in with your new password.");
-        return ResponseEntity.ok(resp);
+        return ResponseEntity.ok(Map.of(
+                "message", "Password successfully updated. You can now sign in with your new password."
+        ));
     }
 
     private String hashToken(String token) {
         try {
             java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
-            byte[] bytes = token.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            byte[] hash = md.digest(bytes);
-            
+            byte[] hash = md.digest(token.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             StringBuilder hexString = new StringBuilder();
-            for (int i = 0; i < hash.length; i++) {
-                byte b = hash[i];
+            for (byte b : hash) {
                 String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) {
-                    hexString.append('0');
-                }
+                if (hex.length() == 1) hexString.append('0');
                 hexString.append(hex);
             }
             return hexString.toString();
