@@ -8,12 +8,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 @RestController
@@ -67,33 +64,20 @@ public class UserController {
     ) {}
 
     private AppUser getCaller(Authentication auth) {
-        if (auth == null) {
+        if (auth == null || auth.getName() == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Not authenticated.");
         }
-        if (auth.getName() == null || auth.getName().isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Not authenticated.");
-        }
+        AppUser caller = userRepository.findByEmail(auth.getName())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Caller account not found."));
 
-        Optional<AppUser> callerOpt = userRepository.findByEmail(auth.getName());
-        if (!callerOpt.isPresent()) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Caller account not found.");
-        }
-        AppUser caller = callerOpt.get();
-
-        if (caller.getRole() != null && caller.getRole().equalsIgnoreCase("User")) {
+        if ("User".equalsIgnoreCase(caller.getRole())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied. Administrator privileges required.");
         }
         return caller;
     }
 
     private UserDto toDto(AppUser user, long activeSuperadmins) {
-        boolean isProtected = false;
-        if (user.getRole() != null && user.getRole().equalsIgnoreCase("Superadmin")) {
-            if (activeSuperadmins <= 1) {
-                isProtected = true;
-            }
-        }
-
+        boolean isProtected = "Superadmin".equalsIgnoreCase(user.getRole()) && activeSuperadmins <= 1;
         return new UserDto(
                 user.getId(),
                 user.getEmail(),
@@ -107,6 +91,8 @@ public class UserController {
 
     /**
      * S1-DEV-05: List users
+     * - Admins see regular Users only (Superadmin accounts are completely hidden).
+     * - Superadmins see all accounts.
      */
     @GetMapping
     public List<UserDto> listUsers(Authentication auth) {
@@ -114,19 +100,16 @@ public class UserController {
         long activeSuperadmins = userRepository.countByRoleAndBlockedFalse("Superadmin");
 
         List<AppUser> list;
-        if (caller.getRole() != null && caller.getRole().equalsIgnoreCase("Superadmin")) {
+        if ("Superadmin".equalsIgnoreCase(caller.getRole())) {
             list = userRepository.findAllByOrderByCreatedAtDesc();
         } else {
+            // Admin only sees regular users
             list = userRepository.findByRoleNotOrderByCreatedAtDesc("Superadmin");
         }
 
-        List<UserDto> dtoList = new ArrayList<>();
-        for (AppUser u : list) {
-            UserDto dto = toDto(u, activeSuperadmins);
-            dtoList.add(dto);
-        }
-
-        return dtoList;
+        return list.stream()
+                .map(u -> toDto(u, activeSuperadmins))
+                .toList();
     }
 
     /**
@@ -136,47 +119,33 @@ public class UserController {
     public ResponseEntity<?> addUser(@RequestBody CreateUserRequest request, Authentication auth) {
         AppUser caller = getCaller(auth);
 
-        if (request.email() == null || request.email().trim().length() == 0) {
-            Map<String, String> errMap = new HashMap<>();
-            errMap.put("message", "Email is required.");
-            return ResponseEntity.badRequest().body(errMap);
+        if (request.email() == null || request.email().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Email is required."));
         }
 
         String email = request.email().trim().toLowerCase(Locale.ROOT);
-        String emailRegex = "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$";
-        if (!email.matches(emailRegex)) {
-            Map<String, String> errMap = new HashMap<>();
-            errMap.put("message", "Please enter a valid email.");
-            return ResponseEntity.badRequest().body(errMap);
+        if (!email.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Please enter a valid email."));
         }
 
-        boolean exists = userRepository.existsByEmail(email);
-        if (exists) {
-            Map<String, String> errMap = new HashMap<>();
-            errMap.put("message", "An account with this email already exists.");
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(errMap);
+        if (userRepository.existsByEmail(email)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("message", "An account with this email already exists."));
         }
 
-        String rawPassword = "Temporary123!";
-        if (request.password() != null && !request.password().trim().isEmpty()) {
-            rawPassword = request.password();
-        }
+        String rawPassword = (request.password() != null && !request.password().isBlank())
+                ? request.password()
+                : "Temporary123!";
 
         String role = "User";
-        if (caller.getRole() != null && caller.getRole().equalsIgnoreCase("Superadmin")) {
-            if (request.role() != null) {
-                String r = request.role().trim();
-                if (r.equalsIgnoreCase("Admin")) {
-                    role = "Admin";
-                } else if (r.equalsIgnoreCase("Superadmin")) {
-                    role = "Superadmin";
-                }
-            }
+        if ("Superadmin".equalsIgnoreCase(caller.getRole()) && request.role() != null) {
+            String r = request.role().trim();
+            if ("Admin".equalsIgnoreCase(r)) role = "Admin";
+            else if ("Superadmin".equalsIgnoreCase(r)) role = "Superadmin";
         }
 
-        String encodedPassword = passwordEncoder.encode(rawPassword);
-        AppUser newUser = new AppUser(email, encodedPassword, role);
-        newUser.setApprovalStatus("APPROVED");
+        AppUser newUser = new AppUser(email, passwordEncoder.encode(rawPassword), role);
+        newUser.setApprovalStatus("APPROVED"); // Directly added by administrator is approved
 
         AppUser saved = userRepository.save(newUser);
         long activeSuperadmins = userRepository.countByRoleAndBlockedFalse("Superadmin");
@@ -194,26 +163,19 @@ public class UserController {
             Authentication auth
     ) {
         AppUser caller = getCaller(auth);
-        Optional<AppUser> targetOpt = userRepository.findById(id);
-        if (!targetOpt.isPresent()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found.");
-        }
-        AppUser target = targetOpt.get();
+        AppUser target = userRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found."));
 
-        boolean isCallerSuperadmin = caller.getRole() != null && caller.getRole().equalsIgnoreCase("Superadmin");
-        boolean isTargetSuperadmin = target.getRole() != null && target.getRole().equalsIgnoreCase("Superadmin");
-
-        if (!isCallerSuperadmin && isTargetSuperadmin) {
+        if (!"Superadmin".equalsIgnoreCase(caller.getRole()) && "Superadmin".equalsIgnoreCase(target.getRole())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot edit Superadmin accounts.");
         }
 
-        if (request.email() != null && request.email().trim().length() > 0) {
+        if (request.email() != null && !request.email().isBlank()) {
             String newEmail = request.email().trim().toLowerCase(Locale.ROOT);
             if (!newEmail.equals(target.getEmail())) {
                 if (userRepository.existsByEmail(newEmail)) {
-                    Map<String, String> errMap = new HashMap<>();
-                    errMap.put("message", "An account with this email already exists.");
-                    return ResponseEntity.status(HttpStatus.CONFLICT).body(errMap);
+                    return ResponseEntity.status(HttpStatus.CONFLICT)
+                            .body(Map.of("message", "An account with this email already exists."));
                 }
                 target.setEmail(newEmail);
             }
@@ -226,6 +188,8 @@ public class UserController {
 
     /**
      * S1-DEV-05 & S1-DEV-06: Block or Unblock user
+     * - Last Superadmin cannot be blocked.
+     * - Admin cannot block Superadmins.
      */
     @PatchMapping("/{id}/block")
     public ResponseEntity<?> toggleBlock(
@@ -234,25 +198,20 @@ public class UserController {
             Authentication auth
     ) {
         AppUser caller = getCaller(auth);
-        Optional<AppUser> targetOpt = userRepository.findById(id);
-        if (!targetOpt.isPresent()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found.");
-        }
-        AppUser target = targetOpt.get();
+        AppUser target = userRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found."));
 
-        boolean isCallerSuperadmin = caller.getRole() != null && caller.getRole().equalsIgnoreCase("Superadmin");
-        boolean isTargetSuperadmin = target.getRole() != null && target.getRole().equalsIgnoreCase("Superadmin");
-
-        if (!isCallerSuperadmin && isTargetSuperadmin) {
+        if (!"Superadmin".equalsIgnoreCase(caller.getRole()) && "Superadmin".equalsIgnoreCase(target.getRole())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot modify Superadmin accounts.");
         }
 
-        if (request.blocked() && isTargetSuperadmin) {
+        // Last Superadmin Guard
+        if (request.blocked() && "Superadmin".equalsIgnoreCase(target.getRole())) {
             long activeSuperadmins = userRepository.countByRoleAndBlockedFalse("Superadmin");
             if (activeSuperadmins <= 1) {
-                Map<String, String> errMap = new HashMap<>();
-                errMap.put("message", "Role safeguards active: The last remaining Superadmin cannot be disabled or blocked.");
-                return ResponseEntity.badRequest().body(errMap);
+                return ResponseEntity.badRequest().body(Map.of(
+                        "message", "Role safeguards active: The last remaining Superadmin cannot be disabled or blocked."
+                ));
             }
         }
 
@@ -272,15 +231,12 @@ public class UserController {
             Authentication auth
     ) {
         AppUser caller = getCaller(auth);
-        if (caller.getRole() == null || !caller.getRole().equalsIgnoreCase("Superadmin")) {
+        if (!"Superadmin".equalsIgnoreCase(caller.getRole())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only Superadmins can approve accounts.");
         }
 
-        Optional<AppUser> targetOpt = userRepository.findById(id);
-        if (!targetOpt.isPresent()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found.");
-        }
-        AppUser target = targetOpt.get();
+        AppUser target = userRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found."));
 
         target.setApprovalStatus("APPROVED");
         AppUser saved = userRepository.save(target);
@@ -291,6 +247,7 @@ public class UserController {
 
     /**
      * S1-DEV-06: Superadmin designates user role (Admin / User)
+     * - Last Superadmin cannot be demoted.
      */
     @PatchMapping("/{id}/role")
     public ResponseEntity<?> changeRole(
@@ -299,37 +256,30 @@ public class UserController {
             Authentication auth
     ) {
         AppUser caller = getCaller(auth);
-        if (caller.getRole() == null || !caller.getRole().equalsIgnoreCase("Superadmin")) {
+        if (!"Superadmin".equalsIgnoreCase(caller.getRole())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only Superadmins can designate roles.");
         }
 
-        Optional<AppUser> targetOpt = userRepository.findById(id);
-        if (!targetOpt.isPresent()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found.");
-        }
-        AppUser target = targetOpt.get();
+        AppUser target = userRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found."));
 
         String requestedRole = request.role();
         if (requestedRole == null) {
-            Map<String, String> errMap = new HashMap<>();
-            errMap.put("message", "Role is required.");
-            return ResponseEntity.badRequest().body(errMap);
+            return ResponseEntity.badRequest().body(Map.of("message", "Role is required."));
         }
 
-        String validRole = "User";
-        if (requestedRole.equalsIgnoreCase("Superadmin")) {
-            validRole = "Superadmin";
-        } else if (requestedRole.equalsIgnoreCase("Admin")) {
-            validRole = "Admin";
-        }
+        String validRole;
+        if ("Superadmin".equalsIgnoreCase(requestedRole)) validRole = "Superadmin";
+        else if ("Admin".equalsIgnoreCase(requestedRole)) validRole = "Admin";
+        else validRole = "User";
 
-        boolean isTargetSuperadmin = target.getRole() != null && target.getRole().equalsIgnoreCase("Superadmin");
-        if (isTargetSuperadmin && !validRole.equalsIgnoreCase("Superadmin")) {
+        // Last Superadmin Guard: prevent demoting the last superadmin
+        if ("Superadmin".equalsIgnoreCase(target.getRole()) && !"Superadmin".equalsIgnoreCase(validRole)) {
             long activeSuperadmins = userRepository.countByRoleAndBlockedFalse("Superadmin");
             if (activeSuperadmins <= 1) {
-                Map<String, String> errMap = new HashMap<>();
-                errMap.put("message", "Role safeguards active: The last remaining Superadmin cannot be demoted.");
-                return ResponseEntity.badRequest().body(errMap);
+                return ResponseEntity.badRequest().body(Map.of(
+                        "message", "Role safeguards active: The last remaining Superadmin cannot be demoted."
+                ));
             }
         }
 
@@ -342,6 +292,7 @@ public class UserController {
 
     /**
      * Superadmin deletes a user account
+     * - Last Superadmin cannot be deleted.
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteUser(
@@ -349,31 +300,25 @@ public class UserController {
             Authentication auth
     ) {
         AppUser caller = getCaller(auth);
-        if (caller.getRole() == null || !caller.getRole().equalsIgnoreCase("Superadmin")) {
+        if (!"Superadmin".equalsIgnoreCase(caller.getRole())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only Superadmins can delete accounts.");
         }
 
-        Optional<AppUser> targetOpt = userRepository.findById(id);
-        if (!targetOpt.isPresent()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found.");
-        }
-        AppUser target = targetOpt.get();
+        AppUser target = userRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found."));
 
-        boolean isTargetSuperadmin = target.getRole() != null && target.getRole().equalsIgnoreCase("Superadmin");
-        if (isTargetSuperadmin) {
+        // Last Superadmin Guard
+        if ("Superadmin".equalsIgnoreCase(target.getRole())) {
             long activeSuperadmins = userRepository.countByRoleAndBlockedFalse("Superadmin");
             if (activeSuperadmins <= 1) {
-                Map<String, String> errMap = new HashMap<>();
-                errMap.put("message", "Role safeguards active: The last remaining Superadmin cannot be deleted.");
-                return ResponseEntity.badRequest().body(errMap);
+                return ResponseEntity.badRequest().body(Map.of(
+                        "message", "Role safeguards active: The last remaining Superadmin cannot be deleted."
+                ));
             }
         }
 
         userRepository.delete(target);
-
-        Map<String, String> response = new HashMap<>();
-        response.put("message", "User deleted successfully.");
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(Map.of("message", "User deleted successfully."));
     }
 
     /**
@@ -385,19 +330,19 @@ public class UserController {
             Authentication auth
     ) {
         getCaller(auth);
-        Optional<AppUser> targetOpt = userRepository.findById(id);
-        if (!targetOpt.isPresent()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found.");
-        }
+        userRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found."));
 
-        String sql = "SELECT permission_name FROM user_permission WHERE user_id = ? AND granted = TRUE AND deleted_at IS NULL";
-        List<String> rights = jdbc.query(sql, (rs, rowNum) -> rs.getString("permission_name"), id);
+        List<String> rights = jdbc.query(
+                "SELECT permission_name FROM user_permission WHERE user_id = ? AND granted = TRUE AND deleted_at IS NULL",
+                (rs, rowNum) -> rs.getString("permission_name"),
+                id
+        );
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("userId", id);
-        result.put("rights", rights);
-
-        return ResponseEntity.ok(result);
+        return ResponseEntity.ok(Map.of(
+                "userId", id,
+                "rights", rights
+        ));
     }
 
     /**
@@ -410,69 +355,58 @@ public class UserController {
             Authentication auth
     ) {
         AppUser caller = getCaller(auth);
-        Optional<AppUser> targetOpt = userRepository.findById(id);
-        if (!targetOpt.isPresent()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found.");
-        }
-        AppUser target = targetOpt.get();
+        AppUser target = userRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found."));
 
-        boolean isCallerSuperadmin = caller.getRole() != null && caller.getRole().equalsIgnoreCase("Superadmin");
-        boolean isTargetSuperadmin = target.getRole() != null && target.getRole().equalsIgnoreCase("Superadmin");
-
-        if (!isCallerSuperadmin && isTargetSuperadmin) {
+        if (!"Superadmin".equalsIgnoreCase(caller.getRole()) && "Superadmin".equalsIgnoreCase(target.getRole())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot modify Superadmin permissions.");
         }
 
-        List<String> newRights = new ArrayList<>();
-        if (request.rights() != null) {
-            newRights = request.rights();
-        }
+        List<String> newRights = request.rights() != null ? request.rights() : List.of();
 
-        String fetchSql = "SELECT permission_name FROM user_permission WHERE user_id = ? AND granted = TRUE AND deleted_at IS NULL";
-        List<String> oldRights = jdbc.query(fetchSql, (rs, rowNum) -> rs.getString("permission_name"), id);
+        // 1. Fetch current rights for audit trail
+        List<String> oldRights = jdbc.query(
+                "SELECT permission_name FROM user_permission WHERE user_id = ? AND granted = TRUE AND deleted_at IS NULL",
+                (rs, rowNum) -> rs.getString("permission_name"),
+                id
+        );
 
-        String deleteSql = "DELETE FROM user_permission WHERE user_id = ?";
-        jdbc.update(deleteSql, id);
+        // 2. Remove previous rights
+        jdbc.update("DELETE FROM user_permission WHERE user_id = ?", id);
 
-        String insertSql = "INSERT INTO user_permission (user_id, permission_name, granted) VALUES (?, ?, TRUE)";
-        for (int i = 0; i < newRights.size(); i++) {
-            String r = newRights.get(i);
-            if (r != null && !r.trim().isEmpty()) {
-                jdbc.update(insertSql, id, r.trim());
+        // 3. Insert new rights
+        for (String r : newRights) {
+            if (r != null && !r.isBlank()) {
+                jdbc.update(
+                        "INSERT INTO user_permission (user_id, permission_name, granted) VALUES (?, ?, TRUE)",
+                        id, r.trim()
+                );
             }
         }
 
+        // 4. Log change in audit_log (S1-DEV-07 & S1-DBA-06)
         String oldJson = "{\"rights\":" + toJsonArray(oldRights) + "}";
         String newJson = "{\"rights\":" + toJsonArray(newRights) + "}";
 
-        String auditSql = "INSERT INTO audit_log (table_name, action, record_key, old_values, new_values, action_by, action_at) " +
-                "VALUES ('user_permission', 'UPDATE', ?, ?::jsonb, ?::jsonb, ?, CURRENT_TIMESTAMP)";
+        jdbc.update(
+                "INSERT INTO audit_log (table_name, action, record_key, old_values, new_values, action_by, action_at) " +
+                "VALUES ('user_permission', 'UPDATE', ?, ?::jsonb, ?::jsonb, ?, CURRENT_TIMESTAMP)",
+                id.toString(), oldJson, newJson, caller.getEmail()
+        );
 
-        jdbc.update(auditSql, id.toString(), oldJson, newJson, caller.getEmail());
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("message", "User permissions updated successfully.");
-        response.put("userId", id);
-        response.put("rights", newRights);
-
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(Map.of(
+                "message", "User permissions updated successfully.",
+                "userId", id,
+                "rights", newRights
+        ));
     }
 
     private String toJsonArray(List<String> items) {
-        if (items == null || items.size() == 0) {
-            return "[]";
-        }
-        StringBuilder sb = new StringBuilder();
-        sb.append("[");
+        if (items == null || items.isEmpty()) return "[]";
+        StringBuilder sb = new StringBuilder("[");
         for (int i = 0; i < items.size(); i++) {
-            if (i > 0) {
-                sb.append(",");
-            }
-            String item = items.get(i);
-            if (item != null) {
-                item = item.replace("\"", "\\\"");
-            }
-            sb.append("\"").append(item).append("\"");
+            if (i > 0) sb.append(",");
+            sb.append("\"").append(items.get(i).replace("\"", "\\\"")).append("\"");
         }
         sb.append("]");
         return sb.toString();
