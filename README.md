@@ -22,3 +22,8 @@ the project is a mono-repository for a Full Stack website
 - Backend: Java + Spring Boot
 - Database: Supabase PostgreSQL
 - Authentication: Spring Security + BCrypt + HTTP Sessions
+
+
+# Hope, Inc. ERP 
+
+Hope, Inc. ERP is a small business system that keeps customers, products, employees and sales in one place. “ERP” stands for Enterprise Resource Planning: instead of separate spreadsheets for each department, every module reads and writes the same database. 
