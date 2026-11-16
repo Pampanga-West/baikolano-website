@@ -4,6 +4,10 @@
 
 An intuitive, modern enterprise resource planning (ERP) platform designed to streamline business workflows across human resources, sales, customer relationships, and product management.
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-baikolano--website--sandy.vercel.app-2ea44f?style=for-the-badge&logo=vercel)](https://baikolano-website-sandy.vercel.app)
+
+🔗 **Website URL:** [https://baikolano-website-sandy.vercel.app](https://baikolano-website-sandy.vercel.app)
+
 ---
 
 ### 👥 Team Members & Roles
