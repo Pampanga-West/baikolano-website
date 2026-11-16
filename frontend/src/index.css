@@ -762,3 +762,235 @@ td, .entity-table td { border-color: #edf1f5; }
   .sidebar-open .side-profile { width: 221px; border-radius: 12px; }
   .sidebar-open .side-profile div, .sidebar-open .side-profile > svg { opacity: 1; }
 }
+
+/* ==========================================================================
+   Dark Theme Overrides & Color Mappings
+   ========================================================================== */
+[data-theme="dark"], .dark {
+  --canvas: #0b1120;
+  --surface: #131c2e;
+  --white: #131c2e;
+  --navy: #070b14;
+  --navy-soft: #0f172a;
+  --brand: #3b82f6;
+  --brand-dark: #60a5fa;
+  --brand-soft: rgba(59, 130, 246, 0.16);
+  --ink: #f8fafc;
+  --muted: #94a3b8;
+  --border: #243049;
+  --border-cool: #1e293b;
+  --active-bg: rgba(34, 197, 94, 0.16);
+  --active-text: #4ade80;
+  --danger-bg: rgba(239, 68, 68, 0.16);
+  --danger-text: #f87171;
+  --pending-bg: rgba(245, 158, 11, 0.16);
+  --pending-text: #fbbf24;
+  --sage: #142e20;
+  --sage-text: #86efac;
+  --slate: #1e293b;
+  --slate-text: #cbd5e1;
+  --gold: #382c09;
+  --gold-text: #fde047;
+  --shadow: 0 18px 46px rgba(0, 0, 0, 0.5);
+  --shadow-soft: 0 7px 22px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
+[data-theme="dark"] body {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+[data-theme="dark"] .workspace,
+[data-theme="dark"] .app-main {
+  background: var(--canvas);
+}
+
+[data-theme="dark"] .app-header {
+  border-color: var(--border);
+  background: rgba(19, 28, 46, 0.88);
+}
+
+[data-theme="dark"] .header-search,
+[data-theme="dark"] .role-switcher {
+  border-color: var(--border);
+  background: var(--canvas);
+  color: var(--muted);
+}
+
+[data-theme="dark"] .role-switcher button.selected {
+  background: var(--surface);
+  color: var(--brand);
+}
+
+[data-theme="dark"] .role-display {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .stat-card,
+[data-theme="dark"] .panel,
+[data-theme="dark"] .table-card,
+[data-theme="dark"] .entity-table-shell,
+[data-theme="dark"] .report-sheet,
+[data-theme="dark"] .audit-ledger {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+[data-theme="dark"] table {
+  background: var(--surface);
+}
+
+[data-theme="dark"] th,
+[data-theme="dark"] .entity-table th {
+  background: #0d1524;
+  color: var(--muted);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] td,
+[data-theme="dark"] .entity-table td {
+  border-color: var(--border);
+  color: #cbd5e1;
+}
+
+[data-theme="dark"] .entity-table tbody tr:hover:not(.inactive-row) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="dark"] .table-tools,
+[data-theme="dark"] .table-footer,
+[data-theme="dark"] .entity-footer,
+[data-theme="dark"] .report-foot {
+  border-color: var(--border);
+  background: #0f1828;
+}
+
+[data-theme="dark"] .quick-action {
+  border-color: var(--border);
+  background: #10192a;
+  color: var(--ink);
+}
+
+[data-theme="dark"] .quick-action:hover {
+  border-color: var(--brand);
+  background: #17243c;
+}
+
+[data-theme="dark"] .input-wrap input,
+[data-theme="dark"] .record-form input,
+[data-theme="dark"] .record-form select,
+[data-theme="dark"] .payment-form input,
+[data-theme="dark"] .report-filters input,
+[data-theme="dark"] .report-filters select,
+[data-theme="dark"] .audit-filters input,
+[data-theme="dark"] .audit-filters select,
+[data-theme="dark"] .entity-search,
+[data-theme="dark"] .table-search,
+[data-theme="dark"] .money-input {
+  background: var(--canvas) !important;
+  border-color: var(--border) !important;
+  color: var(--ink) !important;
+}
+
+[data-theme="dark"] .entity-search input,
+[data-theme="dark"] .table-search input {
+  color: var(--ink);
+}
+
+[data-theme="dark"] .auth-modal,
+[data-theme="dark"] .module-modal,
+[data-theme="dark"] .rights-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+[data-theme="dark"] .module-modal-footer,
+[data-theme="dark"] .rights-footer {
+  background: #0f1828;
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .filter-tabs {
+  background: var(--canvas);
+}
+
+[data-theme="dark"] .filter-tabs button.selected {
+  background: var(--surface);
+  color: var(--brand);
+}
+
+[data-theme="dark"] .settings-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+[data-theme="dark"] .settings-form input,
+[data-theme="dark"] .settings-form select,
+[data-theme="dark"] .expiry-field input {
+  background: var(--canvas);
+  border-color: var(--border);
+  color: var(--ink);
+}
+
+[data-theme="dark"] .settings-savebar {
+  background: rgba(19, 28, 46, 0.95);
+  border: 1px solid var(--border);
+}
+
+[data-theme="dark"] .btn-secondary {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .btn-secondary:hover {
+  background: #1c2940;
+}
+
+[data-theme="dark"] .row-actions button {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .audit-entry {
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .audit-entry:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="dark"] .audit-entry p {
+  color: #cbd5e1;
+}
+
+[data-theme="dark"] .audit-search > div {
+  background: var(--canvas);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .audit-search > div input {
+  background: transparent !important;
+  color: var(--ink) !important;
+}
+
+[data-theme="dark"] .record-name,
+[data-theme="dark"] .price-value,
+[data-theme="dark"] .salary-value {
+  color: var(--ink);
+}
+
+[data-theme="dark"] .right-check {
+  background: var(--surface);
+  border-color: var(--border);
+  color: #cbd5e1;
+}
+
+[data-theme="dark"] .right-check:has(input:checked) {
+  background: rgba(59, 130, 246, 0.14);
+  border-color: var(--brand);
+  color: var(--ink);
+}
+

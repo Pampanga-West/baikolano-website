@@ -4,6 +4,7 @@ import Icon from "../components/Icon"
 import Logo from "../components/Logo"
 import RightsModal from "../components/RightsModal"
 import { useAuth } from "../contexts/AuthContext"
+import { useTheme } from "../contexts/ThemeContext"
 import { roleData } from "../lib/data"
 import { normalizeRole, type AppView, type IconName, type ManagedUser, type Role } from "../lib/types"
 import DashboardPage from "../pages/DashboardPage"
@@ -188,6 +189,8 @@ function AppHeader({
   onProfile: () => void
   userInitials: string
 }) {
+  const { theme, toggleTheme } = useTheme()
+
   return (
     <header className="app-header">
       <button className="icon-button mobile-menu" onClick={onMenu}>
@@ -214,6 +217,19 @@ function AppHeader({
         <span style={{ fontSize: "11px", color: "var(--muted)", fontWeight: 600 }}>Role</span>
         <Badge kind={role.toLowerCase()}>{role.toUpperCase()}</Badge>
       </div>
+      <button
+        type="button"
+        className="icon-button"
+        onClick={toggleTheme}
+        title={`Switch to ${theme === "dark" ? "Light" : "Dark"} Mode`}
+        aria-label={`Switch to ${theme === "dark" ? "Light" : "Dark"} Mode`}
+        style={{
+          cursor: "pointer",
+          color: "var(--muted)",
+        }}
+      >
+        <Icon name={theme === "dark" ? "sun" : "moon"} size={17} />
+      </button>
       <div
         className="header-avatar"
         onClick={onProfile}

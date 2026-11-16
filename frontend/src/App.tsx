@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import AuthModal from "./components/AuthModal"
 import { AuthProvider, useAuth } from "./contexts/AuthContext"
+import { ThemeProvider } from "./contexts/ThemeContext"
 import WorkspaceLayout from "./layouts/WorkspaceLayout"
 import type { AuthView } from "./lib/types"
 import LandingPage from "./pages/LandingPage"
@@ -56,8 +57,10 @@ function MainApp() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <MainApp />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <MainApp />
+      </AuthProvider>
+    </ThemeProvider>
   )
 }
