@@ -3,11 +3,11 @@
 # Welcome to Baikolano Empire, here are our members:
 |Name|Role|
 |-|-|
-|Joe Andre Roja|Scrum Master|
+|Joe Andre Roja|DB Admin|
 |Redge Rainier Sarmiento|Master Tester|
 |Eures Nivrem Tinoco|BackEnd|
 |Phil Emmanuel Hitalia|Frontend|
-|Marc Miguel Ramirez|DB Admin|
+|Marc Miguel Ramirez|Scrum Master|
 
 
 </div>
