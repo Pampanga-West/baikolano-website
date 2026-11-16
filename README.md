@@ -6,7 +6,7 @@
 |Joe Andre Roja|Scrum Master|
 |Redge Rainier Sarmiento|Tester|
 |Eures Nivrem Tinoco|BackEnd|
-|Phil Emmanuel Hitalia|UI/UX|
+|Phil Emmanuel Hitalia|Frontend|
 |Marc Miguel Ramirez|DB Admin|
 
 
