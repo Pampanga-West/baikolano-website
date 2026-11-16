@@ -72,6 +72,7 @@ const iconPaths: Record<IconName, ReactNode> = {
       <path d="M4 6h16M4 12h16M4 18h16" />
     </>
   ),
+  moon: <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />,
   package: (
     <>
       <path d="m12 3 9 5-9 5-9-5 9-5Z" />
@@ -100,6 +101,12 @@ const iconPaths: Record<IconName, ReactNode> = {
   sparkle: (
     <>
       <path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3ZM5 15l.8 2.2L8 18l-2.2.8L5 21l-.8-2.2L2 18l2.2-.8L5 15ZM19 14l.6 1.4L21 16l-1.4.6L19 18l-.6-1.4L17 16l1.4-.6L19 14Z" />
+    </>
+  ),
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
     </>
   ),
   users: (

@@ -25,6 +25,7 @@ export type IconName =
   | "logout"
   | "mail"
   | "menu"
+  | "moon"
   | "package"
   | "plus"
   | "report"
@@ -32,6 +33,7 @@ export type IconName =
   | "settings"
   | "shield"
   | "sparkle"
+  | "sun"
   | "users"
   | "x"
 

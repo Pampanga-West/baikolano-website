@@ -4,6 +4,7 @@ import Button from "../components/Button"
 import Field from "../components/Field"
 import Icon from "../components/Icon"
 import { useAuth } from "../contexts/AuthContext"
+import { useTheme } from "../contexts/ThemeContext"
 import type { Role } from "../lib/types"
 
 export default function ProfilePage({ role }: { role: Role }) {
@@ -31,6 +32,18 @@ export default function ProfilePage({ role }: { role: Role }) {
   const [passwordLoading, setPasswordLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+
+  // Preferences & Theme state
+  const { theme, setTheme } = useTheme()
+  const [themeNotice, setThemeNotice] = useState<string | null>(null)
+
+  const handleSelectTheme = (newTheme: "light" | "dark") => {
+    setTheme(newTheme)
+    setThemeNotice(`Theme set to ${newTheme === "dark" ? "Dark Mode" : "Light Mode"}. Your preference has been saved.`)
+    setTimeout(() => {
+      setThemeNotice(null)
+    }, 4000)
+  }
 
   // 1. Dedicated Handler for Personal Information Update
   const handleUpdatePersonalInfo = async (e: FormEvent) => {
@@ -260,7 +273,187 @@ export default function ProfilePage({ role }: { role: Role }) {
         </div>
       </form>
 
-      {/* Section 2: Change Password Form */}
+      {/* Section 2: Preferences & Appearance */}
+      <section
+        aria-label="Preferences and Appearance"
+        style={{
+          backgroundColor: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: "12px",
+          padding: "24px",
+          marginBottom: "24px",
+        }}
+      >
+        <div style={{ borderBottom: "1px solid var(--border)", paddingBottom: "12px", marginBottom: "20px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
+            <div>
+              <h3 style={{ fontSize: "16px", fontWeight: 600, margin: "0 0 4px 0" }}>Preferences & Appearance</h3>
+              <p style={{ fontSize: "13px", color: "var(--muted)", margin: 0 }}>
+                Choose your preferred interface theme and visual display settings.
+              </p>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "12px", color: "var(--muted)" }}>Active:</span>
+              <Badge kind={theme === "dark" ? "admin" : "superadmin"}>
+                {theme === "dark" ? "Dark Mode" : "Light Mode"}
+              </Badge>
+            </div>
+          </div>
+        </div>
+
+        {themeNotice && (
+          <div
+            role="status"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "10px 14px",
+              borderRadius: "8px",
+              backgroundColor: "rgba(37, 99, 235, 0.1)",
+              border: "1px solid rgba(37, 99, 235, 0.25)",
+              color: "var(--brand)",
+              marginBottom: "18px",
+              fontSize: "13px",
+            }}
+          >
+            <Icon name="check" size={15} />
+            <span>{themeNotice}</span>
+          </div>
+        )}
+
+        <div>
+          <div style={{ fontSize: "12px", fontWeight: 700, marginBottom: "12px", color: "var(--ink)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Select Theme
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              gap: "16px",
+            }}
+          >
+            {/* Light Mode Option */}
+            <button
+              type="button"
+              onClick={() => handleSelectTheme("light")}
+              aria-pressed={theme === "light"}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                padding: "20px",
+                borderRadius: "12px",
+                border: theme === "light" ? "2px solid var(--brand)" : "2px solid var(--border)",
+                backgroundColor: theme === "light" ? "var(--brand-soft)" : "var(--surface)",
+                cursor: "pointer",
+                textAlign: "left",
+                position: "relative",
+                transition: "all 0.18s ease",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: "14px" }}>
+                <div
+                  style={{
+                    width: "42px",
+                    height: "42px",
+                    borderRadius: "10px",
+                    display: "grid",
+                    placeItems: "center",
+                    backgroundColor: theme === "light" ? "var(--brand)" : "var(--canvas)",
+                    color: theme === "light" ? "#ffffff" : "var(--muted)",
+                  }}
+                >
+                  <Icon name="sun" size={20} />
+                </div>
+                <div
+                  style={{
+                    width: "22px",
+                    height: "22px",
+                    borderRadius: "50%",
+                    border: theme === "light" ? "2px solid var(--brand)" : "2px solid var(--border-cool)",
+                    backgroundColor: theme === "light" ? "var(--brand)" : "transparent",
+                    display: "grid",
+                    placeItems: "center",
+                  }}
+                >
+                  {theme === "light" && (
+                    <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#ffffff" }} />
+                  )}
+                </div>
+              </div>
+
+              <div style={{ fontWeight: 700, fontSize: "15px", color: "var(--ink)", marginBottom: "4px" }}>
+                Light Mode
+              </div>
+              <p style={{ margin: 0, fontSize: "12px", color: "var(--muted)", lineHeight: 1.45 }}>
+                Classic, crisp daylight theme designed for bright working environments.
+              </p>
+            </button>
+
+            {/* Dark Mode Option */}
+            <button
+              type="button"
+              onClick={() => handleSelectTheme("dark")}
+              aria-pressed={theme === "dark"}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                padding: "20px",
+                borderRadius: "12px",
+                border: theme === "dark" ? "2px solid var(--brand)" : "2px solid var(--border)",
+                backgroundColor: theme === "dark" ? "var(--brand-soft)" : "var(--surface)",
+                cursor: "pointer",
+                textAlign: "left",
+                position: "relative",
+                transition: "all 0.18s ease",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: "14px" }}>
+                <div
+                  style={{
+                    width: "42px",
+                    height: "42px",
+                    borderRadius: "10px",
+                    display: "grid",
+                    placeItems: "center",
+                    backgroundColor: theme === "dark" ? "var(--brand)" : "var(--canvas)",
+                    color: theme === "dark" ? "#ffffff" : "var(--muted)",
+                  }}
+                >
+                  <Icon name="moon" size={20} />
+                </div>
+                <div
+                  style={{
+                    width: "22px",
+                    height: "22px",
+                    borderRadius: "50%",
+                    border: theme === "dark" ? "2px solid var(--brand)" : "2px solid var(--border-cool)",
+                    backgroundColor: theme === "dark" ? "var(--brand)" : "transparent",
+                    display: "grid",
+                    placeItems: "center",
+                  }}
+                >
+                  {theme === "dark" && (
+                    <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#ffffff" }} />
+                  )}
+                </div>
+              </div>
+
+              <div style={{ fontWeight: 700, fontSize: "15px", color: "var(--ink)", marginBottom: "4px" }}>
+                Dark Mode
+              </div>
+              <p style={{ margin: 0, fontSize: "12px", color: "var(--muted)", lineHeight: 1.45 }}>
+                Midnight slate palette engineered to reduce eye strain in low-light settings.
+              </p>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Section 3: Change Password Form */}
       <form
         onSubmit={handlePreSubmitPassword}
         style={{
