@@ -1,6 +1,7 @@
 export type Role = "Superadmin" | "Admin" | "User"
+export type AccountStatus = "ACTIVE" | "PENDING" | "BLOCKED"
 export type AuthView = "login" | "register" | "reset" | "new-password" | null
-export type AppView = "landing" | "dashboard" | "customers" | "products" | "hr" | "sales" | "reports" | "users" | "audit" | "profile"
+export type AppView = "landing" | "dashboard" | "customers" | "products" | "hr" | "sales" | "reports" | "users" | "audit" | "profile" | "table-editor"
 
 export function normalizeRole(rawRole?: string | null): Role {
   if (!rawRole) return "User"
@@ -65,6 +66,8 @@ export class ApiError extends Error {
 export interface ManagedUser {
   id: string
   name?: string
+  firstName?: string
+  lastName?: string
   email: string
   role: Role
   approvalStatus: "PENDING" | "APPROVED"
@@ -80,3 +83,16 @@ export interface UserPermission {
   action: string
   granted: boolean
 }
+
+export interface PasswordResetRequest {
+  id: string
+  userId: string | null
+  email: string
+  securityResetToken: string | null
+  status: "PENDING" | "TOKEN_GENERATED" | "COMPLETED" | string
+  used: boolean
+  requestedAt: string
+  expiresAt: string | null
+  completedAt: string | null
+}
+
