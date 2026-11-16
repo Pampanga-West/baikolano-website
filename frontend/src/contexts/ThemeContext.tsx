@@ -19,12 +19,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (saved === "light" || saved === "dark") {
         return saved
       }
-      if (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
-        return "dark"
-      }
     } catch {
       // fallback
     }
+    // Light mode is explicitly the default unless chosen otherwise
     return "light"
   })
 

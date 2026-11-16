@@ -254,7 +254,7 @@ export default function ProfilePage({ role }: { role: Role }) {
                 type="email"
                 value={user?.email || ""}
                 disabled
-                style={{ cursor: "not-allowed", backgroundColor: "rgba(0,0,0,0.05)" }}
+                style={{ cursor: "not-allowed" }}
               />
             </div>
           </label>
@@ -361,8 +361,8 @@ export default function ProfilePage({ role }: { role: Role }) {
                     borderRadius: "10px",
                     display: "grid",
                     placeItems: "center",
-                    backgroundColor: theme === "light" ? "var(--brand)" : "var(--canvas)",
-                    color: theme === "light" ? "#ffffff" : "var(--muted)",
+                    backgroundColor: theme === "light" ? "var(--brand)" : (theme === "dark" ? "#1e2c44" : "#e2e8f0"),
+                    color: theme === "light" ? "#ffffff" : (theme === "dark" ? "#cbd5e1" : "#475569"),
                   }}
                 >
                   <Icon name="sun" size={20} />
@@ -372,7 +372,7 @@ export default function ProfilePage({ role }: { role: Role }) {
                     width: "22px",
                     height: "22px",
                     borderRadius: "50%",
-                    border: theme === "light" ? "2px solid var(--brand)" : "2px solid var(--border-cool)",
+                    border: theme === "light" ? "2px solid var(--brand)" : (theme === "dark" ? "2px solid #334155" : "2px solid var(--border-cool)"),
                     backgroundColor: theme === "light" ? "var(--brand)" : "transparent",
                     display: "grid",
                     placeItems: "center",
@@ -387,7 +387,7 @@ export default function ProfilePage({ role }: { role: Role }) {
               <div style={{ fontWeight: 700, fontSize: "15px", color: "var(--ink)", marginBottom: "4px" }}>
                 Light Mode
               </div>
-              <p style={{ margin: 0, fontSize: "12px", color: "var(--muted)", lineHeight: 1.45 }}>
+              <p style={{ margin: 0, fontSize: "12px", color: theme === "dark" ? "#94a3b8" : "var(--muted)", lineHeight: 1.45 }}>
                 Classic, crisp daylight theme designed for bright working environments.
               </p>
             </button>
@@ -419,8 +419,8 @@ export default function ProfilePage({ role }: { role: Role }) {
                     borderRadius: "10px",
                     display: "grid",
                     placeItems: "center",
-                    backgroundColor: theme === "dark" ? "var(--brand)" : "var(--canvas)",
-                    color: theme === "dark" ? "#ffffff" : "var(--muted)",
+                    backgroundColor: theme === "dark" ? "var(--brand)" : (theme === "light" ? "#f1f5f9" : "#1e2c44"),
+                    color: theme === "dark" ? "#ffffff" : (theme === "light" ? "#475569" : "#cbd5e1"),
                   }}
                 >
                   <Icon name="moon" size={20} />
@@ -430,7 +430,7 @@ export default function ProfilePage({ role }: { role: Role }) {
                     width: "22px",
                     height: "22px",
                     borderRadius: "50%",
-                    border: theme === "dark" ? "2px solid var(--brand)" : "2px solid var(--border-cool)",
+                    border: theme === "dark" ? "2px solid var(--brand)" : (theme === "dark" ? "2px solid #334155" : "2px solid var(--border-cool)"),
                     backgroundColor: theme === "dark" ? "var(--brand)" : "transparent",
                     display: "grid",
                     placeItems: "center",
@@ -445,7 +445,7 @@ export default function ProfilePage({ role }: { role: Role }) {
               <div style={{ fontWeight: 700, fontSize: "15px", color: "var(--ink)", marginBottom: "4px" }}>
                 Dark Mode
               </div>
-              <p style={{ margin: 0, fontSize: "12px", color: "var(--muted)", lineHeight: 1.45 }}>
+              <p style={{ margin: 0, fontSize: "12px", color: theme === "dark" ? "#cbd5e1" : "var(--muted)", lineHeight: 1.45 }}>
                 Midnight slate palette engineered to reduce eye strain in low-light settings.
               </p>
             </button>
