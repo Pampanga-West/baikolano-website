@@ -15,7 +15,7 @@ export default function LandingPage({
       <section className="simple-hero">
         <div className="simple-hero-copy">
           <div className="display">
-            Run your entire business with confidence.
+            Run your entire business with Kirk.
           </div>
           <p>
             One focused workspace for customers, products, people, sales, and
