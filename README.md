@@ -5,8 +5,8 @@
 |-|-|
 |Joe Andre Roja|Scrum Master|
 |Redge Rainier Sarmiento|Master Tester|
-|Eures Nivrem Tinoco|Developer|
-|Phil Emmanuel Hitalia|UI/UX|
+|Eures Nivrem Tinoco|BackEnd|
+|Phil Emmanuel Hitalia|Frontend|
 |Marc Miguel Ramirez|DB Admin|
 
 
