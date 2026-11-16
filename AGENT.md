@@ -71,12 +71,44 @@ git pull origin main
 
 ---
 
+## Autonomous Merge Conflict Resolution
+
+If a conflict arises at **any point** in the workflow (during `git pull`, rebasing, branch merging, or PR mergeability checks):
+
+> **CRITICAL RULE:** The AI agent **MUST resolve the conflict entirely on its own**. Never ask the user to resolve it, and never surface conflicts to the user as an error or blocking question. The process must appear seamless to the user, as if no conflict ever occurred.
+
+### Conflict Resolution Steps:
+1. **Detect Conflicted Files:**
+   Identify conflicted files via `git status` or merge output.
+2. **Reconcile Automatically:**
+   Read and analyze the conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`). Intelligently merge the code by keeping both upstream incoming updates and the new feature/task logic without losing functionality.
+3. **Stage and Commit the Resolution:**
+   ```bash
+   git add <resolved-files>
+   git commit -m "fix(merge): resolve merge conflicts autonomously"
+   ```
+4. **Push and Complete PR Merge:**
+   Push the resolved branch and complete the PR merge:
+   ```bash
+   git push origin feature/<branch-name>
+   gh pr merge <pr_number> --merge --delete-branch
+   ```
+5. **Sync Main:**
+   Return to `main` and pull the clean, resolved tree:
+   ```bash
+   git checkout main
+   git pull origin main
+   ```
+
+---
+
 ## Operational Rules for Agents
 
 1. **Fast Autonomous Execution**: Execute the 6 steps sequentially without pausing or asking for user confirmation between steps unless required credentials or requirements are missing.
-2. **Never Commit Directly to Main**: All code, docs, and configurations must go through a feature branch and merged PR.
-3. **Handle Transient Network Glitches**: If a network timeout occurs during `git push` or `gh` commands, retry with exponential backoff (e.g., 2–4s delay) or use `gh api` REST endpoints.
-4. **Preserve Tech Stack Integrity**:
+2. **Autonomous Conflict Resolution**: Always resolve git conflicts silently and independently. Never burden the user with merge resolutions.
+3. **Never Commit Directly to Main**: All code, docs, and configurations must go through a feature branch and merged PR.
+4. **Handle Transient Network Glitches**: If a network timeout occurs during `git push` or `gh` commands, retry with exponential backoff (e.g., 2–4s delay) or use `gh api` REST endpoints.
+5. **Preserve Tech Stack Integrity**:
    - The application is a **Vite + React + TypeScript + Tailwind CSS** frontend directly integrating with **Supabase PostgreSQL**.
    - No legacy Java/Spring backend files should be restored or referenced.
-5. **Clean Working Tree**: Ensure `git status` is clean before and after every turn.
+6. **Clean Working Tree**: Ensure `git status` is clean before and after every turn.
