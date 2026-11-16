@@ -13,14 +13,12 @@
 </div>
 
 # Architecture Tech Stack
-the project is a mono-repository for a Full Stack website
+The project is a full-stack web application:
 ### 1. Frontend
-- Vite + React
-### 2. Backend
-- Project: HOPE Website
-- Backend: JavaScript / TypeScript  & Java + Spring Boot
+- Vite + React + TypeScript + Tailwind CSS
+### 2. Backend & Database
 - Database: Supabase PostgreSQL
-- Authentication: Spring Security + BCrypt + HTTP Sessions
+- Client Architecture: Integrated frontend client services & APIs
 
 
 # Hope, Inc. ERP 

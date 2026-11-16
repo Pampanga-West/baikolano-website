@@ -8,7 +8,6 @@
 - 
 
 ## Verification & Testing
-- [ ] Backend tests / compilation passes (`./mvnw test-compile`)
 - [ ] Frontend build succeeds (`npm run build`)
 - [ ] Manual verification completed on localhost
 
