@@ -3,8 +3,8 @@ export default function Logo({ dark = false }: { dark?: boolean }) {
     <div className={`logo ${dark ? "logo-dark" : ""}`}>
       <span className="logo-mark" style={{ overflow: "hidden", padding: 0 }}>
         <img
-          src="/bowler-avatar.png"
-          alt="Clash of Clans Bowler"
+          src="/charlie-kirk-avatar.png"
+          alt="Charlie Kirk"
           className="w-full h-full object-cover rounded-[inherit]"
         />
       </span>
