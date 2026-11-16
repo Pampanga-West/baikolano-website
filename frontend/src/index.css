@@ -764,7 +764,7 @@ td, .entity-table td { border-color: #edf1f5; }
 }
 
 /* ==========================================================================
-   Dark Theme Overrides & Color Mappings
+   Dark Theme Overrides & Color Mappings (High Contrast)
    ========================================================================== */
 [data-theme="dark"], .dark {
   --canvas: #0b1120;
@@ -776,14 +776,14 @@ td, .entity-table td { border-color: #edf1f5; }
   --brand-dark: #60a5fa;
   --brand-soft: rgba(59, 130, 246, 0.16);
   --ink: #f8fafc;
-  --muted: #94a3b8;
+  --muted: #a1b0cb;
   --border: #243049;
   --border-cool: #1e293b;
-  --active-bg: rgba(34, 197, 94, 0.16);
+  --active-bg: rgba(34, 197, 94, 0.18);
   --active-text: #4ade80;
-  --danger-bg: rgba(239, 68, 68, 0.16);
+  --danger-bg: rgba(239, 68, 68, 0.18);
   --danger-text: #f87171;
-  --pending-bg: rgba(245, 158, 11, 0.16);
+  --pending-bg: rgba(245, 158, 11, 0.18);
   --pending-text: #fbbf24;
   --sage: #142e20;
   --sage-text: #86efac;
@@ -844,15 +844,15 @@ td, .entity-table td { border-color: #edf1f5; }
 
 [data-theme="dark"] th,
 [data-theme="dark"] .entity-table th {
-  background: #0d1524;
-  color: var(--muted);
-  border-color: var(--border);
+  background: #0d1524 !important;
+  color: #94a3b8 !important;
+  border-color: var(--border) !important;
 }
 
 [data-theme="dark"] td,
 [data-theme="dark"] .entity-table td {
-  border-color: var(--border);
-  color: #cbd5e1;
+  border-color: var(--border) !important;
+  color: #cbd5e1 !important;
 }
 
 [data-theme="dark"] .entity-table tbody tr:hover:not(.inactive-row) {
@@ -878,6 +878,52 @@ td, .entity-table td { border-color: #edf1f5; }
   background: #17243c;
 }
 
+[data-theme="dark"] label,
+[data-theme="dark"] .field > span,
+[data-theme="dark"] .record-form label > span,
+[data-theme="dark"] .payment-form label > span,
+[data-theme="dark"] .report-filters label > span,
+[data-theme="dark"] .audit-filters label > span,
+[data-theme="dark"] .settings-form label > span,
+[data-theme="dark"] .expiry-field > span {
+  color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] p,
+[data-theme="dark"] .page-heading p,
+[data-theme="dark"] .auth-heading p,
+[data-theme="dark"] .rights-head p,
+[data-theme="dark"] .module-modal-head p,
+[data-theme="dark"] .report-head p,
+[data-theme="dark"] .lookup-intro p,
+[data-theme="dark"] .panel-heading p {
+  color: #a1b0cb;
+}
+
+[data-theme="dark"] .page-title,
+[data-theme="dark"] .modal-title,
+[data-theme="dark"] h1,
+[data-theme="dark"] h2,
+[data-theme="dark"] h3,
+[data-theme="dark"] h4,
+[data-theme="dark"] .stat-card > b,
+[data-theme="dark"] .panel-heading b,
+[data-theme="dark"] .user-cell b,
+[data-theme="dark"] .record-name,
+[data-theme="dark"] .price-value,
+[data-theme="dark"] .salary-value,
+[data-theme="dark"] .detail-total b {
+  color: #f8fafc !important;
+}
+
+[data-theme="dark"] .user-cell small,
+[data-theme="dark"] .stamp small,
+[data-theme="dark"] .muted,
+[data-theme="dark"] .preview-card small,
+[data-theme="dark"] .preview-footer {
+  color: #94a3b8 !important;
+}
+
 [data-theme="dark"] .input-wrap input,
 [data-theme="dark"] .record-form input,
 [data-theme="dark"] .record-form select,
@@ -892,6 +938,21 @@ td, .entity-table td { border-color: #edf1f5; }
   background: var(--canvas) !important;
   border-color: var(--border) !important;
   color: var(--ink) !important;
+}
+
+[data-theme="dark"] .input-wrap input::placeholder,
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] select::placeholder,
+[data-theme="dark"] textarea::placeholder {
+  color: #64748b !important;
+}
+
+[data-theme="dark"] input:disabled,
+[data-theme="dark"] input[readonly],
+[data-theme="dark"] .record-form input[readonly] {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: #1e293b !important;
+  color: #94a3b8 !important;
 }
 
 [data-theme="dark"] .entity-search input,
@@ -916,9 +977,21 @@ td, .entity-table td { border-color: #edf1f5; }
   background: var(--canvas);
 }
 
+[data-theme="dark"] .filter-tabs button {
+  color: #94a3b8;
+}
+
 [data-theme="dark"] .filter-tabs button.selected {
   background: var(--surface);
   color: var(--brand);
+}
+
+[data-theme="dark"] .module-subnav button {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .module-subnav button.selected {
+  color: #60a5fa;
 }
 
 [data-theme="dark"] .settings-card {
@@ -976,12 +1049,6 @@ td, .entity-table td { border-color: #edf1f5; }
   color: var(--ink) !important;
 }
 
-[data-theme="dark"] .record-name,
-[data-theme="dark"] .price-value,
-[data-theme="dark"] .salary-value {
-  color: var(--ink);
-}
-
 [data-theme="dark"] .right-check {
   background: var(--surface);
   border-color: var(--border);
@@ -992,5 +1059,49 @@ td, .entity-table td { border-color: #edf1f5; }
   background: rgba(59, 130, 246, 0.14);
   border-color: var(--brand);
   color: var(--ink);
+}
+
+[data-theme="dark"] .badge-superadmin {
+  color: #fde047 !important;
+  background-color: rgba(245, 158, 11, 0.22) !important;
+}
+
+[data-theme="dark"] .badge-admin {
+  color: #93c5fd !important;
+  background-color: rgba(59, 130, 246, 0.2) !important;
+}
+
+[data-theme="dark"] .badge-user {
+  color: #86efac !important;
+  background-color: rgba(34, 197, 94, 0.18) !important;
+}
+
+[data-theme="dark"] .management-note {
+  background-color: rgba(37, 99, 235, 0.14) !important;
+  border-color: rgba(37, 99, 235, 0.35) !important;
+  color: #93c5fd !important;
+}
+
+[data-theme="dark"] .info-banner {
+  background-color: rgba(37, 99, 235, 0.14) !important;
+  border-color: rgba(37, 99, 235, 0.3) !important;
+  color: #93c5fd !important;
+}
+
+[data-theme="dark"] .demo-box {
+  background-color: rgba(245, 158, 11, 0.14) !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
+  color: #fde047 !important;
+}
+
+[data-theme="dark"] .header-search kbd {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .icon-button:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #f8fafc !important;
 }
 
