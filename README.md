@@ -4,7 +4,7 @@
 |Name|Role|
 |-|-|
 |Marc Miguel Ramirez|Scrum Master|
-|Redge Rainier Sarmiento|Master Tester|
+|Redge Rainier Sarmiento|Tester|
 |Eures Nivrem Tinoco|BackEnd|
 |Phil Emmanuel Hitalia|Frontend|
 |Joe Andre Roja|DB Admin|
