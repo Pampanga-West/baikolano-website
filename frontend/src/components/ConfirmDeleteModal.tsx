@@ -43,4 +43,4 @@ export default function ConfirmDeleteModal({
       </div>
     </ModalShell>
   )
-}   
+}
