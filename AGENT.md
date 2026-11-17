@@ -15,21 +15,21 @@ All Antigravity / Gemini agents operating in this repository must execute code a
   4. Commit with `[S2-<ROLE>-<COUNT>] <Task Title>`.
   5. Push and open a Pull Request following the standardized **PR Template** (`#30`–`#59` format) with the **exact same title** as the Issue and `Closes Issue: #<issue_number>`.
   6. **Role-Based Merge Gate:**
-     - **Scrum Masters (`GN68` & `JoeAndreRoja` only):** Merge their own PRs immediately and are responsible for reviewing, resolving conflicts on, and merging all open PRs from the rest of the team.
-     - **All Other Team Members (`EuresTinoco`, `PhilHitalia`, `sarmientoredge11`):** **MUST NOT** merge their own PRs automatically. Leave the PR open after creation and return to `main` (`git checkout main && git pull origin main`).
+     - **Scrum Master (`GN68` / Marc Miguel Ramirez only):** Merges his own PRs immediately and is solely responsible for reviewing, resolving conflicts on, and merging all open PRs from the rest of the team.
+     - **All Non-Scrum Master Members (`JoeAndreRoja`, `EuresTinoco`, `PhilHitalia`, `sarmientoredge11`):** **MUST NOT** merge their own PRs automatically. Leave the PR open after creation and return to `main` (`git checkout main && git pull origin main`).
 
 ---
 
 ## Team Member Role Codes & Sprint 2 Counter Tracker
 
-Derived from the regulated `#1`–`#59` Sprint 1 Issues and Pull Requests, each team member has a fixed **Role Code**, **Role Title**, **GitHub Label**, and **PR Merge Authority** based on who commits (`gh api user --jq .login`):
+Derived from the regulated `#1`–`#59` Sprint 1 Issues and Pull Requests (and the Sprint 2 role swap between `GN68` and `JoeAndreRoja`), each team member has a fixed **Role Code**, **Role Title**, **GitHub Label**, and **PR Merge Authority** based on who commits (`gh api user --jq .login`):
 
 ### 1. Committer Lookup Table
 
 | GitHub Username (`gh`) | Team Member Name (`Assignee` / `Author`) | Role Code | Role Title (Issue Body) | GitHub Role Label | PR Merge Authority | Regulated Sprint 1 Issues & PRs (`#1`–`#59`) | Next Sprint 2 Task ID |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `JoeAndreRoja` | **Joe Andre Roja** | `SM` | `Scrum Master` | `role:scrum-master` | **YES (Scrum Master)** | Issues `#1`–`#4` \| PRs `#32, #36, #41, #47` (`S1-SM-02`–`05`) | `[S2-SM-01]` *(increment sequentially)* |
-| `GN68` | **Marc Miguel Ramirez** | `DBA` | `DB Admin` | `role:dba` | **YES (Scrum Master)** | Issues `#5`–`#10` \| PRs `#31, #34, #40, #43, #44, #45` (`S1-DBA-01`–`06`) | `[S2-DBA-01]` *(increment sequentially)* |
+| `GN68` | **Marc Miguel Ramirez** | `SM` | `Scrum Master` | `role:scrum-master` | **YES (Scrum Master)** | Issues `#5`–`#10` \| PRs `#31, #34, #40, #43, #44, #45` *(swapped to `SM` in Sprint 2)* | `[S2-SM-02]` *(increment sequentially)* |
+| `JoeAndreRoja` | **Joe Andre Roja** | `DBA` | `DB Admin` | `role:dba` | **NO (Open PR Only)** | Issues `#1`–`#4` \| PRs `#32, #36, #41, #47` *(swapped to `DBA` in Sprint 2)* | `[S2-DBA-01]` *(increment sequentially)* |
 | `EuresTinoco` | **Eures Nivrem Tinoco** | `DEV` | `Developer` | `role:developer` | **NO (Open PR Only)** | Issues `#11`–`#18` \| PRs `#30, #35, #39, #42, #55, #56, #57, #59` (`S1-DEV-01`–`08`) | `[S2-DEV-01]` *(increment sequentially)* |
 | `PhilHitalia` | **Phil Emmanuel Hitalia** | `UIX` | `UI/UX Designer` | `role:ui/ux` | **NO (Open PR Only)** | Issues `#19`–`#23` \| PRs `#33, #37, #38, #48` (`S1-UIX-01`–`05`) | `[S2-UIX-01]` *(increment sequentially)* |
 | `sarmientoredge11` | **Redge Rainier Sarmiento** | `TST` | `Tester` | `role:tester` | **NO (Open PR Only)** | Issues `#24`–`#29` \| PRs `#49`–`#54` (`S1-TST-01`–`06`) | `[S2-TST-01]` *(increment sequentially)* |
@@ -43,8 +43,8 @@ import json, re, subprocess
 
 login = subprocess.check_output(["gh", "api", "user", "--jq", ".login"], text=True).strip()
 role_map = {
-    "JoeAndreRoja": ("SM", "Scrum Master", "Joe Andre Roja", "role:scrum-master", True),
-    "GN68": ("DBA", "DB Admin", "Marc Miguel Ramirez", "role:dba", True),
+    "GN68": ("SM", "Scrum Master", "Marc Miguel Ramirez", "role:scrum-master", True),
+    "JoeAndreRoja": ("DBA", "DB Admin", "Joe Andre Roja", "role:dba", False),
     "EuresTinoco": ("DEV", "Developer", "Eures Nivrem Tinoco", "role:developer", False),
     "PhilHitalia": ("UIX", "UI/UX Designer", "Phil Emmanuel Hitalia", "role:ui/ux", False),
     "sarmientoredge11": ("TST", "Tester", "Redge Rainier Sarmiento", "role:tester", False),
@@ -191,15 +191,15 @@ gh pr create \
 
 ### 7. Role-Based Merge Gate & Clean Up
 
-#### 7A. Non-Scrum Master Members (`EuresTinoco`, `PhilHitalia`, `sarmientoredge11`)
-- **DO NOT run `gh pr merge`**. Only the Scrum Masters (`GN68` and `JoeAndreRoja`) are permitted to merge Pull Requests.
+#### 7A. Non-Scrum Master Members (`JoeAndreRoja`, `EuresTinoco`, `PhilHitalia`, `sarmientoredge11`)
+- **DO NOT run `gh pr merge`**. Only the Scrum Master (`GN68` / Marc Miguel Ramirez) is permitted to merge Pull Requests.
 - After opening the PR in Step 6, leave the PR open on GitHub and immediately return your local workspace to `main`:
 ```bash
 git checkout main
 git pull origin main
 ```
 
-#### 7B. Scrum Masters Only (`GN68` & `JoeAndreRoja`)
+#### 7B. Scrum Master Only (`GN68` / Marc Miguel Ramirez)
 - **Merging Own PRs:** Merge the pull request immediately (which also auto-closes the linked GitHub Issue) and delete the remote branch:
 ```bash
 gh pr merge <pr_number_or_branch> --merge --delete-branch
@@ -226,7 +226,7 @@ git pull origin main
 
 ---
 
-## Autonomous Merge Conflict Resolution (Scrum Masters: `GN68` & `JoeAndreRoja`)
+## Autonomous Merge Conflict Resolution (Scrum Master: `GN68`)
 
 If a conflict arises at **any point** (during `git pull`, rebasing, branch merging, or when merging open PRs from team members):
 
@@ -268,8 +268,8 @@ If a conflict arises at **any point** (during `git pull`, rebasing, branch mergi
 1. **Fast Autonomous Execution**: Execute all applicable steps sequentially without pausing or asking for user confirmation between steps unless required credentials or requirements are missing.
 2. **Mandatory Issue + PR Pairing**: Always create or link a `[S2-<ROLE>-<COUNT>]` GitHub Issue before submitting the Pull Request so the board and PR history match the regulated `#1`–`#59` standard.
 3. **Scrum Master Exclusive Merge Gate**:
-   - **Only `GN68` (Marc Miguel Ramirez) and `JoeAndreRoja` (Joe Andre Roja)** may execute `gh pr merge`.
-   - Agents running under `EuresTinoco`, `PhilHitalia`, or `sarmientoredge11` **must never merge PRs**—they must stop after creating the PR and switch back to `main`.
+   - **Only `GN68` (Marc Miguel Ramirez, Scrum Master)** may execute `gh pr merge`.
+   - Agents running under `JoeAndreRoja`, `EuresTinoco`, `PhilHitalia`, or `sarmientoredge11` **must never merge PRs**—they must stop after creating the PR and switch back to `main`.
 4. **Conflict-Only Verification Rule for Scrum Masters**: When merging open PRs from team members, if there are **no conflicts**, merge immediately without extra checks. If **conflicts occur**, resolve them so both code intentions are preserved, verify the merged result (`npm run build`), and then complete the merge.
 5. **Autonomous Conflict Resolution**: Always resolve git conflicts silently and independently. Never burden the user with merge resolutions.
 6. **Never Commit Directly to Main**: All code, docs, and configurations must go through a feature branch and merged PR.
