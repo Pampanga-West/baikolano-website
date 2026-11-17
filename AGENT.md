@@ -14,23 +14,25 @@ All Antigravity / Gemini agents operating in this repository must execute code a
   3. Process changes on an isolated feature branch (`feature/S2-<ROLE>-<COUNT>-<short-description>`).
   4. Commit with `[S2-<ROLE>-<COUNT>] <Task Title>`.
   5. Push and open a Pull Request following the standardized **PR Template** (`#30`–`#59` format) with the **exact same title** as the Issue and `Closes Issue: #<issue_number>`.
-  6. Merge the PR immediately and sync local `main` to avoid merge conflicts and satisfy project Issue & PR quota requirements.
+  6. **Role-Based Merge Gate:**
+     - **Scrum Masters (`GN68` & `JoeAndreRoja` only):** Merge their own PRs immediately and are responsible for reviewing, resolving conflicts on, and merging all open PRs from the rest of the team.
+     - **All Other Team Members (`EuresTinoco`, `PhilHitalia`, `sarmientoredge11`):** **MUST NOT** merge their own PRs automatically. Leave the PR open after creation and return to `main` (`git checkout main && git pull origin main`).
 
 ---
 
 ## Team Member Role Codes & Sprint 2 Counter Tracker
 
-Derived from the regulated `#1`–`#59` Sprint 1 Issues and Pull Requests, each team member has a fixed **Role Code**, **Role Title**, and **GitHub Label** based on who commits (`gh api user --jq .login`):
+Derived from the regulated `#1`–`#59` Sprint 1 Issues and Pull Requests, each team member has a fixed **Role Code**, **Role Title**, **GitHub Label**, and **PR Merge Authority** based on who commits (`gh api user --jq .login`):
 
 ### 1. Committer Lookup Table
 
-| GitHub Username (`gh`) | Team Member Name (`Assignee` / `Author`) | Role Code | Role Title (Issue Body) | GitHub Role Label | Regulated Sprint 1 Issues & PRs (`#1`–`#59`) | Next Sprint 2 Task ID |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `JoeAndreRoja` | **Joe Andre Roja** | `SM` | `Scrum Master` | `role:scrum-master` | Issues `#1`–`#4` \| PRs `#32, #36, #41, #47` (`S1-SM-02`–`05`) | `[S2-SM-01]` *(increment sequentially)* |
-| `GN68` | **Marc Miguel Ramirez** | `DBA` | `DB Admin` | `role:dba` | Issues `#5`–`#10` \| PRs `#31, #34, #40, #43, #44, #45` (`S1-DBA-01`–`06`) | `[S2-DBA-01]` *(increment sequentially)* |
-| `EuresTinoco` | **Eures Nivrem Tinoco** | `DEV` | `Developer` | `role:developer` | Issues `#11`–`#18` \| PRs `#30, #35, #39, #42, #55, #56, #57, #59` (`S1-DEV-01`–`08`) | `[S2-DEV-01]` *(increment sequentially)* |
-| `PhilHitalia` | **Phil Emmanuel Hitalia** | `UIX` | `UI/UX Designer` | `role:ui/ux` | Issues `#19`–`#23` \| PRs `#33, #37, #38, #48` (`S1-UIX-01`–`05`) | `[S2-UIX-01]` *(increment sequentially)* |
-| `sarmientoredge11` | **Redge Rainier Sarmiento** | `TST` | `Tester` | `role:tester` | Issues `#24`–`#29` \| PRs `#49`–`#54` (`S1-TST-01`–`06`) | `[S2-TST-01]` *(increment sequentially)* |
+| GitHub Username (`gh`) | Team Member Name (`Assignee` / `Author`) | Role Code | Role Title (Issue Body) | GitHub Role Label | PR Merge Authority | Regulated Sprint 1 Issues & PRs (`#1`–`#59`) | Next Sprint 2 Task ID |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `JoeAndreRoja` | **Joe Andre Roja** | `SM` | `Scrum Master` | `role:scrum-master` | **YES (Scrum Master)** | Issues `#1`–`#4` \| PRs `#32, #36, #41, #47` (`S1-SM-02`–`05`) | `[S2-SM-01]` *(increment sequentially)* |
+| `GN68` | **Marc Miguel Ramirez** | `DBA` | `DB Admin` | `role:dba` | **YES (Scrum Master)** | Issues `#5`–`#10` \| PRs `#31, #34, #40, #43, #44, #45` (`S1-DBA-01`–`06`) | `[S2-DBA-01]` *(increment sequentially)* |
+| `EuresTinoco` | **Eures Nivrem Tinoco** | `DEV` | `Developer` | `role:developer` | **NO (Open PR Only)** | Issues `#11`–`#18` \| PRs `#30, #35, #39, #42, #55, #56, #57, #59` (`S1-DEV-01`–`08`) | `[S2-DEV-01]` *(increment sequentially)* |
+| `PhilHitalia` | **Phil Emmanuel Hitalia** | `UIX` | `UI/UX Designer` | `role:ui/ux` | **NO (Open PR Only)** | Issues `#19`–`#23` \| PRs `#33, #37, #38, #48` (`S1-UIX-01`–`05`) | `[S2-UIX-01]` *(increment sequentially)* |
+| `sarmientoredge11` | **Redge Rainier Sarmiento** | `TST` | `Tester` | `role:tester` | **NO (Open PR Only)** | Issues `#24`–`#29` \| PRs `#49`–`#54` (`S1-TST-01`–`06`) | `[S2-TST-01]` *(increment sequentially)* |
 
 ### 2. Automatic Next-Count Detection Snippet
 Before creating an Issue or branch, run this command to dynamically verify the active GitHub user and find the next available `S2-<ROLE>-<COUNT>` across all remote Issues and PRs:
@@ -41,13 +43,13 @@ import json, re, subprocess
 
 login = subprocess.check_output(["gh", "api", "user", "--jq", ".login"], text=True).strip()
 role_map = {
-    "JoeAndreRoja": ("SM", "Scrum Master", "Joe Andre Roja", "role:scrum-master"),
-    "GN68": ("DBA", "DB Admin", "Marc Miguel Ramirez", "role:dba"),
-    "EuresTinoco": ("DEV", "Developer", "Eures Nivrem Tinoco", "role:developer"),
-    "PhilHitalia": ("UIX", "UI/UX Designer", "Phil Emmanuel Hitalia", "role:ui/ux"),
-    "sarmientoredge11": ("TST", "Tester", "Redge Rainier Sarmiento", "role:tester"),
+    "JoeAndreRoja": ("SM", "Scrum Master", "Joe Andre Roja", "role:scrum-master", True),
+    "GN68": ("DBA", "DB Admin", "Marc Miguel Ramirez", "role:dba", True),
+    "EuresTinoco": ("DEV", "Developer", "Eures Nivrem Tinoco", "role:developer", False),
+    "PhilHitalia": ("UIX", "UI/UX Designer", "Phil Emmanuel Hitalia", "role:ui/ux", False),
+    "sarmientoredge11": ("TST", "Tester", "Redge Rainier Sarmiento", "role:tester", False),
 }
-role_code, role_title, full_name, role_label = role_map.get(login, ("DEV", "Developer", login, "role:developer"))
+role_code, role_title, full_name, role_label, can_merge = role_map.get(login, ("DEV", "Developer", login, "role:developer", False))
 
 prs = json.loads(subprocess.check_output(["gh", "pr", "list", "--state", "all", "--limit", "200", "--json", "title"], text=True))
 issues = json.loads(subprocess.check_output(["gh", "issue", "list", "--state", "all", "--limit", "200", "--json", "title"], text=True))
@@ -55,7 +57,7 @@ issues = json.loads(subprocess.check_output(["gh", "issue", "list", "--state", "
 pattern = re.compile(rf"\[S2-{role_code}-(\d+)\]")
 counts = [int(m.group(1)) for item in (prs + issues) if (m := pattern.search(item["title"]))]
 next_count = max(counts, default=0) + 1
-print(f"Login: {login} | Name: {full_name} | Role: {role_title} ({role_label})")
+print(f"Login: {login} | Name: {full_name} | Role: {role_title} ({role_label}) | Can Merge PRs: {can_merge}")
 print(f"Next Task ID: S2-{role_code}-{next_count:02d}")
 EOF
 ```
@@ -187,39 +189,69 @@ gh pr create \
 ```
 *(If `gh pr create` encounters GraphQL network timeouts, fall back to `gh api repos/Pampanga-West/baikolano-website/pulls`).*
 
-### 7. Merge PR and Clean Up
-Merge the pull request immediately (which also auto-closes the linked GitHub Issue) and delete the remote branch:
-```bash
-gh pr merge <pr_number_or_branch> --merge --delete-branch
-```
-Return to `main` and sync immediately so the workspace remains conflict-free for the next task:
+### 7. Role-Based Merge Gate & Clean Up
+
+#### 7A. Non-Scrum Master Members (`EuresTinoco`, `PhilHitalia`, `sarmientoredge11`)
+- **DO NOT run `gh pr merge`**. Only the Scrum Masters (`GN68` and `JoeAndreRoja`) are permitted to merge Pull Requests.
+- After opening the PR in Step 6, leave the PR open on GitHub and immediately return your local workspace to `main`:
 ```bash
 git checkout main
 git pull origin main
 ```
 
+#### 7B. Scrum Masters Only (`GN68` & `JoeAndreRoja`)
+- **Merging Own PRs:** Merge the pull request immediately (which also auto-closes the linked GitHub Issue) and delete the remote branch:
+```bash
+gh pr merge <pr_number_or_branch> --merge --delete-branch
+git checkout main
+git pull origin main
+```
+- **Merging Team Members' Open PRs:** When checking and merging open PRs submitted by other team members:
+  1. List all open PRs and their mergeability state:
+     ```bash
+     gh pr list --state open --json number,title,author,headRefName,mergeable,mergeStateStatus
+     ```
+  2. **If a PR has NO conflicts (`mergeable: "MERGEABLE"`):**
+     - Do **not** run extra verification checks—merge it immediately:
+     ```bash
+     gh pr merge <pr_number> --merge --delete-branch
+     ```
+  3. **If a PR HAS conflicts (`mergeable: "CONFLICTING"` / `DIRTY`):**
+     - Follow the **Autonomous Merge Conflict Resolution & Verification** procedure below to reconcile both code intentions, verify that both work together cleanly (`npm run build`), push the resolution, and merge the PR.
+  4. Sync `main` after processing all open PRs:
+     ```bash
+     git checkout main
+     git pull origin main
+     ```
+
 ---
 
-## Autonomous Merge Conflict Resolution
+## Autonomous Merge Conflict Resolution (Scrum Masters: `GN68` & `JoeAndreRoja`)
 
-If a conflict arises at **any point** in the workflow (during `git pull`, rebasing, branch merging, or PR mergeability checks):
+If a conflict arises at **any point** (during `git pull`, rebasing, branch merging, or when merging open PRs from team members):
 
 > **CRITICAL RULE:** The AI agent **MUST resolve the conflict entirely on its own**. Never ask the user to resolve it, and never surface conflicts to the user as an error or blocking question. The process must appear seamless to the user, as if no conflict ever occurred.
 
-### Conflict Resolution Steps:
-1. **Detect Conflicted Files:**
-   Identify conflicted files via `git status` or merge output.
-2. **Reconcile Automatically:**
-   Read and analyze the conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`). Intelligently merge the code by keeping both upstream incoming updates and the new feature/task logic without losing functionality.
-3. **Stage and Commit the Resolution:**
+### Conflict Resolution & Verification Steps:
+1. **Checkout & Merge Main into the Conflicted PR Branch:**
+   ```bash
+   gh pr checkout <pr_number>
+   git fetch origin main
+   git merge origin/main
+   ```
+2. **Detect & Reconcile Conflicted Files:**
+   Identify conflicted files via `git status`. Read and analyze all conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`). Intelligently merge the code so that **both intentions of the code being merged together are preserved and work harmoniously** without losing upstream or feature functionality.
+3. **Verify Both Code Intentions Work Together (Mandatory When Conflicts Occur):**
+   Whenever a conflict was fixed, verify that the combined code compiles and both merged intentions work properly together:
+   ```bash
+   cd frontend && npm run build && cd ..
+   ```
+   *(Note: If a PR had no conflicts to begin with, skip this verification step and merge directly.)*
+4. **Stage, Commit, Push, and Merge the PR:**
    ```bash
    git add <resolved-files>
-   git commit -m "fix(merge): resolve merge conflicts autonomously"
-   ```
-4. **Push and Complete PR Merge:**
-   Push the resolved branch and complete the PR merge:
-   ```bash
-   git push origin feature/S2-<ROLE>-<COUNT>-<short-description>
+   git commit -m "fix(merge): resolve merge conflicts autonomously and preserve both code intentions"
+   git push origin HEAD
    gh pr merge <pr_number> --merge --delete-branch
    ```
 5. **Sync Main:**
@@ -233,15 +265,19 @@ If a conflict arises at **any point** in the workflow (during `git pull`, rebasi
 
 ## Operational Rules for Agents
 
-1. **Fast Autonomous Execution**: Execute all 7 steps sequentially without pausing or asking for user confirmation between steps unless required credentials or requirements are missing.
+1. **Fast Autonomous Execution**: Execute all applicable steps sequentially without pausing or asking for user confirmation between steps unless required credentials or requirements are missing.
 2. **Mandatory Issue + PR Pairing**: Always create or link a `[S2-<ROLE>-<COUNT>]` GitHub Issue before submitting the Pull Request so the board and PR history match the regulated `#1`–`#59` standard.
-3. **Autonomous Conflict Resolution**: Always resolve git conflicts silently and independently. Never burden the user with merge resolutions.
-4. **Never Commit Directly to Main**: All code, docs, and configurations must go through a feature branch and merged PR.
-5. **Handle Transient Network Glitches**: If a network timeout occurs during `git push` or `gh` commands, retry with exponential backoff (e.g., 2–4s delay) or use `gh api` REST endpoints.
-6. **Preserve Tech Stack Integrity**:
+3. **Scrum Master Exclusive Merge Gate**:
+   - **Only `GN68` (Marc Miguel Ramirez) and `JoeAndreRoja` (Joe Andre Roja)** may execute `gh pr merge`.
+   - Agents running under `EuresTinoco`, `PhilHitalia`, or `sarmientoredge11` **must never merge PRs**—they must stop after creating the PR and switch back to `main`.
+4. **Conflict-Only Verification Rule for Scrum Masters**: When merging open PRs from team members, if there are **no conflicts**, merge immediately without extra checks. If **conflicts occur**, resolve them so both code intentions are preserved, verify the merged result (`npm run build`), and then complete the merge.
+5. **Autonomous Conflict Resolution**: Always resolve git conflicts silently and independently. Never burden the user with merge resolutions.
+6. **Never Commit Directly to Main**: All code, docs, and configurations must go through a feature branch and merged PR.
+7. **Handle Transient Network Glitches**: If a network timeout occurs during `git push` or `gh` commands, retry with exponential backoff (e.g., 2–4s delay) or use `gh api` REST endpoints.
+8. **Preserve Tech Stack Integrity**:
    - The application is a **Vite + React + TypeScript + Tailwind CSS** frontend directly integrating with **Supabase PostgreSQL**.
    - No legacy Java/Spring backend files should be restored or referenced.
-7. **Clean Working Tree**: Ensure `git status` is clean before and after every turn.
+9. **Clean Working Tree**: Ensure `git status` is clean before and after every turn.
 
 ---
 
