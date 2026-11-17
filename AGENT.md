@@ -1,7 +1,7 @@
 # AGENT.md: Repository Agent Guidelines & Workflow
 
 ## Core Directive
-All Antigravity / Gemini agents operating in this repository must execute code and documentation changes using the **Strict Issue + PR Workflow Pipeline** detailed below. Changes must **never** be committed directly to `main`, and **every** change must be accompanied by a corresponding **GitHub Issue** and **Pull Request** formatted with the committer's standardized task code:
+All Antigravity / Gemini agents operating in this repository must execute code and documentation changes using the **Strict Issue + PR Workflow Pipeline** modeled after the regulated Sprint 1 history (`#1`–`#59`). Changes must **never** be committed directly to `main`, and **every** change must be accompanied by a corresponding **GitHub Issue** and **Pull Request** formatted with the committer's standardized task code:
 
 ```text
 [S<sprint_number>-<ROLE>-<count>]
@@ -9,30 +9,28 @@ All Antigravity / Gemini agents operating in this repository must execute code a
 
 - **Current Active Sprint Number:** `2` (`S2`)
 - Every requested modification must:
-  1. Identify the active committer and compute their next `[S2-<ROLE>-<COUNT>]` task code.
-  2. Create (or link an existing) GitHub Issue following the standardized **Issue Template**.
+  1. Identify the active committer (`gh api user --jq .login`) and compute their next `[S2-<ROLE>-<COUNT>]` task code.
+  2. Create (or link an existing) GitHub Issue following the standardized **Issue Template** (`#1`–`#29` format) and assign it to the committer.
   3. Process changes on an isolated feature branch (`feature/S2-<ROLE>-<COUNT>-<short-description>`).
-  4. Commit with `[S2-<ROLE>-<COUNT>] <Description>`.
-  5. Push and open a Pull Request following the standardized **PR Template** that references and closes the Issue (`Closes #<issue_number>`).
+  4. Commit with `[S2-<ROLE>-<COUNT>] <Task Title>`.
+  5. Push and open a Pull Request following the standardized **PR Template** (`#30`–`#59` format) with the **exact same title** as the Issue and `Closes Issue: #<issue_number>`.
   6. Merge the PR immediately and sync local `main` to avoid merge conflicts and satisfy project Issue & PR quota requirements.
 
 ---
 
 ## Team Member Role Codes & Sprint 2 Counter Tracker
 
-Each team member's task code `[S2-<ROLE>-<COUNT>]` depends on who is committing (`gh api user --jq .login`). Always check the active GitHub CLI account and existing Issues/PRs to determine the next sequential `<COUNT>` (zero-padded to 2 digits: `01`, `02`, `03`, ...).
+Derived from the regulated `#1`–`#59` Sprint 1 Issues and Pull Requests, each team member has a fixed **Role Code**, **Role Title**, and **GitHub Label** based on who commits (`gh api user --jq .login`):
 
 ### 1. Committer Lookup Table
 
-| GitHub Username (`gh`) | Team Member Name | Role Code | Role Title (Issue Body) | GitHub Role Label | Sprint 1 History | Sprint 2 Baseline (as of PR #124) | Next Sprint 2 Code |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `GN68` | **Marc Miguel Ramirez** | `SM` *(or `DBA`)* | `Scrum Master` *(or `DB Admin`)* | `role:scrum-master` *(or `role:dba`)* | `S1-DBA-01`–`07`, `S1-SM-06` *(+ bulk `S1-DEV-09`–`20`)* | `S2-SM-01` / `S2-DBA-00` | `[S2-SM-02]` / `[S2-DBA-01]` |
-| `JoeAndreRoja` | **Joe Andre Roja** | `DBA` *(or `SM`)* | `DB Admin` *(or `Scrum Master`)* | `role:dba` *(or `role:scrum-master`)* | `S1-SM-02`–`05` *(+ `S1-UIX` logos)* | `S2-DBA-00` / `S2-SM-00` | `[S2-DBA-01]` / `[S2-SM-01]` |
-| `EuresTinoco` | **Eures Nivrem Tinoco** | `DEV` | `Developer` | `role:developer` | `S1-DEV-01`–`08` *(+ `09`–`20`)* | `S2-DEV-00` | `[S2-DEV-01]` |
-| `PhilHitalia` | **Phil Emmanuel Hitalia** | `UIX` | `UI/UX Designer` | `role:ui/ux` | `S1-UIX-01`–`05` | `S2-UIX-00` | `[S2-UIX-01]` |
-| `sarmientoredge11` | **Redge Rainier Sarmiento** | `TST` | `Tester` | `role:tester` | `S1-TST-01`–`06` | `S2-TST-01`–`06` *(+ `S3-TST-01`–`03`)* | `[S2-TST-07]` |
-
-> **Note on `GN68` & `JoeAndreRoja` Role Swap:** In Sprint 1 Issues/PRs (#31–#63), `GN68` (Marc Miguel Ramirez) committed `DBA` tasks and `JoeAndreRoja` (Joe Andre Roja) committed `SM` tasks. In PR #106, their roles in `README.md` were swapped (`Marc Miguel Ramirez` -> `Scrum Master` / `SM`; `Joe Andre Roja` -> `DB Admin` / `DBA`). Either code (`SM` or `DBA`) is valid for these two accounts based on the nature of the task—always query GitHub dynamically using the snippet below so counts never collide.
+| GitHub Username (`gh`) | Team Member Name (`Assignee` / `Author`) | Role Code | Role Title (Issue Body) | GitHub Role Label | Regulated Sprint 1 Issues & PRs (`#1`–`#59`) | Next Sprint 2 Task ID |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `JoeAndreRoja` | **Joe Andre Roja** | `SM` | `Scrum Master` | `role:scrum-master` | Issues `#1`–`#4` \| PRs `#32, #36, #41, #47` (`S1-SM-02`–`05`) | `[S2-SM-01]` *(increment sequentially)* |
+| `GN68` | **Marc Miguel Ramirez** | `DBA` | `DB Admin` | `role:dba` | Issues `#5`–`#10` \| PRs `#31, #34, #40, #43, #44, #45` (`S1-DBA-01`–`06`) | `[S2-DBA-01]` *(increment sequentially)* |
+| `EuresTinoco` | **Eures Nivrem Tinoco** | `DEV` | `Developer` | `role:developer` | Issues `#11`–`#18` \| PRs `#30, #35, #39, #42, #55, #56, #57, #59` (`S1-DEV-01`–`08`) | `[S2-DEV-01]` *(increment sequentially)* |
+| `PhilHitalia` | **Phil Emmanuel Hitalia** | `UIX` | `UI/UX Designer` | `role:ui/ux` | Issues `#19`–`#23` \| PRs `#33, #37, #38, #48` (`S1-UIX-01`–`05`) | `[S2-UIX-01]` *(increment sequentially)* |
+| `sarmientoredge11` | **Redge Rainier Sarmiento** | `TST` | `Tester` | `role:tester` | Issues `#24`–`#29` \| PRs `#49`–`#54` (`S1-TST-01`–`06`) | `[S2-TST-01]` *(increment sequentially)* |
 
 ### 2. Automatic Next-Count Detection Snippet
 Before creating an Issue or branch, run this command to dynamically verify the active GitHub user and find the next available `S2-<ROLE>-<COUNT>` across all remote Issues and PRs:
@@ -43,8 +41,8 @@ import json, re, subprocess
 
 login = subprocess.check_output(["gh", "api", "user", "--jq", ".login"], text=True).strip()
 role_map = {
-    "GN68": ("SM", "Scrum Master", "Marc Miguel Ramirez", "role:scrum-master"),
-    "JoeAndreRoja": ("DBA", "DB Admin", "Joe Andre Roja", "role:dba"),
+    "JoeAndreRoja": ("SM", "Scrum Master", "Joe Andre Roja", "role:scrum-master"),
+    "GN68": ("DBA", "DB Admin", "Marc Miguel Ramirez", "role:dba"),
     "EuresTinoco": ("DEV", "Developer", "Eures Nivrem Tinoco", "role:developer"),
     "PhilHitalia": ("UIX", "UI/UX Designer", "Phil Emmanuel Hitalia", "role:ui/ux"),
     "sarmientoredge11": ("TST", "Tester", "Redge Rainier Sarmiento", "role:tester"),
@@ -64,24 +62,25 @@ EOF
 
 ---
 
-## Standardized Issue, Branch, Commit & PR Templates
+## Standardized Issue, Branch, Commit & PR Templates (`#1`–`#59` Standard)
 
-All future workflows **must** use these exact templates derived from the repository's Sprint 1 & Sprint 2 Issue/PR conventions:
+All future workflows **must** strictly follow these templates modeled directly after Issues `#1`–`#29` and Pull Requests `#30`–`#59`:
 
 ### 1. GitHub Issue Template
 - **Issue Title:**
   ```text
-  [S2-<ROLE>-<COUNT>] <Short imperative task title>
+  [S2-<ROLE>-<COUNT>] <Task Title>
   ```
+- **Issue Assignee:** `--assignee <github_login>`
 - **Issue Labels:**
-  `sprint:2`, `priority:medium` *(or `priority:high` / `priority:low`)*, `<role_label>` *(e.g. `role:developer`, `role:ui/ux`, `role:dba`, `role:scrum-master`, `role:tester`)*
+  `sprint:2`, `priority:high` *(or `priority:medium` / `priority:low`)*, `<role_label>` *(e.g. `role:scrum-master`, `role:dba`, `role:developer`, `role:ui/ux`, `role:tester`)*
 - **Issue Body:**
   ```markdown
   ### Task ID: S2-<ROLE>-<COUNT>
-  **Role:** <Role Title> | **Assignee:** <Full Name> | **Due:** Week 3, Sprint Day 5
+  **Role:** <Role Title> | **Assignee:** <Full Name> | **Due:** Week <W>, Sprint Day <D>
 
   ### Description:
-  <Clear description of the feature, fix, test suite, schema change, or documentation update.>
+  <Concise description of the deliverables to implement.>
   ```
 
 ### 2. Feature Branch Template
@@ -89,40 +88,36 @@ All future workflows **must** use these exact templates derived from the reposit
   ```text
   feature/S2-<ROLE>-<COUNT>-<kebab-case-short-description>
   ```
-- **Examples:**
-  - `feature/S2-DEV-01-customer-crud-validation`
-  - `feature/S2-UIX-01-dark-mode-polish`
-  - `feature/S2-DBA-01-price-history-indexes`
-  - `feature/S2-SM-01-agent-issue-pr-templates`
-  - `feature/S2-TST-07-sales-module-tests`
+- **Examples (modeled on `#30`–`#59`):**
+  - `feature/S2-SM-01-sprint-2-board`
+  - `feature/S2-DBA-01-customer-product-schema`
+  - `feature/S2-DEV-01-customer-crud-api`
+  - `feature/S2-UIX-01-customer-product-mockups`
+  - `feature/S2-TST-01-customer-test-cases`
 
 ### 3. Commit Message Template
 - **Format:**
   ```text
-  [S2-<ROLE>-<COUNT>] <Brief imperative description of changes>
+  [S2-<ROLE>-<COUNT>] <Task Title>
   ```
 
 ### 4. Pull Request Template
-- **PR Title:**
+- **PR Title (matches Issue Title):**
   ```text
-  [S2-<ROLE>-<COUNT>] <Short imperative task title>
+  [S2-<ROLE>-<COUNT>] <Task Title>
   ```
-- **PR Body:**
+- **PR Body (matches `#30`–`#59`):**
   ```markdown
   ## Sprint Task Reference
-  - **Task ID:** [S2-<ROLE>-<COUNT>]
+  - **Task ID:** S2-<ROLE>-<COUNT>
   - **Sprint:** Sprint 2
   - **Author:** <Full Name>
   - **Closes Issue:** #<issue_number>
 
   ## Summary of Changes
-  - Implemented deliverables for **[S2-<ROLE>-<COUNT>] <Short imperative task title>**
-  - <Summary bullet 1 / modified file paths>
-  - <Summary bullet 2>
-
-  ## Verification
-  - Frontend build / lint verified
-  - Zero merge conflicts
+  - Implemented deliverables for **[S2-<ROLE>-<COUNT>] <Task Title>**
+  - `<modified-file-path-1>`
+  - `<modified-file-path-2>`
   ```
 
 ---
@@ -143,9 +138,10 @@ Identify the active user's role code and next sequential Sprint 2 number (`S2-<R
 ```bash
 gh issue create \
   --title "[S2-<ROLE>-<COUNT>] <Task Title>" \
-  --label "sprint:2,priority:medium,<role_label>" \
+  --assignee "<github_login>" \
+  --label "sprint:2,priority:high,<role_label>" \
   --body "### Task ID: S2-<ROLE>-<COUNT>
-**Role:** <Role Title> | **Assignee:** <Full Name> | **Due:** Week 3, Sprint Day 5
+**Role:** <Role Title> | **Assignee:** <Full Name> | **Due:** Week 3, Sprint Day 1
 
 ### Description:
 <Detailed description of the task deliverables.>"
@@ -162,7 +158,7 @@ git checkout -b feature/S2-<ROLE>-<COUNT>-<short-description>
 Make the required edits to files cleanly and stage them:
 ```bash
 git add <modified-files>
-git commit -m "[S2-<ROLE>-<COUNT>] <Brief imperative description of changes>"
+git commit -m "[S2-<ROLE>-<COUNT>] <Task Title>"
 ```
 
 ### 5. Push Branch to Origin
@@ -179,19 +175,15 @@ gh pr create \
   --head feature/S2-<ROLE>-<COUNT>-<short-description> \
   --title "[S2-<ROLE>-<COUNT>] <Task Title>" \
   --body "## Sprint Task Reference
-- **Task ID:** [S2-<ROLE>-<COUNT>]
+- **Task ID:** S2-<ROLE>-<COUNT>
 - **Sprint:** Sprint 2
 - **Author:** <Full Name>
 - **Closes Issue:** #<issue_number>
 
 ## Summary of Changes
 - Implemented deliverables for **[S2-<ROLE>-<COUNT>] <Task Title>**
-- <Summary bullet 1>
-- <Summary bullet 2>
-
-## Verification
-- Frontend build / lint verified
-- Zero merge conflicts"
+- \`<modified-file-1>\`
+- \`<modified-file-2>\`"
 ```
 *(If `gh pr create` encounters GraphQL network timeouts, fall back to `gh api repos/Pampanga-West/baikolano-website/pulls`).*
 
@@ -242,7 +234,7 @@ If a conflict arises at **any point** in the workflow (during `git pull`, rebasi
 ## Operational Rules for Agents
 
 1. **Fast Autonomous Execution**: Execute all 7 steps sequentially without pausing or asking for user confirmation between steps unless required credentials or requirements are missing.
-2. **Mandatory Issue + PR Pairing**: Always create or link a `[S2-<ROLE>-<COUNT>]` GitHub Issue before submitting the Pull Request so the board and PR history stay synchronized.
+2. **Mandatory Issue + PR Pairing**: Always create or link a `[S2-<ROLE>-<COUNT>]` GitHub Issue before submitting the Pull Request so the board and PR history match the regulated `#1`–`#59` standard.
 3. **Autonomous Conflict Resolution**: Always resolve git conflicts silently and independently. Never burden the user with merge resolutions.
 4. **Never Commit Directly to Main**: All code, docs, and configurations must go through a feature branch and merged PR.
 5. **Handle Transient Network Glitches**: If a network timeout occurs during `git push` or `gh` commands, retry with exponential backoff (e.g., 2–4s delay) or use `gh api` REST endpoints.
@@ -253,64 +245,43 @@ If a conflict arises at **any point** in the workflow (during `git pull`, rebasi
 
 ---
 
-## Reference Archive: Pull Requests (#59–#124) & Corresponding GitHub Issues
+## Regulated Reference Archive: `#59` Down to `#1` (PRs `#59`–`#30` & Issues `#29`–`#1`)
 
-Below is the complete historical reference of all Pull Requests starting from **PR #59** alongside their branch names, authors, PR titles/bodies, and corresponding GitHub Issues.
+Below is the complete archive of the regulated Sprint 1 Pull Requests (`#59` down to `#30`) paired with their corresponding GitHub Issues (`#29` down to `#1`), including exact titles, branch names, bodies, labels, and file deliverables.
 
-### Part A: Issue-Linked Sprint PRs (#59–#99)
+### 1. Pull Requests `#59` Down to `#30` & Corresponding Issues (`#1`–`#29`)
 
-| PR # | Author (`gh`) | Branch Name (`headRefName`) | PR & Issue Title | Linked Issue # & Labels | Issue Body (`Task ID`, `Role`, `Assignee`, `Due`, `Description`) | PR Body Summary |
+| PR # | Author (`gh`) | Branch Name (`headRefName`) | PR & Issue Title | Corresponding Issue # & Labels | Issue Body (`Task ID`, `Role`, `Assignee`, `Due`, `Description`) | PR Body (`Sprint Task Reference` & `Summary of Changes`) |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **#59** | `EuresTinoco` | `feature/S1-DEV-08-main-page-permissions` | `[S1-DEV-08] Main page: sidebar and module tiles by role and rights, plus server-side permission check` | **Issue #18** (`priority:high`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-08`<br>**Role:** Developer \| **Assignee:** Eures Nivrem Tinoco \| **Due:** Week 2, Sprint Day 9<br>**Description:** Main workspace layout: sidebar and dashboard module tiles rendered according to authenticated role, plus server-side permission checks. | **Task ID:** `S1-DEV-08` \| **Sprint:** Sprint 1 \| **Author:** EuresTinoco \| **Closes Issue:** `#18` (`#59` in text)<br>- Implemented deliverables for `[S1-DEV-08]` (`WorkspaceLayout.tsx`, `DashboardPage.tsx`) |
-| **#60** | `PhilHitalia` | `feature/S1-UIX-01-design-system` | `[S1-UIX-05] Usability review of built screens and fix list` | **Issue #23** (`priority:low`, `sprint:1`, `role:ui/ux`) | **Task ID:** `S1-UIX-05`<br>**Role:** UI/UX Designer \| **Assignee:** Phil Emmanuel Hitalia \| **Due:** Week 2, Sprint Day 9<br>**Description:** Conduct usability review of built screens, verify role display clarity, layout responsiveness, and document styling fix list. | **Task ID:** `S1-UIX-05` \| **Sprint:** Sprint 1 \| **Author:** Phil Emmanuel Hitalia \| **Closes Issue:** `#23`<br>- Added formal Sprint 1 Usability Review document (`sprint1-ui-ux-usability-review.md`) |
-| **#62** | `JoeAndreRoja` | `feature/S1-SM-04-mid-sprint-check` | `[S1-SM-04] Mid-sprint check notes and impediment log` | **Issue #3** (`priority:medium`, `sprint:1`, `role:scrum-master`) | **Task ID:** `S1-SM-04`<br>**Role:** Scrum Master \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Conduct mid-sprint review, record impediment log, and track sprint progress. | **Task ID:** `[S1-SM-04]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#3` |
-| **#63**<br>*(#64, #65)* | `JoeAndreRoja` | `feature/S1-SM-05-sprint-review` | `[S1-SM-05] Sprint 1 review and retrospective report` | **Issue #4** (`priority:low`, `sprint:1`, `role:scrum-master`) | **Task ID:** `S1-SM-05`<br>**Role:** Scrum Master \| **Assignee:** Joe Andre Roja \| **Due:** Week 2, Sprint Day 10<br>**Description:** Document Sprint 1 review, retrospective summary report, and prepare Sprint 2 backlog items. | **Task ID:** `[S1-SM-05]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#4` *(PR #64 reverted #63; PR #65 restored #63)* |
-| **#68** | `GN68` | `feature/S1-TST-02-auth-test-suites` | `[S1-TST-02] Authentication and session test suite expansion` | **Issue #67** (`priority:medium`, `sprint:1`, `role:tester`) | **Task ID:** `S1-TST-02`<br>**Role:** Tester \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Expand test cases covering session invalidation, concurrent logins, and token expiration handling. | **Task ID:** `[S1-TST-02]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#67`<br>- Added integration test documentation and test scenarios for authentication flows. |
-| **#70** | `GN68` | `feature/S1-DEV-05-input-sanitization` | `[S1-DEV-05] Implement input sanitization and payload validation` | **Issue #69** (`priority:medium`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-05`<br>**Role:** Developer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Add input validation and sanitization rules for user management and authentication payloads. | **Task ID:** `[S1-DEV-05]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#69`<br>- Implemented payload sanitization standards and documentation. |
-| **#72** | `GN68` | `feature/S1-UIX-02-accessibility-enhancements` | `[S1-UIX-02] Accessibility attributes and contrast adjustments` | **Issue #71** (`priority:medium`, `sprint:1`, `role:ui/ux`) | **Task ID:** `S1-UIX-02`<br>**Role:** UI/UX Designer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Improve ARIA labels, keyboard navigation focus rings, and contrast ratios across authentication modals. | **Task ID:** `[S1-UIX-02]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#71`<br>- Enhanced accessibility in modal components with aria-labels. |
-| **#74** | `GN68` | `feature/S1-DBA-07-indexing-optimization` | `[S1-DBA-07] Add database index documentation and migration notes` | **Issue #73** (`priority:low`, `sprint:1`, `role:dba`) | **Task ID:** `S1-DBA-07`<br>**Role:** Database Admin \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Document database indexes and add schema performance tuning guidelines. | **Task ID:** `[S1-DBA-07]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#73`<br>- Documented key database indexing strategies and tuning guidelines. |
-| **#76** | `GN68` | `feature/S1-SM-06-sprint-velocity-metrics` | `[S1-SM-06] Sprint 1 velocity tracking and burndown summary` | **Issue #75** (`priority:medium`, `sprint:1`, `role:scrum-master`) | **Task ID:** `S1-SM-06`<br>**Role:** Scrum Master \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Document sprint 1 velocity, completion metrics, and burndown chart analysis. | **Task ID:** `[S1-SM-06]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#75`<br>- Added Sprint 1 velocity metrics and burndown analysis. |
-| **#78** | `GN68` | `feature/S1-DEV-09-standardize-api-error-responses` | `[S1-DEV-09] Standardize API error response format` | **Issue #77** (`priority:medium`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-09`<br>**Role:** Developer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Define consistent JSON payload structure for REST API error responses including code, message, and timestamp. | **Task ID:** `[S1-DEV-09]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#77`<br>- Standardized error response payload schema across controllers. |
-| **#80** | `GN68` | `feature/S1-DEV-10-cors-and-origin-policy` | `[S1-DEV-10] Configure CORS and allowed origin policies` | **Issue #79** (`priority:medium`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-10`<br>**Role:** Developer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Establish strict CORS origin whitelist and allowed headers configuration for web clients. | **Task ID:** `[S1-DEV-10]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#79`<br>- Configured CORS origin restrictions and security headers. |
-| **#82** | `GN68` | `feature/S1-DEV-11-secure-cookie-flags` | `[S1-DEV-11] Enforce Secure and HttpOnly cookie flags` | **Issue #81** (`priority:medium`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-11`<br>**Role:** Developer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Ensure session cookies are issued with HttpOnly, Secure, and SameSite=Lax flags by default. | **Task ID:** `[S1-DEV-11]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#81`<br>- Enforced HttpOnly and SameSite cookie attributes. |
-| **#84** | `GN68` | `feature/S1-DEV-12-password-complexity-rules` | `[S1-DEV-12] Implement password complexity validation` | **Issue #83** (`priority:medium`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-12`<br>**Role:** Developer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Add password validator requiring minimum length, uppercase, lowercase, numbers, and symbols. | **Task ID:** `[S1-DEV-12]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#83`<br>- Added password complexity checks and validation error messaging. |
-| **#86** | `GN68` | `feature/S1-DEV-13-rate-limiting-auth-endpoints` | `[S1-DEV-13] Add rate limiting helpers for authentication routes` | **Issue #85** (`priority:medium`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-13`<br>**Role:** Developer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Implement in-memory rate limiting guards on sign-in and password reset endpoints to mitigate brute force attacks. | **Task ID:** `[S1-DEV-13]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#85`<br>- Added rate limiter helper and IP-based request throttling. |
-| **#88** | `GN68` | `feature/S1-DEV-14-session-renewal-mechanism` | `[S1-DEV-14] Implement sliding session renewal logic` | **Issue #87** (`priority:medium`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-14`<br>**Role:** Developer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Refresh session expiration timestamp on active user API requests. | **Task ID:** `[S1-DEV-14]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#87`<br>- Implemented sliding session activity extension logic. |
-| **#90** | `GN68` | `feature/S1-DEV-15-user-status-filter-helper` | `[S1-DEV-15] Add user status filtering query utility` | **Issue #89** (`priority:medium`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-15`<br>**Role:** Developer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Create reusable query builder helper to filter users by Active, Pending, and Suspended states. | **Task ID:** `[S1-DEV-15]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#89`<br>- Added user status filtering utility functions. |
-| **#92** | `GN68` | `feature/S1-DEV-16-avatar-upload-validator` | `[S1-DEV-16] Implement profile avatar size and MIME validator` | **Issue #91** (`priority:medium`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-16`<br>**Role:** Developer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Validate uploaded avatar file sizes under 2MB and restrict formats to JPEG, PNG, and WebP. | **Task ID:** `[S1-DEV-16]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#91`<br>- Added MIME type and file size validation for profile images. |
-| **#94** | `GN68` | `feature/S1-DEV-17-phone-number-sanitizer` | `[S1-DEV-17] Add phone number normalization and formatting helper` | **Issue #93** (`priority:medium`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-17`<br>**Role:** Developer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Standardize phone number inputs to E.164 international format before database persistence. | **Task ID:** `[S1-DEV-17]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#93`<br>- Added E.164 phone normalization and validation helper. |
-| **#96** | `GN68` | `feature/S1-DEV-18-email-verification-token-helper` | `[S1-DEV-18] Implement email verification token generator` | **Issue #95** (`priority:medium`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-18`<br>**Role:** Developer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Generate cryptographically secure tokens for email activation workflows. | **Task ID:** `[S1-DEV-18]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#95`<br>- Implemented secure random token generation for account verification. |
-| **#98** | `GN68` | `feature/S1-DEV-19-jwt-claims-parser-utility` | `[S1-DEV-19] Create JWT claims parser and audience check` | **Issue #97** (`priority:medium`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-19`<br>**Role:** Developer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Add token claim inspection helper to verify audience, issuer, and expiration timestamps. | **Task ID:** `[S1-DEV-19]` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#97`<br>- Added JWT claims extraction and validation helpers. |
-| *(N/A)* | `GN68` | *(Issue #99 only)* | `[S1-DEV-20] Add active session count monitoring query` | **Issue #99** (`priority:medium`, `role:developer`, `sprint:1`) | **Task ID:** `S1-DEV-20`<br>**Role:** Developer \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Implement repository query to retrieve count of concurrent active user sessions. | *(Closed issue without separate PR)* |
+| **#59** | `EuresTinoco`<br>*(Eures Nivrem Tinoco)* | `feature/S1-DEV-08-main-page-permissions` | `[S1-DEV-08] Main page: sidebar and module tiles by role and rights, plus server-side permission check` | **Issue #18**<br>`priority:high`, `role:developer`, `sprint:1` | **Task ID:** `S1-DEV-08`<br>**Role:** Developer \| **Assignee:** Eures Nivrem Tinoco \| **Due:** Week 2, Sprint Day 9<br>**Description:** Main workspace layout: sidebar and dashboard module tiles rendered according to authenticated role, plus server-side permission checks. | **Task ID:** `S1-DEV-08` \| **Sprint:** Sprint 1 \| **Author:** EuresTinoco \| **Closes Issue:** `#18`<br>- Implemented deliverables for **[S1-DEV-08] Main page: sidebar and module tiles by role and rights, plus server-side permission check**<br>- `frontend/src/layouts/WorkspaceLayout.tsx`<br>- `frontend/src/pages/DashboardPage.tsx` |
+| **#58** | `PhilHitalia`<br>*(Phil Emmanuel Hitalia)* | `feature/S1-UIX-01-design-system` | `feat: initialize React config and implement Profile settings UI` | *(Supporting PR for UIX)* | — | **Sprint:** Sprint 1 \| **Author:** `@PhilHitalia`<br>- Set up core project configuration (Vite, TypeScript, package dependencies)<br>- Implement `ProfilePage.tsx`, `index.html`, `package.json`, `tsconfig.json`, `vite.config.ts`, `main.tsx` |
+| **#57** | `EuresTinoco`<br>*(Eures Nivrem Tinoco)* | `feature/S1-DEV-07-rights-dialog` | `[S1-DEV-07] Rights dialog: assign per-action rights by module with audit_log recording` | **Issue #17**<br>`priority:high`, `role:developer`, `sprint:1` | **Task ID:** `S1-DEV-07`<br>**Role:** Developer \| **Assignee:** Eures Nivrem Tinoco \| **Due:** Week 2, Sprint Day 9<br>**Description:** Rights assignment dialog: toggle 36 rights across 5 modules (Customer, Product, Human Resources, Sales, Reports) with All/None buttons, saving to database and recording in audit_log. | **Task ID:** `S1-DEV-07` \| **Sprint:** Sprint 1 \| **Author:** EuresTinoco \| **Closes Issue:** `#17`<br>- Implemented deliverables for **[S1-DEV-07] Rights dialog: assign per-action rights by module with audit_log recording**<br>- `frontend/src/components/RightsModal.tsx`<br>- `frontend/src/lib/data.ts` |
+| **#56** | `EuresTinoco`<br>*(Eures Nivrem Tinoco)* | `feature/S1-DEV-06-superadmin-safeguards` | `[S1-DEV-06] Superadmin: approve pending users and designate admins; last-superadmin safeguard` | **Issue #16**<br>`priority:high`, `role:developer`, `sprint:1` | **Task ID:** `S1-DEV-06`<br>**Role:** Developer \| **Assignee:** Eures Nivrem Tinoco \| **Due:** Week 2, Sprint Day 8<br>**Description:** Superadmin features to approve pending registrations and toggle roles. Guard against removing, deleting, or disabling the last active Superadmin. | **Task ID:** `S1-DEV-06` \| **Sprint:** Sprint 1 \| **Author:** EuresTinoco \| **Closes Issue:** `#16`<br>- Implemented deliverables for **[S1-DEV-06] Superadmin: approve pending users and designate admins; last-superadmin safeguard**<br>- `backend/src/main/java/top/gnon/backend/user/UserController.java` |
+| **#55** | `EuresTinoco`<br>*(Eures Nivrem Tinoco)* | `feature/S1-DEV-05-user-management-screen` | `[S1-DEV-05] User Management screen: user list, Add User, Edit User, Block/Unblock` | **Issue #15**<br>`priority:high`, `role:developer`, `sprint:1` | **Task ID:** `S1-DEV-05`<br>**Role:** Developer \| **Assignee:** Eures Nivrem Tinoco \| **Due:** Week 2, Sprint Day 8<br>**Description:** User Management screen: live user table, Add User modal, Edit User modal, and Block/Unblock toggle. Admin manages Users only; Superadmin accounts hidden from Admin. | **Task ID:** `S1-DEV-05` \| **Sprint:** Sprint 1 \| **Author:** EuresTinoco \| **Closes Issue:** `#15`<br>- Implemented deliverables for **[S1-DEV-05] User Management screen: user list, Add User, Edit User, Block/Unblock**<br>- `frontend/src/pages/UserManagementPage.tsx`<br>- `frontend/src/lib/types.ts` |
+| **#54** | `sarmientoredge11`<br>*(Redge Rainier D. Sarmiento)* | `feature/S1-TST-06-bug-verification` | `[S1-TST-06] Bug reports and fix verification` | **Issue #29**<br>`priority:medium`, `sprint:1`, `role:tester` | **Task ID:** `S1-TST-06`<br>**Role:** Tester \| **Assignee:** Redge Rainier Sarmiento \| **Due:** Week 2, Sprint Day 9<br>**Description:** Log bug reports, verify regression fixes, and certify Sprint 1 readiness. | **Task ID:** `S1-TST-06` \| **Sprint:** Sprint 1 \| **Author:** Redge Rainier D. Sarmiento \| **Closes Issue:** `#29`<br>- Implemented deliverables for **[S1-TST-06] Bug reports and fix verification**<br>- `docs/sprint-1/S1-TST-06-bug-verification-report.md` |
+| **#53** | `sarmientoredge11`<br>*(Redge Rainier D. Sarmiento)* | `feature/S1-TST-05-smoke-test` | `[S1-TST-05] Automated smoke test: login and main page` | **Issue #28**<br>`priority:medium`, `sprint:1`, `role:tester` | **Task ID:** `S1-TST-05`<br>**Role:** Tester \| **Assignee:** Redge Rainier Sarmiento \| **Due:** Week 2, Sprint Day 9<br>**Description:** Implement automated smoke tests verifying health of login API and initial dashboard loading. | **Task ID:** `S1-TST-05` \| **Sprint:** Sprint 1 \| **Author:** Redge Rainier D. Sarmiento \| **Closes Issue:** `#28`<br>- Implemented deliverables for **[S1-TST-05] Automated smoke test: login and main page**<br>- `backend/test scripts/Smoke test.js` |
+| **#52** | `sarmientoredge11`<br>*(Redge Rainier D. Sarmiento)* | `feature/S1-TST-04-permission-matrix-tests` | `[S1-TST-04] Permission matrix tests (superadmin/admin/user x each right)` | **Issue #27**<br>`priority:high`, `sprint:1`, `role:tester` | **Task ID:** `S1-TST-04`<br>**Role:** Tester \| **Assignee:** Redge Rainier Sarmiento \| **Due:** Week 2, Sprint Day 9<br>**Description:** Test permission matrix across roles (superadmin, admin, user) ensuring menus, buttons, and endpoints enforce assigned rights. | **Task ID:** `S1-TST-04` \| **Sprint:** Sprint 1 \| **Author:** Redge Rainier D. Sarmiento \| **Closes Issue:** `#27`<br>- Implemented deliverables for **[S1-TST-04] Permission matrix tests (superadmin/admin/user x each right)**<br>- `backend/test scripts/Permission Matrix tests.js` |
+| **#51** | `sarmientoredge11`<br>*(Redge Rainier D. Sarmiento)* | `feature/S1-TST-03-user-management-tests` | `[S1-TST-03] Test cases: User Management (add, edit, block/unblock, approve, designate admin; last-superadmin guard)` | **Issue #26**<br>`priority:high`, `sprint:1`, `role:tester` | **Task ID:** `S1-TST-03`<br>**Role:** Tester \| **Assignee:** Redge Rainier Sarmiento \| **Due:** Week 2, Sprint Day 8<br>**Description:** Test user CRUD operations, block/unblock states, admin role designation, and verify that the last Superadmin cannot be demoted or disabled. | **Task ID:** `S1-TST-03` \| **Sprint:** Sprint 1 \| **Author:** Redge Rainier D. Sarmiento \| **Closes Issue:** `#26`<br>- Implemented deliverables for **[S1-TST-03] Test cases: User Management (add, edit, block/unblock, approve, designate admin; last-superadmin guard)**<br>- `backend/test scripts/User Management tests.js` |
+| **#50** | `sarmientoredge11`<br>*(Redge Rainier D. Sarmiento)* | `feature/S1-TST-02-auth-test-cases` | `[S1-TST-02] Test cases: register, login and logout, set and reset password (expired and reused token)` | **Issue #25**<br>`priority:high`, `sprint:1`, `role:tester` | **Task ID:** `S1-TST-02`<br>**Role:** Tester \| **Assignee:** Redge Rainier Sarmiento \| **Due:** Week 2, Sprint Day 7<br>**Description:** Execute and automate test cases: registration validation, session login and logout, and password reset (verifying expired and reused token prevention). | **Task ID:** `S1-TST-02` \| **Sprint:** Sprint 1 \| **Author:** Redge Rainier D. Sarmiento \| **Closes Issue:** `#25`<br>- Implemented deliverables for **[S1-TST-02] Test cases: register, login and logout, set and reset password (expired and reused token)**<br>- `backend/test scripts/Register test.js`, `Registration Validation tests.js`, `Login test.js`, `Log in log out test.js` |
+| **#49** | `sarmientoredge11`<br>*(Redge Rainier D. Sarmiento)* | `feature/S1-TST-01-test-plan` | `[S1-TST-01] Sprint 1 test plan and acceptance criteria` | **Issue #24**<br>`priority:high`, `sprint:1`, `role:tester` | **Task ID:** `S1-TST-01`<br>**Role:** Tester \| **Assignee:** Redge Rainier Sarmiento \| **Due:** Week 1, Sprint Day 3<br>**Description:** Define Sprint 1 test plan, acceptance criteria, and test scenarios across authentication and user management. | **Task ID:** `S1-TST-01` \| **Sprint:** Sprint 1 \| **Author:** Redge Rainier D. Sarmiento \| **Closes Issue:** `#24`<br>- Implemented deliverables for **[S1-TST-01] Sprint 1 test plan and acceptance criteria**<br>- `backend/src/test/java/top/gnon/backend/BackendApplicationTests.java`<br>- `docs/sprint-1/S1-TST-01-test-plan.md` |
+| **#48** | `PhilHitalia`<br>*(Phil Emmanuel Hitalia)* | `feature/S1-UIX-01-design-system` | `[S1-UIX-04] Hi-fi mockups and developer handoff notes` | **Issue #22**<br>`priority:high`, `sprint:1`, `role:ui/ux` | **Task ID:** `S1-UIX-04`<br>**Role:** UI/UX Designer \| **Assignee:** Phil Emmanuel Hitalia \| **Due:** Week 2, Sprint Day 6<br>**Description:** High-fidelity mockups for main page, User Management, Rights dialog, read-only role badge, and developer handoff notes. | **Task ID:** `S1-UIX-04` \| **Sprint:** Sprint 1 \| **Author:** Phil Emmanuel Hitalia \| **Closes Issue:** `#22`<br>- Added `docs/ui design/Hi-fi mockup 1.md`<br>- `CustomersPage.tsx`, `ProductsPage.tsx`, `HumanResourcesPage.tsx`, `SalesPage.tsx`, `ReportsPage.tsx` |
+| **#47** | `JoeAndreRoja`<br>*(Joe Andre Roja)* | `feature/S1-SM-05-sprint-review` | `[S1-SM-05] Sprint 1 review and retrospective report` | **Issue #4**<br>`priority:low`, `sprint:1`, `role:scrum-master` | **Task ID:** `S1-SM-05`<br>**Role:** Scrum Master \| **Assignee:** Joe Andre Roja \| **Due:** Week 2, Sprint Day 10<br>**Description:** Document Sprint 1 review, retrospective summary report, and prepare Sprint 2 backlog items. | **Task ID:** `S1-SM-05` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#4`<br>- Implemented deliverables for **[S1-SM-05] Sprint 1 review and retrospective report**<br>- `frontend/public/favicon.svg`<br>- `docs/sprint-1/S1-SM-05-retrospective.md` |
+| **#46** | `PhilHitalia`<br>*(Phil Emmanuel Hitalia)* | `feature/S1-UIX-01-design-system` | `Add modal components for record deletion and empty state handling` | *(Supporting PR for UIX)* | — | **Sprint:** Sprint 1 \| **Author:** Phil Emmanuel Hitalia<br>- `EmptyState.tsx`, `EntityControls.tsx`, `ConfirmDeleteModal.tsx`, `BlockedDeleteModal.tsx`, `AuditLogPage.tsx` |
+| **#45** | `GN68`<br>*(Marc Ramirez)* | `feature/S1-DBA-06-audit-user-logging` | `[S1-DBA-06] Make audit_user() record the logged-in user in audit_log; test it` | **Issue #10**<br>`priority:medium`, `sprint:1`, `role:dba` | **Task ID:** `S1-DBA-06`<br>**Role:** DB Admin \| **Assignee:** Marc Miguel Ramirez \| **Due:** Week 2, Sprint Day 8<br>**Description:** Configure audit triggers and functions to record the authenticated user and operation details into audit_log. | **Task ID:** `S1-DBA-06` \| **Sprint:** Sprint 1 \| **Author:** Marc Ramirez \| **Closes Issue:** `#10`<br>- Implemented deliverables for **[S1-DBA-06] Make audit_user() record the logged-in user in audit_log; test it**<br>- `backend/src/main/resources/db/migration/V6__relax_audit_log_action_check.sql` |
+| **#44** | `GN68`<br>*(Marc Ramirez)* | `feature/S1-DBA-05-seed-superadmins` | `[S1-DBA-05] Seed data: one superadmin account per team member, modules, and per-action rights` | **Issue #9**<br>`priority:high`, `sprint:1`, `role:dba` | **Task ID:** `S1-DBA-05`<br>**Role:** DB Admin \| **Assignee:** Marc Miguel Ramirez \| **Due:** Week 1, Sprint Day 5<br>**Description:** Seed data for the 5 team members as approved Superadmins, system module catalog, and 36 per-action rights. | **Task ID:** `S1-DBA-05` \| **Sprint:** Sprint 1 \| **Author:** Marc Ramirez \| **Closes Issue:** `#9`<br>- Implemented deliverables for **[S1-DBA-05] Seed data: one superadmin account per team member, modules, and per-action rights**<br>- `backend/src/main/resources/db/migration/V5__seed_team_superadmins.sql` |
+| **#43** | `GN68`<br>*(Marc Ramirez)* | `feature/S1-DBA-04-reset-token-table` | `[S1-DBA-04] Migration: password reset token table (hashed, expiry, used flag)` | **Issue #8**<br>`priority:medium`, `sprint:1`, `role:dba` | **Task ID:** `S1-DBA-04`<br>**Role:** DB Admin \| **Assignee:** Marc Miguel Ramirez \| **Due:** Week 1, Sprint Day 5<br>**Description:** Create password_reset_token table with token hash, expiration timestamp, and single-use flag. | **Task ID:** `S1-DBA-04` \| **Sprint:** Sprint 1 \| **Author:** Marc Ramirez \| **Closes Issue:** `#8`<br>- Implemented deliverables for **[S1-DBA-04] Migration: password reset token table (hashed, expiry, used flag)**<br>- `backend/src/main/resources/db/migration/V3__permissions_and_reset_token.sql` |
+| **#42** | `EuresTinoco`<br>*(Eures Nivrem Tinoco)* | `feature/S1-DEV-04-reset-password` | `[S1-DEV-04] Reset password: request, emailed token, reset form` | **Issue #14**<br>`priority:medium`, `role:developer`, `sprint:1` | **Task ID:** `S1-DEV-04`<br>**Role:** Developer \| **Assignee:** Eures Nivrem Tinoco \| **Due:** Week 2, Sprint Day 7<br>**Description:** Password reset workflow: reset token request endpoint, token verification, URL deep-linking (?token=), and set-new-password form. | **Task ID:** `S1-DEV-04` \| **Sprint:** Sprint 1 \| **Author:** EuresTinoco \| **Closes Issue:** `#14`<br>- Implemented deliverables for **[S1-DEV-04] Reset password: request, emailed token, reset form**<br>- `AuthController.java`, `frontend/src/lib/api.ts`, `frontend/src/App.tsx` |
+| **#41** | `JoeAndreRoja`<br>*(Joe Andre Roja)* | `feature/S1-SM-04-mid-sprint-check` | `[S1-SM-04] Mid-sprint check notes and impediment log` | **Issue #3**<br>`priority:medium`, `sprint:1`, `role:scrum-master` | **Task ID:** `S1-SM-04`<br>**Role:** Scrum Master \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 5<br>**Description:** Conduct mid-sprint review, record impediment log, and track sprint progress. | **Task ID:** `S1-SM-04` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#3`<br>- Implemented deliverables for **[S1-SM-04] Mid-sprint check notes and impediment log**<br>- `backend/.gitattributes`, `backend/.gitignore`, `docs/sprint-1/S1-SM-04-impediment-log.md` |
+| **#40** | `GN68`<br>*(Marc Ramirez)* | `feature/S1-DBA-03-roles-and-permissions-schema` | `[S1-DBA-03] Migration: app_user (role, blocked flag), role, module, rights catalogue, user_permission` | **Issue #7**<br>`priority:high`, `sprint:1`, `role:dba` | **Task ID:** `S1-DBA-03`<br>**Role:** DB Admin \| **Assignee:** Marc Miguel Ramirez \| **Due:** Week 1, Sprint Day 4<br>**Description:** Schema migrations for app_user (role column with checks, blocked flag) and user_permission table with soft delete support. | **Task ID:** `S1-DBA-03` \| **Sprint:** Sprint 1 \| **Author:** Marc Ramirez \| **Closes Issue:** `#7`<br>- Implemented deliverables for **[S1-DBA-03] Migration: app_user (role, blocked flag), role, module, rights catalogue, user_permission**<br>- `V2__add_role_to_app_user.sql`, `V4__add_user_profile_names.sql` |
+| **#39** | `EuresTinoco`<br>*(Eures Nivrem Tinoco)* | `feature/S1-DEV-03-login-logout-session` | `[S1-DEV-03] Login and logout with session handling; password hashing; blocked users cannot sign in` | **Issue #13**<br>`priority:high`, `role:developer`, `sprint:1` | **Task ID:** `S1-DEV-03`<br>**Role:** Developer \| **Assignee:** Eures Nivrem Tinoco \| **Due:** Week 2, Sprint Day 6<br>**Description:** Implement session-based login and logout with Spring Security, BCrypt hashing, and lockout for blocked/pending accounts. | **Task ID:** `S1-DEV-03` \| **Sprint:** Sprint 1 \| **Author:** EuresTinoco \| **Closes Issue:** `#13`<br>- Implemented deliverables for **[S1-DEV-03] Login and logout with session handling; password hashing; blocked users cannot sign in**<br>- `PasswordConfig.java`, `SecurityConfig.java`, `LoginRequest.java`, `AppUserDetailsService.java`, `AuthContext.tsx` |
+| **#38** | `PhilHitalia`<br>*(Phil Emmanuel Hitalia)* | `feature/task-3-wireframes` | `[S1-UIX-03] Wireframes: main page, User Management list and Rights dialog` | **Issue #21**<br>`priority:medium`, `sprint:1`, `role:ui/ux` | **Task ID:** `S1-UIX-03`<br>**Role:** UI/UX Designer \| **Assignee:** Phil Emmanuel Hitalia \| **Due:** Week 1, Sprint Day 4<br>**Description:** Wireframes for main dashboard layout, navigation sidebar, User Management table, and Rights assignment dialog. | **Task ID:** `S1-UIX-03` \| **Sprint:** Sprint 1 \| **Author:** Phil Emmanuel Hitalia \| **Closes Issue:** `#21`<br>- Added `docs/ui/S1-UIX-03_Dashboard_User_Management.md` and sliced `.png` assets in `docs/ui/assets/` |
+| **#37** | `PhilHitalia`<br>*(Phil Emmanuel Hitalia)* | `feature/S1-UIX-01-design-system` | `[S1-UIX-02] Wireframes: login, register, set/reset password` | **Issue #20**<br>`priority:medium`, `sprint:1`, `role:ui/ux` | **Task ID:** `S1-UIX-02`<br>**Role:** UI/UX Designer \| **Assignee:** Phil Emmanuel Hitalia \| **Due:** Week 1, Sprint Day 3<br>**Description:** Wireframes for authentication interfaces: sign in, registration, password reset request, and set new password views. | **Task ID:** `S1-UIX-02` \| **Sprint:** Sprint 1 \| **Author:** Phil Emmanuel Hitalia \| **Closes Issue:** `#20`<br>- Added `docs/ui/S1-UIX-02_Auth_Wireframes.md` and modal state `.png` assets |
+| **#36** | `JoeAndreRoja`<br>*(Joe Andre Roja)* | `feature/S1-SM-03-working-agreement` | `[S1-SM-03] Team working agreement, Definition of Done, role guide` | **Issue #2**<br>`priority:high`, `sprint:1`, `role:scrum-master` | **Task ID:** `S1-SM-03`<br>**Role:** Scrum Master \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 2<br>**Description:** Define team working agreements, Definition of Done (DoD), and project role guide documentation. | **Task ID:** `S1-SM-03` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#2`<br>- Implemented deliverables for **[S1-SM-03] Team working agreement, Definition of Done, role guide**<br>- `frontend/AGENTS.md`, `frontend/CLAUDE.md`, `docs/sprint-1/S1-SM-03-working-agreement.md` |
+| **#35** | `EuresTinoco`<br>*(Eures Nivrem Tinoco)* | `feature/S1-DEV-02-register-user-api` | `[S1-DEV-02] Register user form and API (new users start as pending)` | **Issue #12**<br>`priority:high`, `role:developer`, `sprint:1` | **Task ID:** `S1-DEV-02`<br>**Role:** Developer \| **Assignee:** Eures Nivrem Tinoco \| **Due:** Week 1, Sprint Day 4<br>**Description:** User registration form and backend API (/api/auth/register). Newly registered accounts start in PENDING approval status. | **Task ID:** `S1-DEV-02` \| **Sprint:** Sprint 1 \| **Author:** EuresTinoco \| **Closes Issue:** `#12`<br>- Implemented deliverables for **[S1-DEV-02] Register user form and API (new users start as pending)**<br>- `AppUser.java`, `UserRepository.java`, `RegisterRequest.java`, `AuthService.java` |
+| **#34** | `GN68`<br>*(Marc Ramirez)* | `feature/S1-DBA-02-base-migration` | `[S1-DBA-02] Migration: HOPE base tables and sample data from HopeDB_audit.sql` | **Issue #6**<br>`priority:high`, `sprint:1`, `role:dba` | **Task ID:** `S1-DBA-02`<br>**Role:** DB Admin \| **Assignee:** Marc Miguel Ramirez \| **Due:** Week 1, Sprint Day 3<br>**Description:** Implement base schema tables (employee, department, job, customer, product, sales, payment, pricehist) and audit log table. | **Task ID:** `S1-DBA-02` \| **Sprint:** Sprint 1 \| **Author:** Marc Ramirez \| **Closes Issue:** `#6`<br>- Implemented deliverables for **[S1-DBA-02] Migration: HOPE base tables and sample data from HopeDB_audit.sql**<br>- `backend/src/main/resources/db/migration/V1__create_app_user.sql` |
+| **#33** | `PhilHitalia`<br>*(Phil Emmanuel Hitalia)* | `feature/S1-UIX-01-design-system` | `[S1-UIX-01] Design system: colors, typography, core components` | **Issue #19**<br>`priority:high`, `sprint:1`, `role:ui/ux` | **Task ID:** `S1-UIX-01`<br>**Role:** UI/UX Designer \| **Assignee:** Phil Emmanuel Hitalia \| **Due:** Week 1, Sprint Day 2<br>**Description:** Establish design system colors, typography, and reusable core UI components (Button, Badge, Field, Icon, ModalShell). | **Task ID:** `S1-UIX-01` \| **Sprint:** Sprint 1 \| **Author:** Phil Emmanuel Hitalia \| **Closes Issue:** `#19`<br>- Implemented deliverables for **[S1-UIX-01] Design system: colors, typography, core components**<br>- `index.css`, `Badge.tsx`, `Button.tsx`, `Field.tsx`, `Icon.tsx`, `Logo.tsx`, `ModalShell.tsx`, `Stamp.tsx`, `AuthModal.tsx`, `LandingPage.tsx` |
+| **#32** | `JoeAndreRoja`<br>*(Joe Andre Roja)* | `feature/S1-SM-02-sprint-board` | `[S1-SM-02] Sprint 1 board: stories with acceptance criteria; map all six guide modules` | **Issue #1**<br>`priority:high`, `sprint:1`, `role:scrum-master` | **Task ID:** `S1-SM-02`<br>**Role:** Scrum Master \| **Assignee:** Joe Andre Roja \| **Due:** Week 1, Sprint Day 1<br>**Description:** Set up Sprint 1 board with stories and acceptance criteria; map all guide modules to sprints within the 8-week limit. | **Task ID:** `S1-SM-02` \| **Sprint:** Sprint 1 \| **Author:** Joe Andre Roja \| **Closes Issue:** `#1`<br>- Implemented deliverables for **[S1-SM-02] Sprint 1 board: stories with acceptance criteria; map all six guide modules**<br>- `frontend/.gitattributes`, `frontend/.gitignore`, `frontend/.mise.toml`, `docs/sprint-1/S1-SM-02-sprint-board.md` |
+| **#31** | `GN68`<br>*(Marc Ramirez)* | `feature/S1-DBA-01-db-setup` | `[S1-DBA-01] Team database setup, migration runner script, and student setup README (no Docker)` | **Issue #5**<br>`priority:high`, `sprint:1`, `role:dba` | **Task ID:** `S1-DBA-01`<br>**Role:** DB Admin \| **Assignee:** Marc Miguel Ramirez \| **Due:** Week 1, Sprint Day 2<br>**Description:** Set up team database connection configuration, Flyway migration runner, and student setup documentation. | **Task ID:** `S1-DBA-01` \| **Sprint:** Sprint 1 \| **Author:** Marc Ramirez \| **Closes Issue:** `#5`<br>- Implemented deliverables for **[S1-DBA-01] Team database setup, migration runner script, and student setup README (no Docker)**<br>- `backend/src/main/resources/application.properties`, `backend/backup-pom.xml` |
+| **#30** | `EuresTinoco`<br>*(Eures Nivrem Tinoco)* | `feature/S1-DEV-01-project-scaffold` | `[S1-DEV-01] Project scaffold: app skeleton, env config, DB connection` | **Issue #11**<br>`priority:high`, `role:developer`, `sprint:1` | **Task ID:** `S1-DEV-01`<br>**Role:** Developer \| **Assignee:** Eures Nivrem Tinoco \| **Due:** Week 1, Sprint Day 2<br>**Description:** Establish backend application skeleton, Spring Boot environment configuration, and database connection. | **Task ID:** `S1-DEV-01` \| **Sprint:** Sprint 1 \| **Author:** EuresTinoco \| **Closes Issue:** `#11`<br>- Implemented deliverables for **[S1-DEV-01] Project scaffold: app skeleton, env config, DB connection**<br>- `pom.xml`, `mvnw`, `BackendApplication.java`, `HelloController.java`, `DatabaseController.java` |
 
-### Part B: Additional PRs (#61, #66, #100–#124)
-
-| PR # | Author (`gh`) | Branch Name (`headRefName`) | PR Title | Task Code | PR Body Summary |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **#61** | `PhilHitalia` | `feature/S1-UIX-01-design-system` | `update agents description and README` | — | Updated agents role description and README project overview. |
-| **#66** | `PhilHitalia` | `feature/S1-UIX-01-design-system` | `Update README` | — | Updated `README.md`. |
-| **#100** | `GN68` | `future` | `[S6-SVN-67] I am about to pluh fix comflict ball` | `S6-SVN-67` | Merge conflict resolution test PR. |
-| **#101** | `GN68` | `feature/agent-guidelines-pr-workflow` | `docs: add AGENT.md guidelines for automated PR workflow` | — | Added initial `AGENT.md` defining automated PR workflow. |
-| **#102** | `GN68` | `feature/agent-autonomous-conflict-resolution` | `docs(agent): add autonomous merge conflict resolution instructions` | — | Added autonomous merge conflict resolution rules to `AGENT.md`. |
-| **#103** | `EuresTinoco` | `feature/S1-DEV-update-backend-role` | `docs: update Eures Tinoco role to BackEnd in README` | — | Updated Eures Nivrem Tinoco role to BackEnd in `README.md`. |
-| **#104** | `PhilHitalia` | `feature/docs-update-readme-role` | `docs: update Phil Emmanuel Hitalia role to Frontend in README` | — | Updated Phil Emmanuel Hitalia role to Frontend in `README.md`. |
-| **#105** | `sarmientoredge11` | `feature/TST-update-role-readme` | `docs(readme): update role to Master Tester` | — | Updated Redge Rainier Sarmiento role in `README.md`. |
-| **#106** | `JoeAndreRoja` | `feature/S1-DOC-swap-roles-readme` | `docs: swap roles for Joe Andre Roja and Marc Miguel Ramirez` | — | Swapped roles in `README.md`: Joe Andre Roja (DB Admin) and Marc Miguel Ramirez (Scrum Master). |
-| **#107** | `JoeAndreRoja` | `feature/S1-DOC-swap-names-readme` | `docs: place Scrum Master on top in README members table` | — | Reordered `README.md` table so Scrum Master is on top. |
-| **#108** | `sarmientoredge11` | `feature/TST-role-to-tester` | `docs(readme): change role to Tester` | — | Updated Redge Rainier Sarmiento role to Tester in `README.md`. |
-| **#109** | `sarmientoredge11` | `feature/docs-readme-project-description` | `docs(readme): add neatly designed website description and overview` | — | Added HOPE ERP Platform overview, tech stack, and setup guide in `README.md`. |
-| **#110** | `JoeAndreRoja` | `feature/S1-UIX-clash-bowler-logo` | `feat(ui): update website logo and favicon to Clash of Clans Bowler` | — | Updated `Logo.tsx`, `index.html`, and `favicon.svg` with Bowler assets. |
-| **#111** | `sarmientoredge11` | `feature/docs-readme-live-link` | `docs(readme): add direct website link to live deployment` | — | Added live Vercel deployment link badge to `README.md`. |
-| **#112** | `JoeAndreRoja` | `feature/S1-UIX-charlie-kirk-logo` | `feat(ui): update website logo and favicon to Charlie Kirk` | — | Updated `Logo.tsx`, `index.html`, and `favicon.svg` with Charlie Kirk avatar. |
-| **#113** | `PhilHitalia` | `feature/profile-preferences-theme` | `feat(profile): add theme preferences with light and dark mode` | — | Added `ThemeContext.tsx`, light/dark mode support, and `ProfilePage.tsx` appearance controls. |
-| **#114** | `sarmientoredge11` | `feature/S2-TST-01-customer-test-cases` | `[S2-TST-01] Test cases: customer module` | `S2-TST-01` | Added `docs/sprint-2/S2-TST-01-customer-test-cases.md`. |
-| **#115** | `JoeAndreRoja` | `feature/S1-UIX-kirk-tagline` | `feat(ui): update landing hero tagline to 'Run your entire business with Kirk.'` | — | Updated hero tagline in `LandingPage.tsx`. |
-| **#116** | `sarmientoredge11` | `feature/S2-TST-02-product-price-history-tests` | `[S2-TST-02] Test cases: product and price history` | `S2-TST-02` | Added `docs/sprint-2/S2-TST-02-product-price-history-tests.md`. |
-| **#117** | `sarmientoredge11` | `feature/S2-TST-03-soft-delete-restore-tests` | `[S2-TST-03] Test cases: soft delete and restore with child dependency checks` | `S2-TST-03` | Added `docs/sprint-2/S2-TST-03-soft-delete-restore-tests.md`. |
-| **#118** | `sarmientoredge11` | `feature/S2-TST-04-permission-tests` | `[S2-TST-04] Per-right permission tests for customer and product modules` | `S2-TST-04` | Added `docs/sprint-2/S2-TST-04-permission-tests.md`. |
-| **#119** | `sarmientoredge11` | `feature/S2-TST-05-sprint-1-regression-tests` | `[S2-TST-05] Regression test of Sprint 1` | `S2-TST-05` | Added `docs/sprint-2/S2-TST-05-sprint-1-regression-tests.md`. |
-| **#120** | `sarmientoredge11` | `feature/S2-TST-06-bug-reports-and-verification` | `[S2-TST-06] Bug reports and fix verification` | `S2-TST-06` | Added `docs/sprint-2/S2-TST-06-bug-verification-report.md`. |
-| **#121** | `PhilHitalia` | `feature/dark-mode-contrast-and-default-theme` | `fix(theme): default to light mode and enhance text contrast across themes` | — | Enforced default light mode and improved dark mode contrast in `index.css` & `ProfilePage.tsx`. |
-| **#122** | `sarmientoredge11` | `feature/S3-TST-01-department-job-tests` | `[S3-TST-01] Test cases: department and job` | `S3-TST-01` | Added `docs/sprint-3/S3-TST-01-department-job-tests.md`. |
-| **#123** | `sarmientoredge11` | `feature/S3-TST-02-employee-tests` | `[S3-TST-02] Test cases: employee` | `S3-TST-02` | Added `docs/sprint-3/S3-TST-02-employee-tests.md`. |
-| **#124** | `sarmientoredge11` | `feature/S3-TST-03-job-history-tests` | `[S3-TST-03] Job history tests (effective date, salary)` | `S3-TST-03` | Added `docs/sprint-3/S3-TST-03-job-history-tests.md`. |
+*(Note: Issue **#23** — `[S1-UIX-05] Usability review of built screens and fix list` assigned to `PhilHitalia` — was part of the `#1`–`#29` issue batch and was closed in PR #60).*
