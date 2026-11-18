@@ -11,9 +11,9 @@ All Antigravity / Gemini agents operating in this repository must execute code a
 - Every requested modification must:
   1. Identify the active committer (`gh api user --jq .login`) and compute their next `[S2-<ROLE>-<COUNT>]` task code.
   2. Create (or link an existing) GitHub Issue following the standardized **Issue Template** (`#1`–`#29` format) and assign it to the committer.
-  3. Process changes on an isolated feature branch (`feature/S2-<ROLE>-<COUNT>-<short-description>`).
-  4. Commit with `[S2-<ROLE>-<COUNT>] <Task Title>`.
-  5. Push and open a Pull Request following the standardized **PR Template** (`#30`–`#59` format) with the **exact same title** as the Issue and `Closes Issue: #<issue_number>`.
+  3. Create and link the feature branch directly to the Issue's **Development** section using `gh issue develop <issue_number> --name feature/S2-<ROLE>-<COUNT>-<short-description> --base main --checkout`.
+  4. Commit with `[S2-<ROLE>-<COUNT>] <Task Title> (Closes #<issue_number>)`.
+  5. Push and open a Pull Request following the standardized **PR Template** (`#30`–`#59` format) with the **exact same title** as the Issue and `- **Closes Issue:** Closes #<issue_number>` so the Issue's **Development** section is populated and the Issue closes automatically upon merge.
   6. **Role-Based Merge Gate:**
      - **Scrum Master (`GN68` / Marc Miguel Ramirez only):** Merges his own PRs immediately and is solely responsible for reviewing, resolving conflicts on, and merging all open PRs from the rest of the team.
      - **All Non-Scrum Master Members (`JoeAndreRoja`, `EuresTinoco`, `PhilHitalia`, `sarmientoredge11`):** **MUST NOT** merge their own PRs automatically. Leave the PR open after creation and return to `main` (`git checkout main && git pull origin main`).
@@ -100,7 +100,7 @@ All future workflows **must** strictly follow these templates modeled directly a
 ### 3. Commit Message Template
 - **Format:**
   ```text
-  [S2-<ROLE>-<COUNT>] <Task Title>
+  [S2-<ROLE>-<COUNT>] <Task Title> (Closes #<issue_number>)
   ```
 
 ### 4. Pull Request Template
@@ -108,13 +108,14 @@ All future workflows **must** strictly follow these templates modeled directly a
   ```text
   [S2-<ROLE>-<COUNT>] <Task Title>
   ```
-- **PR Body (matches `#30`–`#59`):**
+- **PR Body (matches `#30`–`#59` + GitHub `Development` auto-link syntax):**
+  > **CRITICAL GITHUB LINKING RULE:** GitHub's parser only populates the Issue's **Development** section and auto-closes the Issue on merge when the keyword `Closes` is **immediately** followed by `#<issue_number>` (`Closes #<issue_number>`). Writing `- **Closes Issue:** #123` (with the word `Issue:` in between) **breaks** GitHub's parser and leaves the Development section empty! Always write `- **Closes Issue:** Closes #<issue_number>`.
   ```markdown
   ## Sprint Task Reference
   - **Task ID:** S2-<ROLE>-<COUNT>
   - **Sprint:** Sprint 2
   - **Author:** <Full Name>
-  - **Closes Issue:** #<issue_number>
+  - **Closes Issue:** Closes #<issue_number>
 
   ## Summary of Changes
   - Implemented deliverables for **[S2-<ROLE>-<COUNT>] <Task Title>**
@@ -150,17 +151,21 @@ gh issue create \
 ```
 *(Note: If the user specifies an existing open Issue to work on, use that Issue's `[S2-<ROLE>-<COUNT>]` code and `#<issue_number>` instead of creating a duplicate.)*
 
-### 3. Create a Feature Branch
-Create a descriptive branch matching the Task ID:
+### 3. Create & Link Feature Branch to the Issue's `Development` Section
+Use `gh issue develop` to create and check out the feature branch so GitHub **immediately attaches the branch to the Issue's `Development` sidebar**:
 ```bash
-git checkout -b feature/S2-<ROLE>-<COUNT>-<short-description>
+gh issue develop <issue_number> \
+  --name feature/S2-<ROLE>-<COUNT>-<short-description> \
+  --base main \
+  --checkout
 ```
+*(Fallback if `gh issue develop` times out: `git checkout -b feature/S2-<ROLE>-<COUNT>-<short-description>`).*
 
 ### 4. Implement & Commit Changes
-Make the required edits to files cleanly and stage them:
+Make the required edits to files cleanly and include `(Closes #<issue_number>)` in the commit message:
 ```bash
 git add <modified-files>
-git commit -m "[S2-<ROLE>-<COUNT>] <Task Title>"
+git commit -m "[S2-<ROLE>-<COUNT>] <Task Title> (Closes #<issue_number>)"
 ```
 
 ### 5. Push Branch to Origin
@@ -169,8 +174,8 @@ Push the new branch to GitHub:
 git push -u origin feature/S2-<ROLE>-<COUNT>-<short-description>
 ```
 
-### 6. Create Pull Request (Linked to Issue)
-Create the PR using the GitHub CLI (`gh`), referencing the Task ID and closing `#<issue_number>`:
+### 6. Create Pull Request (Linked to Issue's `Development` Section)
+Create the PR using the GitHub CLI (`gh`), ensuring `- **Closes Issue:** Closes #<issue_number>` is used so GitHub links the PR under the Issue's **Development** section and auto-closes `#<issue_number>` on merge:
 ```bash
 gh pr create \
   --base main \
@@ -180,7 +185,7 @@ gh pr create \
 - **Task ID:** S2-<ROLE>-<COUNT>
 - **Sprint:** Sprint 2
 - **Author:** <Full Name>
-- **Closes Issue:** #<issue_number>
+- **Closes Issue:** Closes #<issue_number>
 
 ## Summary of Changes
 - Implemented deliverables for **[S2-<ROLE>-<COUNT>] <Task Title>**
@@ -193,32 +198,34 @@ gh pr create \
 
 #### 7A. Non-Scrum Master Members (`JoeAndreRoja`, `EuresTinoco`, `PhilHitalia`, `sarmientoredge11`)
 - **DO NOT run `gh pr merge`**. Only the Scrum Master (`GN68` / Marc Miguel Ramirez) is permitted to merge Pull Requests.
-- After opening the PR in Step 6, leave the PR open on GitHub and immediately return your local workspace to `main`:
+- Verify that the Issue's **Development** section shows your linked PR (`gh pr view --json closingIssuesReferences`), leave the PR open on GitHub, and immediately return your local workspace to `main`:
 ```bash
 git checkout main
 git pull origin main
 ```
 
 #### 7B. Scrum Master Only (`GN68` / Marc Miguel Ramirez)
-- **Merging Own PRs:** Merge the pull request immediately (which also auto-closes the linked GitHub Issue) and delete the remote branch:
+- **Merging Own PRs:** Merge the pull request immediately (which automatically closes the linked GitHub Issue via the Development link) and delete the remote branch:
 ```bash
 gh pr merge <pr_number_or_branch> --merge --delete-branch
 git checkout main
 git pull origin main
 ```
 - **Merging Team Members' Open PRs:** When checking and merging open PRs submitted by other team members:
-  1. List all open PRs and their mergeability state:
+  1. List all open PRs and their mergeability + issue-linking state:
      ```bash
-     gh pr list --state open --json number,title,author,headRefName,mergeable,mergeStateStatus
+     gh pr list --state open --json number,title,author,headRefName,mergeable,mergeStateStatus,closingIssuesReferences,body
      ```
-  2. **If a PR has NO conflicts (`mergeable: "MERGEABLE"`):**
+  2. **Ensure Issue `Development` Link Before Merging:**
+     - If an open PR's `closingIssuesReferences` is empty (`[]`) because the author wrote `- **Closes Issue:** #<id>` instead of `- **Closes Issue:** Closes #<id>`, automatically update the PR body before merging (`gh pr edit <pr_number> --body ...`) so GitHub populates the Issue's **Development** section and auto-closes the Issue upon merge!
+  3. **If a PR has NO conflicts (`mergeable: "MERGEABLE"`):**
      - Do **not** run extra verification checks—merge it immediately:
      ```bash
      gh pr merge <pr_number> --merge --delete-branch
      ```
-  3. **If a PR HAS conflicts (`mergeable: "CONFLICTING"` / `DIRTY`):**
+  4. **If a PR HAS conflicts (`mergeable: "CONFLICTING"` / `DIRTY`):**
      - Follow the **Autonomous Merge Conflict Resolution & Verification** procedure below to reconcile both code intentions, verify that both work together cleanly (`npm run build`), push the resolution, and merge the PR.
-  4. Sync `main` after processing all open PRs:
+  5. Sync `main` after processing all open PRs:
      ```bash
      git checkout main
      git pull origin main
