@@ -14,12 +14,19 @@ export default function ModalShell({
   subtitle?: string
   children: ReactNode
   footer?: ReactNode
-  close: () => void
+  close?: () => void
   wide?: boolean
   className?: string
 }) {
   return (
-    <div className="modal-backdrop">
+    <div
+      className="modal-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && close) {
+          close()
+        }
+      }}
+    >
       <section
         className={`module-modal ${
           wide ? "module-modal-wide" : ""
@@ -27,13 +34,19 @@ export default function ModalShell({
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="module-modal-head">
           <div>
             <div className="modal-title">{title}</div>
             {subtitle && <p>{subtitle}</p>}
           </div>
-          <button className="icon-button" onClick={close} aria-label="Close">
+          <button
+            className="icon-button"
+            type="button"
+            onClick={close}
+            aria-label="Close"
+          >
             <Icon name="x" />
           </button>
         </div>

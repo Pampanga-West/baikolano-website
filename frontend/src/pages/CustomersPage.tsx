@@ -130,7 +130,64 @@ export default function CustomersPage({ role }: { role: Role }) {
   const [search, setSearch] = useState("")
   const [form, setForm] = useState<string[] | "new" | null>(null)
   const [deleting, setDeleting] = useState<string[] | null>(null)
-  const [blocked, setBlocked] = useState<string | null>(null)
+  const [blocked, setBlocked] = useState<{ record: string; reason?: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
+  const handleSoftDelete = (customerRow: string[]) => {
+    const custNo = customerRow[0]
+    const custName = customerRow[1]
+    const label = `${custNo} ${custName}`
+
+    // Referential integrity check: C-001 has active child sales orders
+    if (custNo === "C-001") {
+      setDeleting(null)
+      setBlocked({
+        record: label,
+        reason:
+          "Active child records reference this item. There are active sales orders managed by Eures Tinoco and Joe Roja linked to Acme Corporation. Remove, void, or reassign those records first. No changes were made, and this attempt remains logged in the audit trail.",
+      })
+      return
+    }
+
+    const todayStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+
+    // Soft delete: update status to Inactive without purging from database
+    setCustomers((prev) =>
+      prev.map((c) =>
+        c[0] === custNo
+          ? [c[0], c[1], c[2], c[3], "Inactive", "DELETED", "Phil Hitalia", todayStr]
+          : c
+      )
+    )
+    setDeleting(null)
+    setSuccess(`Soft-deleted ${label}. Record is marked as Inactive and remains restorable by administrators.`)
+  }
+
+  const handleRestore = (customerRow: string[]) => {
+    const custNo = customerRow[0]
+    const custName = customerRow[1]
+    const label = `${custNo} ${custName}`
+    const todayStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+
+    // Restore: mark back to Active
+    setCustomers((prev) =>
+      prev.map((c) =>
+        c[0] === custNo
+          ? [c[0], c[1], c[2], c[3], "Active", "EDITED", "Phil Hitalia", todayStr]
+          : c
+      )
+    )
+    setSuccess(`Restored ${label}. Record is now Active and visible in standard operational views.`)
+  }
 
   useEffect(() => {
     let active = true
@@ -192,6 +249,31 @@ export default function CustomersPage({ role }: { role: Role }) {
           <span>customer records</span>
         </div>
       </div>
+
+      {error && (
+        <div className="error-banner" role="alert">
+          <div style={{ flex: 1 }}>
+            <b>Customer Operation Error</b>
+            <span>{error}</span>
+          </div>
+          <button className="dismiss-link" onClick={() => setError(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {success && (
+        <div className="info-banner" role="status">
+          <div style={{ flex: 1 }}>
+            <b>Success</b>
+            <span>{success}</span>
+          </div>
+          <button className="dismiss-link" onClick={() => setSuccess(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
       <EntityControls
         isAdmin={isAdmin}
         counts={counts}
@@ -245,7 +327,12 @@ export default function CustomersPage({ role }: { role: Role }) {
                         <td>
                           <div className="row-actions">
                             {row[4] === "Inactive" ? (
-                              <button className="success-link">Restore</button>
+                              <button
+                                className="success-link"
+                                onClick={() => handleRestore(row)}
+                              >
+                                Restore
+                              </button>
                             ) : (
                               <>
                                 <button onClick={() => setForm(row)}>Edit</button>
@@ -267,7 +354,41 @@ export default function CustomersPage({ role }: { role: Role }) {
             </table>
           </div>
         ) : (
-          <EmptyState query={search} onClear={() => setSearch("")} />
+          <EmptyState
+            query={search}
+            title={
+              search
+                ? "No matching customer records"
+                : filter === "inactive"
+                ? "No inactive customer records"
+                : filter === "active"
+                ? "No active customer records"
+                : "No customer records"
+            }
+            message={
+              search
+                ? `Nothing matches "${search}". Try a different customer name, commercial code, or reset your search filters.`
+                : filter === "inactive"
+                ? "There are currently no soft-deleted or inactive customers in this directory."
+                : filter === "active"
+                ? "No active customers found. Create a new record or review soft-deleted customer records."
+                : "Your customer directory is empty. Click below to add your first customer."
+            }
+            actionLabel={
+              search
+                ? "Clear search filter"
+                : filter === "inactive"
+                ? "Show all records"
+                : "Add Customer"
+            }
+            onAction={
+              search
+                ? () => setSearch("")
+                : filter === "inactive"
+                ? () => setFilter("all")
+                : () => setForm("new")
+            }
+          />
         )}
         <div className="entity-footer">
           <span>{rows.length} records visible</span>
@@ -289,15 +410,15 @@ export default function CustomersPage({ role }: { role: Role }) {
           record={`${deleting[0]} ${deleting[1]}`}
           noun="Customer"
           close={() => setDeleting(null)}
-          confirm={() => {
-            const name = `${deleting[0]} ${deleting[1]}`
-            setDeleting(null)
-            if (deleting[0] === "C-001") setBlocked(name)
-          }}
+          confirm={() => handleSoftDelete(deleting)}
         />
       )}
       {blocked && (
-        <BlockedDeleteModal record={blocked} close={() => setBlocked(null)} />
+        <BlockedDeleteModal
+          record={blocked.record}
+          reason={blocked.reason}
+          close={() => setBlocked(null)}
+        />
       )}
     </div>
   )
