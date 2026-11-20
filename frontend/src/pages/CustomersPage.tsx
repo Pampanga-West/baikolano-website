@@ -12,9 +12,57 @@ import type { Customer, Role } from "../lib/types"
 
 const fallbackCustomers: Customer[] = [
   {
+    custno: "C0001",
+    custname: "Globus Medical, Inc",
+    address: "2560 Gen Armistead Ave Audubon CA 94031",
+    payterm: "30D",
+    is_deleted: false,
+    status: "Active",
+    stamp: "ADD system 2026-10-30 12:37 PM",
+    stampAction: "CREATED",
+    stampUser: "system",
+    stampDate: "2026-10-30 12:37 PM",
+  },
+  {
+    custno: "C0002",
+    custname: "RF Industries, Inc",
+    address: "7610 Miramar Rd San Diego, CA 92602",
+    payterm: "45D",
+    is_deleted: false,
+    status: "Active",
+    stamp: "ADD system 2026-10-30 12:37 PM",
+    stampAction: "CREATED",
+    stampUser: "system",
+    stampDate: "2026-10-30 12:37 PM",
+  },
+  {
+    custno: "C0003",
+    custname: "Trisha Macdowell",
+    address: "7642 Clairemont Mesa Blvd San Diego CA 90321",
+    payterm: "COD",
+    is_deleted: false,
+    status: "Active",
+    stamp: "ADD system 2026-10-30 12:37 PM",
+    stampAction: "CREATED",
+    stampUser: "system",
+    stampDate: "2026-10-30 12:37 PM",
+  },
+  {
+    custno: "C0004",
+    custname: "HMS Holdings, Inc",
+    address: "1000 So Fremont Ave, Suite 225 Alhambara CA 91303",
+    payterm: "45D",
+    is_deleted: false,
+    status: "Active",
+    stamp: "ADD system 2026-10-30 12:37 PM",
+    stampAction: "CREATED",
+    stampUser: "system",
+    stampDate: "2026-10-30 12:37 PM",
+  },
+  {
     custno: "C-001",
     custname: "Acme Corporation",
-    address: "123 Main St, Metro City",
+    address: "123 Main St, Metro City, CA 94016",
     payterm: "Net 30",
     is_deleted: false,
     status: "Active",
@@ -26,7 +74,7 @@ const fallbackCustomers: Customer[] = [
   {
     custno: "C-002",
     custname: "Globex Industries",
-    address: "456 Oak Ave, Harbor Town",
+    address: "456 Oak Ave, Harbor Town, CA 92656",
     payterm: "Net 45",
     is_deleted: false,
     status: "Active",
@@ -38,7 +86,7 @@ const fallbackCustomers: Customer[] = [
   {
     custno: "C-003",
     custname: "Initech LLC",
-    address: "789 Pine Rd, Silicon Valley",
+    address: "789 Pine Rd, Silicon Valley, CA 94025",
     payterm: "COD",
     is_deleted: false,
     status: "Active",
@@ -50,7 +98,7 @@ const fallbackCustomers: Customer[] = [
   {
     custno: "C-004",
     custname: "Umbrella Corp",
-    address: "1 Raccoon City Blvd",
+    address: "1 Raccoon City Blvd, CA 90001",
     payterm: "Prepaid",
     is_deleted: true,
     status: "Inactive",
@@ -62,7 +110,7 @@ const fallbackCustomers: Customer[] = [
   {
     custno: "C-005",
     custname: "Stark Enterprises",
-    address: "200 Park Avenue, New York",
+    address: "200 Park Avenue, New York, NY 10001",
     payterm: "Net 15",
     is_deleted: false,
     status: "Active",
@@ -204,18 +252,14 @@ export default function CustomersPage({ role }: { role: Role }) {
 
     customerApi
       .listCustomers({
-        search: search.trim() || undefined,
-        status: (isAdmin ? filter : "active") as any,
+        status: "all",
       })
       .then((data) => {
         if (!active) return
         if (data && data.length) {
           setCustomers(data)
-        } else if (!search.trim() && filter === "active") {
-          // If Supabase returned empty, fallback to local fallback set
-          setCustomers(fallbackCustomers)
         } else {
-          setCustomers([])
+          setCustomers(fallbackCustomers)
         }
       })
       .catch((err: any) => {
@@ -240,7 +284,7 @@ export default function CustomersPage({ role }: { role: Role }) {
   useEffect(() => {
     const cleanup = loadCustomers()
     return cleanup
-  }, [search, filter, isAdmin])
+  }, [isAdmin])
 
   const counts = useMemo<[number, number, number]>(() => {
     const activeCount = customers.filter((r) => !r.is_deleted).length
