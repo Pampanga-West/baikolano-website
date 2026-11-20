@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { customerApi, rightsApi } from "../lib/api"
 import { useAuth } from "../contexts/AuthContext"
+import { fetchUserRightsFromSupabase } from "../backend/supabaseClient"
 import Badge from "../components/Badge"
 import BlockedDeleteModal from "../components/BlockedDeleteModal"
 import Button from "../components/Button"
@@ -250,8 +251,15 @@ export default function CustomersPage({ role }: { role: Role }) {
       .then((r) => {
         if (active) setRights(r || [])
       })
-      .catch(() => {
-        if (active) setRights([])
+      .catch(async (err) => {
+        console.warn("[CustomersPage] rightsApi.getUserRights error, attempting Supabase direct fallback:", err)
+        try {
+          const direct = await fetchUserRightsFromSupabase(user.id)
+          if (active) setRights(direct || [])
+        } catch (dbErr) {
+          console.warn("[CustomersPage] Supabase fallback error:", dbErr)
+          if (active) setRights([])
+        }
       })
     return () => {
       active = false

@@ -620,7 +620,10 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
     // GET /api/users/:id/rights -> Reads live from Supabase user_permission
     if (subAction === "rights" && method === "GET") {
       try {
-        ensureAdmin()
+        // Any authenticated user can read their own rights; Admin and Superadmin can read anyone's rights.
+        if (currentUser && currentUser.role === "User" && currentUser.id !== targetId) {
+          return jsonResponse({ message: "Access denied." }, 403)
+        }
         if (!targetUser) return jsonResponse({ message: "User not found." }, 404)
         const rights = await fetchUserRightsFromSupabase(targetId).catch(() => [])
         return jsonResponse({ userId: targetId, rights })
