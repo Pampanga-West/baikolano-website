@@ -34,6 +34,13 @@ import {
   updateTableRowInSupabase,
   updateUserInSupabase,
   verifyPassword,
+  fetchCustomersFromSupabase,
+  fetchCustomerByCustnoFromSupabase,
+  insertCustomerIntoSupabase,
+  updateCustomerInSupabase,
+  softDeleteCustomerInSupabase,
+  restoreCustomerInSupabase,
+  parseStamp,
   type SupabaseUserRow,
 } from "./supabaseClient.ts"
 
@@ -913,6 +920,204 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
       } catch (e: any) {
         return jsonResponse({ message: e.message === "UNAUTHORIZED" ? "Not authenticated." : "Access denied." }, 403)
       }
+    }
+  }
+
+  // ==========================================================================
+  // Customer Master Endpoints (/api/customers) -> Sprint 2 (S2-DEV-01)
+  // Enforces role-based per-action permission checks against Supabase user_permission
+  // ==========================================================================
+
+  const ensureCustomerPermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+    if (!currentUser) throw new Error("UNAUTHORIZED")
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = await fetchUserRightsFromSupabase(currentUser.id).catch(() => [])
+    const actionKey = action.toLowerCase()
+
+    const hasRight = userRights.some((r) => {
+      const lower = r.toLowerCase().trim()
+      if (lower === `customer - ${actionKey}` || lower === `${actionKey} customer`) return true
+      if (lower.includes("customer") && lower.includes(actionKey)) return true
+      if (action === "View" && (currentUser.role === "Admin" || lower.includes("customer"))) return true
+      return false
+    })
+
+    if (currentUser.role === "Admin" && (action === "View" || !userRights.length)) {
+      return currentUser
+    }
+
+    if (!hasRight) {
+      const err: any = new Error(`Access denied. Requires Customer - ${action} permission.`)
+      err.permissionDenied = true
+      err.statusCode = 403
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // 1. List Customers with Search and Filter (GET /api/customers)
+  if (pathname === "/api/customers" && method === "GET") {
+    try {
+      const caller = await ensureCustomerPermission("View")
+      const search = parsedUrl.searchParams.get("search")?.trim() || ""
+      const statusParam = (parsedUrl.searchParams.get("status")?.trim().toLowerCase() || "active") as
+        | "active"
+        | "inactive"
+        | "all"
+      const payterm = parsedUrl.searchParams.get("payterm")?.trim() || ""
+
+      const rawRows = await fetchCustomersFromSupabase({
+        search,
+        status: statusParam,
+        payterm,
+      })
+
+      const isAdminUser = caller.role === "Superadmin" || caller.role === "Admin"
+
+      const dtoList = rawRows
+        .filter((r) => {
+          // Regular users without admin rights can never see Inactive/deleted rows
+          if (!isAdminUser && Boolean(r.is_deleted)) return false
+          return true
+        })
+        .map((r) => {
+          const isDeleted = Boolean(r.is_deleted)
+          const [action, stampUser, stampDate] = parseStamp(r.stamp, isDeleted)
+          return {
+            custno: String(r.custno ?? ""),
+            custname: String(r.custname ?? ""),
+            address: String(r.address ?? ""),
+            payterm: String(r.payterm ?? ""),
+            is_deleted: isDeleted,
+            status: isDeleted ? "Inactive" : "Active",
+            stamp: String(r.stamp ?? ""),
+            stampAction: action,
+            stampUser: stampUser,
+            stampDate: stampDate,
+          }
+        })
+
+      return jsonResponse(dtoList)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied || e.message === "FORBIDDEN") {
+        return jsonResponse({ message: e.message || "Access denied. Requires Customer - View permission." }, 403)
+      }
+      return jsonResponse({ message: e.message || "Failed to fetch customers." }, 500)
+    }
+  }
+
+  // 2. Customer Detail & Sub-actions (/api/customers/:custno)
+  const customerMatch = pathname.match(/^\/api\/customers\/([^/]+)(?:\/(restore))?$/)
+  if (customerMatch) {
+    const custno = decodeURIComponent(customerMatch[1])
+    const subAction = customerMatch[2] // 'restore' or undefined
+
+    // Restore Customer (POST /api/customers/:custno/restore)
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensureCustomerPermission("Edit")
+        await restoreCustomerInSupabase(custno, caller.email)
+        return jsonResponse({ message: `Customer ${custno} restored successfully.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore customer." }, 400)
+      }
+    }
+
+    // Get Single Customer (GET /api/customers/:custno)
+    if (!subAction && method === "GET") {
+      try {
+        await ensureCustomerPermission("View")
+        const row = await fetchCustomerByCustnoFromSupabase(custno)
+        if (!row) {
+          return jsonResponse({ message: `Customer ${custno} not found.` }, 404)
+        }
+        const isDeleted = Boolean(row.is_deleted)
+        const [action, stampUser, stampDate] = parseStamp(row.stamp, isDeleted)
+        return jsonResponse({
+          custno: String(row.custno ?? ""),
+          custname: String(row.custname ?? ""),
+          address: String(row.address ?? ""),
+          payterm: String(row.payterm ?? ""),
+          is_deleted: isDeleted,
+          status: isDeleted ? "Inactive" : "Active",
+          stamp: String(row.stamp ?? ""),
+          stampAction: action,
+          stampUser: stampUser,
+          stampDate: stampDate,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to retrieve customer." }, 500)
+      }
+    }
+
+    // Update Customer (PUT /api/customers/:custno)
+    if (!subAction && (method === "PUT" || method === "PATCH")) {
+      try {
+        const caller = await ensureCustomerPermission("Edit")
+        const updated = await updateCustomerInSupabase(
+          custno,
+          {
+            custname: body.custname,
+            address: body.address,
+            payterm: body.payterm,
+          },
+          caller.email
+        )
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to update customer." }, 400)
+      }
+    }
+
+    // Soft Delete Customer (DELETE /api/customers/:custno)
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensureCustomerPermission("Delete")
+        await softDeleteCustomerInSupabase(custno, caller.email)
+        return jsonResponse({ message: `Customer ${custno} marked as Inactive.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.blocked || e.statusCode === 409) {
+          return jsonResponse({ message: e.message, blocked: true }, 409)
+        }
+        return jsonResponse({ message: e.message || "Failed to delete customer." }, 400)
+      }
+    }
+  }
+
+  // 3. Create Customer (POST /api/customers)
+  if (pathname === "/api/customers" && method === "POST") {
+    try {
+      const caller = await ensureCustomerPermission("Add")
+      const custname = (body.custname || "").trim()
+      if (!custname) {
+        return jsonResponse({ message: "Customer name is required." }, 400)
+      }
+
+      const created = await insertCustomerIntoSupabase(
+        {
+          custno: body.custno,
+          custname,
+          address: body.address,
+          payterm: body.payterm,
+        },
+        caller.email
+      )
+      return jsonResponse(created, 201)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to create customer." }, 400)
     }
   }
 
