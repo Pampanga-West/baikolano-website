@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
-import { customerApi } from "../lib/api"
+import { customerApi, rightsApi } from "../lib/api"
+import { useAuth } from "../contexts/AuthContext"
 import Badge from "../components/Badge"
 import BlockedDeleteModal from "../components/BlockedDeleteModal"
 import Button from "../components/Button"
@@ -235,7 +236,55 @@ function CustomerForm({
 }
 
 export default function CustomersPage({ role }: { role: Role }) {
-  const isAdmin = role !== "User"
+  const { user } = useAuth()
+  const [rights, setRights] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!user?.id) {
+      setRights([])
+      return
+    }
+    let active = true
+    rightsApi
+      .getUserRights(user.id)
+      .then((r) => {
+        if (active) setRights(r || [])
+      })
+      .catch(() => {
+        if (active) setRights([])
+      })
+    return () => {
+      active = false
+    }
+  }, [user?.id])
+
+  const isSuperadmin = role === "Superadmin" || user?.role === "Superadmin"
+  const isAdminRole = role === "Admin" || user?.role === "Admin"
+  const isAdmin = isSuperadmin || isAdminRole
+
+  const hasRight = (name: string) => {
+    if (isSuperadmin) return true
+    if (isAdminRole && !rights.length) return true
+    const n = name.toLowerCase().trim()
+    return rights.some((r) => {
+      const rl = r.toLowerCase().trim()
+      return (
+        rl === n ||
+        rl === `customer - ${n}` ||
+        rl === `${n} customer` ||
+        (rl.includes("customer") && rl.includes(n))
+      )
+    })
+  }
+
+  const canAdd = isSuperadmin || hasRight("add")
+  const canEdit = isSuperadmin || hasRight("edit")
+  const canDelete = isSuperadmin || hasRight("delete")
+  const canViewInactive = isSuperadmin || isAdminRole || canEdit || canDelete
+  const canFilter = isSuperadmin || isAdminRole || canAdd || canEdit || canDelete || rights.length > 0
+  const showAudit = isSuperadmin || isAdminRole || canEdit || canDelete
+  const hasActions = canEdit || canDelete
+
   const [customers, setCustomers] = useState<Customer[]>(fallbackCustomers)
   const [filter, setFilter] = useState<string>("active")
   const [search, setSearch] = useState<string>("")
@@ -284,7 +333,7 @@ export default function CustomersPage({ role }: { role: Role }) {
   useEffect(() => {
     const cleanup = loadCustomers()
     return cleanup
-  }, [isAdmin])
+  }, [user?.id, isAdmin])
 
   const counts = useMemo<[number, number, number]>(() => {
     const activeCount = customers.filter((r) => !r.is_deleted).length
@@ -294,8 +343,8 @@ export default function CustomersPage({ role }: { role: Role }) {
 
   const rows = useMemo(() => {
     return customers.filter((row) => {
-      if (!isAdmin && row.is_deleted) return false
-      if (isAdmin && filter !== "all") {
+      if (!canViewInactive && row.is_deleted) return false
+      if (canViewInactive && filter !== "all") {
         if (filter === "active" && row.is_deleted) return false
         if (filter === "inactive" && !row.is_deleted) return false
       }
@@ -305,7 +354,7 @@ export default function CustomersPage({ role }: { role: Role }) {
         .toLowerCase()
         .includes(q)
     })
-  }, [customers, filter, isAdmin, search])
+  }, [customers, filter, canViewInactive, search])
 
   const handleDelete = async (target: Customer) => {
     const recordLabel = `${target.custno} ${target.custname}`
@@ -344,7 +393,7 @@ export default function CustomersPage({ role }: { role: Role }) {
           <p>Commercial identities, payment terms, and record provenance.</p>
         </div>
         <div className="module-count">
-          <b>{String(isAdmin ? counts[2] : counts[0]).padStart(2, "0")}</b>
+          <b>{String(canViewInactive ? counts[2] : counts[0]).padStart(2, "0")}</b>
           <span>customer records</span>
         </div>
       </div>
@@ -359,6 +408,9 @@ export default function CustomersPage({ role }: { role: Role }) {
         <>
           <EntityControls
             isAdmin={isAdmin}
+            showFilters={canFilter}
+            showAdd={canAdd}
+            canAdd={canAdd}
             counts={counts}
             activeFilter={filter}
             onFilter={setFilter}
@@ -384,13 +436,13 @@ export default function CustomersPage({ role }: { role: Role }) {
                       <th>Customer Name</th>
                       <th>Address</th>
                       <th>Pay Terms</th>
-                      {isAdmin && (
+                      {showAudit && (
                         <>
                           <th>Status</th>
                           <th>Stamp</th>
-                          <th>Actions</th>
                         </>
                       )}
+                      {hasActions && <th>Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -405,7 +457,7 @@ export default function CustomersPage({ role }: { role: Role }) {
                         </td>
                         <td>{row.address || "—"}</td>
                         <td>{row.payterm || "—"}</td>
-                        {isAdmin && (
+                        {showAudit && (
                           <>
                             <td>
                               <Badge kind={row.status}>{row.status}</Badge>
@@ -417,29 +469,37 @@ export default function CustomersPage({ role }: { role: Role }) {
                                 date={row.stampDate || "2026-10-01 9:00 AM"}
                               />
                             </td>
-                            <td>
-                              <div className="row-actions">
-                                {row.is_deleted ? (
+                          </>
+                        )}
+                        {hasActions && (
+                          <td>
+                            <div className="row-actions">
+                              {row.is_deleted ? (
+                                canEdit && (
                                   <button
                                     className="success-link"
                                     onClick={() => handleRestore(row.custno)}
                                   >
                                     Restore
                                   </button>
-                                ) : (
-                                  <>
+                                )
+                              ) : (
+                                <>
+                                  {canEdit && (
                                     <button onClick={() => setForm(row)}>Edit</button>
+                                  )}
+                                  {canDelete && (
                                     <button
                                       className="danger-link"
                                       onClick={() => setDeleting(row)}
                                     >
                                       Delete
                                     </button>
-                                  </>
-                                )}
-                              </div>
-                            </td>
-                          </>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </td>
                         )}
                       </tr>
                     ))}
@@ -453,9 +513,13 @@ export default function CustomersPage({ role }: { role: Role }) {
             <div className="entity-footer">
               <span>{rows.length} records visible</span>
               <span>
-                {isAdmin
+                {isSuperadmin
+                  ? "Superadmin view · full permissions"
+                  : isAdminRole
                   ? "Administrative view · stamps enabled"
-                  : "Rights-filtered User view"}
+                  : hasActions || canAdd
+                  ? "Rights-enabled User view"
+                  : "Read-only User view"}
               </span>
             </div>
           </section>

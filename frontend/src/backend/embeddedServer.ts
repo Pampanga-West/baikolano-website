@@ -992,12 +992,26 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
         payterm,
       })
 
-      const isAdminUser = caller.role === "Superadmin" || caller.role === "Admin"
+      const userRights =
+        caller.role === "Superadmin"
+          ? []
+          : await fetchUserRightsFromSupabase(caller.id).catch(() => [])
+
+      const canSeeInactive =
+        caller.role === "Superadmin" ||
+        caller.role === "Admin" ||
+        userRights.some((r) => {
+          const lower = r.toLowerCase().trim()
+          return (
+            lower.includes("customer") &&
+            (lower.includes("edit") || lower.includes("delete") || lower.includes("view"))
+          )
+        })
 
       const dtoList = rawRows
         .filter((r) => {
-          // Regular users without admin rights can never see Inactive/deleted rows
-          if (!isAdminUser && Boolean(r.is_deleted)) return false
+          // Regular users without customer rights can never see Inactive/deleted rows
+          if (!canSeeInactive && Boolean(r.is_deleted)) return false
           return true
         })
         .map((r) => {
