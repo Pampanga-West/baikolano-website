@@ -140,8 +140,8 @@ function CustomerForm({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
     if (!custname.trim()) {
       setError("Customer Name is required.")
       return
@@ -187,7 +187,7 @@ function CustomerForm({
           <Button variant="secondary" onClick={close} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={saving}>
+          <Button onClick={() => handleSubmit()} disabled={saving}>
             {saving ? "Saving…" : editing ? "Save Changes" : "Add Customer"}
           </Button>
         </>
