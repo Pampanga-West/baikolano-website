@@ -239,6 +239,8 @@ function CustomerForm({
 export default function CustomersPage({ role }: { role: Role }) {
   const { user } = useAuth()
   const [rights, setRights] = useState<string[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user?.id) {
@@ -300,7 +302,7 @@ export default function CustomersPage({ role }: { role: Role }) {
   const [permissionError, setPermissionError] = useState<string | null>(null)
   const [form, setForm] = useState<Customer | "new" | null>(null)
   const [deleting, setDeleting] = useState<Customer | null>(null)
-  const [blocked, setBlocked] = useState<string | null>(null)
+  const [blocked, setBlocked] = useState<{ record: string; reason?: string } | null>(null)
 
   const loadCustomers = () => {
     let active = true
@@ -370,15 +372,16 @@ export default function CustomersPage({ role }: { role: Role }) {
     try {
       const res = await customerApi.deleteCustomer(target.custno)
       if (res?.blocked) {
-        setBlocked(recordLabel)
+        setBlocked({ record: recordLabel })
       } else {
+        setSuccess(`Soft-deleted ${recordLabel}. Record is marked as Inactive and remains restorable by administrators.`)
         loadCustomers()
       }
     } catch (err: any) {
       if (err.blocked || err.status === 409 || err.message?.includes("Active child records")) {
-        setBlocked(recordLabel)
+        setBlocked({ record: recordLabel, reason: err.message })
       } else {
-        alert(err.message || "Failed to delete customer.")
+        setError(err.message || "Failed to delete customer.")
       }
     }
   }
@@ -386,9 +389,10 @@ export default function CustomersPage({ role }: { role: Role }) {
   const handleRestore = async (custno: string) => {
     try {
       await customerApi.restoreCustomer(custno)
+      setSuccess(`Restored ${custno}. Record is now Active and visible in standard operational views.`)
       loadCustomers()
     } catch (err: any) {
-      alert(err.message || "Failed to restore customer.")
+      setError(err.message || "Failed to restore customer.")
     }
   }
 
@@ -405,6 +409,30 @@ export default function CustomersPage({ role }: { role: Role }) {
           <span>customer records</span>
         </div>
       </div>
+
+      {error && (
+        <div className="error-banner" role="alert">
+          <div style={{ flex: 1 }}>
+            <b>Customer Operation Error</b>
+            <span>{error}</span>
+          </div>
+          <button className="dismiss-link" onClick={() => setError(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {success && (
+        <div className="info-banner" role="status">
+          <div style={{ flex: 1 }}>
+            <b>Success</b>
+            <span>{success}</span>
+          </div>
+          <button className="dismiss-link" onClick={() => setSuccess(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {permissionError ? (
         <div className="empty-state">
@@ -515,7 +543,46 @@ export default function CustomersPage({ role }: { role: Role }) {
                 </table>
               </div>
             ) : (
-              <EmptyState query={search} onClear={() => setSearch("")} />
+              <EmptyState
+                query={search}
+                title={
+                  search
+                    ? "No matching customer records"
+                    : filter === "inactive"
+                    ? "No inactive customer records"
+                    : filter === "active"
+                    ? "No active customer records"
+                    : "No customer records"
+                }
+                message={
+                  search
+                    ? `Nothing matches "${search}". Try a different customer name, commercial code, or reset your search filters.`
+                    : filter === "inactive"
+                    ? "There are currently no soft-deleted or inactive customers in this directory."
+                    : filter === "active"
+                    ? "No active customers found. Create a new record or review soft-deleted customer records."
+                    : "Your customer directory is empty. Click below to add your first customer."
+                }
+                actionLabel={
+                  search
+                    ? "Clear search filter"
+                    : filter === "inactive"
+                    ? "Show all records"
+                    : canAdd
+                    ? "Add Customer"
+                    : undefined
+                }
+                onAction={
+                  search
+                    ? () => setSearch("")
+                    : filter === "inactive"
+                    ? () => setFilter("all")
+                    : canAdd
+                    ? () => setForm("new")
+                    : undefined
+                }
+                onClear={() => setSearch("")}
+              />
             )}
 
             <div className="entity-footer">
@@ -552,7 +619,11 @@ export default function CustomersPage({ role }: { role: Role }) {
       )}
 
       {blocked && (
-        <BlockedDeleteModal record={blocked} close={() => setBlocked(null)} />
+        <BlockedDeleteModal
+          record={blocked.record}
+          reason={blocked.reason}
+          close={() => setBlocked(null)}
+        />
       )}
     </div>
   )
