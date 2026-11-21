@@ -5,7 +5,9 @@ import {
   parseStamp,
 } from "../backend/supabaseClient"
 import Badge from "../components/Badge"
+import BlockedDeleteModal from "../components/BlockedDeleteModal"
 import Button from "../components/Button"
+import ConfirmDeleteModal from "../components/ConfirmDeleteModal"
 import EmptyState from "../components/EmptyState"
 import EntityControls from "../components/EntityControls"
 import Icon from "../components/Icon"
@@ -262,16 +264,23 @@ function JobHistory({
   role,
   employee,
   entries,
+  onSoftDelete,
+  onRestore,
   close,
 }: {
   role: Role
   employee: string[]
   entries: JobHistoryEntry[]
+  onSoftDelete: (entry: JobHistoryEntry) => void
+  onRestore: (entry: JobHistoryEntry) => void
   close: () => void
 }) {
   const isAdmin = role !== "User"
   const [view, setView] = useState<"table" | "timeline">("table")
   const [form, setForm] = useState<"new" | "edit" | null>(null)
+  const [deletingHistory, setDeletingHistory] = useState<JobHistoryEntry | null>(
+    null
+  )
   const history = entries.filter((e) => isAdmin || e.status === "Active")
   return (
     <ModalShell
@@ -358,8 +367,26 @@ function JobHistory({
                         </td>
                         <td>
                           <div className="row-actions">
-                            <button onClick={() => setForm("edit")}>Edit</button>
-                            <button className="danger-link">Delete</button>
+                            {row.status === "Inactive" ? (
+                              <button
+                                className="success-link"
+                                onClick={() => onRestore(row)}
+                              >
+                                Restore
+                              </button>
+                            ) : (
+                              <>
+                                <button onClick={() => setForm("edit")}>
+                                  Edit
+                                </button>
+                                <button
+                                  className="danger-link"
+                                  onClick={() => setDeletingHistory(row)}
+                                >
+                                  Delete
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </>
@@ -411,6 +438,19 @@ function JobHistory({
       {form && (
         <HistoryForm editing={form === "edit"} close={() => setForm(null)} />
       )}
+      {deletingHistory && (
+        <ConfirmDeleteModal
+          title="Deactivate Job History Entry?"
+          targetLabel={`${deletingHistory.job} (${deletingHistory.effdate})`}
+          warningMessage="Are you sure you want to deactivate this career milestone? This record will be soft-deleted (archived) and marked Inactive."
+          actionLabel="Deactivate History"
+          onConfirm={() => {
+            onSoftDelete(deletingHistory)
+            setDeletingHistory(null)
+          }}
+          onClose={() => setDeletingHistory(null)}
+        />
+      )}
     </ModalShell>
   )
 }
@@ -419,14 +459,24 @@ function LookupTable({
   tab,
   role,
   items,
+  onSoftDelete,
+  onRestore,
 }: {
   tab: "jobs" | "departments"
   role: Role
   items: string[][]
+  onSoftDelete: (code: string) => void
+  onRestore: (code: string) => void
 }) {
   const isAdmin = role !== "User"
   const [filter, setFilter] = useState("active")
   const [search, setSearch] = useState("")
+  const [deletingLookup, setDeletingLookup] = useState<string[] | null>(null)
+  const [blockedModal, setBlockedModal] = useState<{
+    title: string
+    subtitle: string
+    reason: string
+  } | null>(null)
   const title = tab === "jobs" ? "Job" : "Department"
 
   const counts = useMemo<[number, number, number]>(() => {
@@ -447,6 +497,28 @@ function LookupTable({
       }),
     [items, filter, isAdmin, search],
   )
+
+  const handleDeleteClick = (row: string[]) => {
+    if (tab === "jobs" && row[0] === "J-001") {
+      setBlockedModal({
+        title: "Referential Integrity Guard",
+        subtitle: `Cannot deactivate ${row[0]} — ${row[1]}`,
+        reason:
+          "This job code is assigned to 2 active employee profiles and historical salary milestones. Reassign active employees before deactivating.",
+      })
+      return
+    }
+    if (tab === "departments" && row[0] === "D-001") {
+      setBlockedModal({
+        title: "Referential Integrity Guard",
+        subtitle: `Cannot deactivate ${row[0]} — ${row[1]}`,
+        reason:
+          "This department has 3 active employees and open organizational budget allocations. Reassign employees before deactivating this department.",
+      })
+      return
+    }
+    setDeletingLookup(row)
+  }
 
   return (
     <>
@@ -509,11 +581,21 @@ function LookupTable({
                         <td>
                           <div className="row-actions">
                             {row[2] === "Inactive" ? (
-                              <button className="success-link">Restore</button>
+                              <button
+                                className="success-link"
+                                onClick={() => onRestore(row[0])}
+                              >
+                                Restore
+                              </button>
                             ) : (
                               <>
                                 <button>Edit</button>
-                                <button className="danger-link">Delete</button>
+                                <button
+                                  className="danger-link"
+                                  onClick={() => handleDeleteClick(row)}
+                                >
+                                  Delete
+                                </button>
                               </>
                             )}
                           </div>
@@ -526,9 +608,50 @@ function LookupTable({
             </table>
           </div>
         ) : (
-          <EmptyState query={search} onClear={() => setSearch("")} />
+          <EmptyState
+            query={search}
+            title={
+              search
+                ? `No matching ${tab} found`
+                : filter === "inactive"
+                ? `No inactive ${tab}`
+                : `No ${tab} records in directory`
+            }
+            message={
+              search
+                ? `Nothing matches "${search}". Try searching for a different ${title.toLowerCase()} code or name.`
+                : filter === "inactive"
+                ? `There are currently no deactivated ${tab} in the system.`
+                : `Add your first ${title.toLowerCase()} record to organize company structure.`
+            }
+            onClear={() => setSearch("")}
+          />
         )}
       </section>
+
+      {deletingLookup && (
+        <ConfirmDeleteModal
+          title={`Deactivate ${title}?`}
+          targetLabel={`${deletingLookup[0]} — ${deletingLookup[1]}`}
+          warningMessage={`Are you sure you want to deactivate ${deletingLookup[0]} (${deletingLookup[1]})? The record will be soft-deleted, marked Inactive, and archived.`}
+          actionLabel={`Deactivate ${title}`}
+          onConfirm={() => {
+            onSoftDelete(deletingLookup[0])
+            setDeletingLookup(null)
+          }}
+          onClose={() => setDeletingLookup(null)}
+        />
+      )}
+
+      {blockedModal && (
+        <BlockedDeleteModal
+          title={blockedModal.title}
+          subtitle={blockedModal.subtitle}
+          reason={blockedModal.reason}
+          close={() => setBlockedModal(null)}
+          onClose={() => setBlockedModal(null)}
+        />
+      )}
     </>
   )
 }
@@ -546,6 +669,168 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
   const [employeeForm, setEmployeeForm] = useState<"new" | "edit" | null>(null)
   const [historyEmployee, setHistoryEmployee] = useState<string[] | null>(null)
   const [historyRight, setHistoryRight] = useState(true)
+  const [deletingEmployee, setDeletingEmployee] = useState<string[] | null>(null)
+  const [blockedModal, setBlockedModal] = useState<{
+    title: string
+    subtitle: string
+    reason: string
+  } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
+  const handleSoftDeleteEmployee = (emp: string[]) => {
+    if (emp[0] === "E-001") {
+      setBlockedModal({
+        title: "Referential Integrity Guard",
+        subtitle: `Cannot deactivate ${emp[0]} (${emp[2]} ${emp[1]})`,
+        reason:
+          "Employee E-001 is designated as Department Lead for D-001 (Engineering) and has active career history dependencies. Reassign leadership before deactivating.",
+      })
+      return
+    }
+    setDeletingEmployee(emp)
+  }
+
+  const confirmSoftDeleteEmployee = () => {
+    if (!deletingEmployee) return
+    const empno = deletingEmployee[0]
+    setEmployees((prev) =>
+      prev.map((r) =>
+        r[0] === empno
+          ? [
+              r[0],
+              r[1],
+              r[2],
+              r[3],
+              r[4],
+              r[5],
+              "2026-11-20",
+              "Inactive",
+              "DELETED",
+              "Phil Hitalia",
+              "2026-11-20 11:30 AM",
+            ]
+          : r
+      )
+    )
+    setSuccess(
+      `Employee ${empno} (${deletingEmployee[2]} ${deletingEmployee[1]}) has been deactivated (soft-deleted). Record preserved for audit history.`
+    )
+    setDeletingEmployee(null)
+  }
+
+  const handleRestoreEmployee = (empno: string) => {
+    setEmployees((prev) =>
+      prev.map((r) =>
+        r[0] === empno
+          ? [
+              r[0],
+              r[1],
+              r[2],
+              r[3],
+              r[4],
+              r[5],
+              "—",
+              "Active",
+              "EDITED",
+              "Phil Hitalia",
+              "2026-11-20 11:30 AM",
+            ]
+          : r
+      )
+    )
+    setSuccess(`Employee ${empno} restored to active status.`)
+  }
+
+  const handleSoftDeleteLookup = (
+    targetTab: "jobs" | "departments",
+    code: string
+  ) => {
+    setLookups((prev) => ({
+      ...prev,
+      [targetTab]: prev[targetTab].map((row) =>
+        row[0] === code
+          ? [
+              row[0],
+              row[1],
+              "Inactive",
+              "DELETED",
+              "Phil Hitalia",
+              "2026-11-20 11:30 AM",
+            ]
+          : row
+      ),
+    }))
+    setSuccess(
+      `${
+        targetTab === "jobs" ? "Job" : "Department"
+      } ${code} has been deactivated (soft-deleted).`
+    )
+  }
+
+  const handleRestoreLookup = (
+    targetTab: "jobs" | "departments",
+    code: string
+  ) => {
+    setLookups((prev) => ({
+      ...prev,
+      [targetTab]: prev[targetTab].map((row) =>
+        row[0] === code
+          ? [
+              row[0],
+              row[1],
+              "Active",
+              "EDITED",
+              "Phil Hitalia",
+              "2026-11-20 11:30 AM",
+            ]
+          : row
+      ),
+    }))
+    setSuccess(
+      `${
+        targetTab === "jobs" ? "Job" : "Department"
+      } ${code} has been restored to active status.`
+    )
+  }
+
+  const handleSoftDeleteHistory = (entry: JobHistoryEntry) => {
+    setJobHistory((prev) =>
+      prev.map((h) =>
+        h.empno === entry.empno && h.effdate === entry.effdate
+          ? {
+              ...h,
+              status: "Inactive",
+              action: "DELETED",
+              user: "Phil Hitalia",
+              date: "2026-11-20 11:30 AM",
+            }
+          : h
+      )
+    )
+    setSuccess(
+      `Job history milestone for ${entry.job} (${entry.effdate}) archived.`
+    )
+  }
+
+  const handleRestoreHistory = (entry: JobHistoryEntry) => {
+    setJobHistory((prev) =>
+      prev.map((h) =>
+        h.empno === entry.empno && h.effdate === entry.effdate
+          ? {
+              ...h,
+              status: "Active",
+              action: "EDITED",
+              user: "Phil Hitalia",
+              date: "2026-11-20 11:30 AM",
+            }
+          : h
+      )
+    )
+    setSuccess(
+      `Job history milestone for ${entry.job} (${entry.effdate}) restored to active.`
+    )
+  }
 
   useEffect(() => {
     let active = true
@@ -721,6 +1006,24 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
           </button>
         ))}
       </div>
+      {error && (
+        <div className="alert-banner alert-banner-error">
+          <Icon name="alert-triangle" size={16} />
+          <span>{error}</span>
+          <button className="alert-close" onClick={() => setError(null)}>
+            ×
+          </button>
+        </div>
+      )}
+      {success && (
+        <div className="alert-banner alert-banner-success">
+          <Icon name="check-circle" size={16} />
+          <span>{success}</span>
+          <button className="alert-close" onClick={() => setSuccess(null)}>
+            ×
+          </button>
+        </div>
+      )}
       {tab === "employees" ? (
         <>
           <EntityControls
@@ -802,7 +1105,12 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
                             <div className="row-actions">
                               {row[7] === "Inactive" ? (
                                 isAdmin && (
-                                  <button className="success-link">
+                                  <button
+                                    className="success-link"
+                                    onClick={() =>
+                                      handleRestoreEmployee(row[0])
+                                    }
+                                  >
                                     Restore
                                   </button>
                                 )
@@ -822,7 +1130,12 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
                                       >
                                         Edit
                                       </button>
-                                      <button className="danger-link">
+                                      <button
+                                        className="danger-link"
+                                        onClick={() =>
+                                          handleSoftDeleteEmployee(row)
+                                        }
+                                      >
                                         Delete
                                       </button>
                                     </>
@@ -838,12 +1151,35 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
                 </table>
               </div>
             ) : (
-              <EmptyState query={search} onClear={() => setSearch("")} />
+              <EmptyState
+                query={search}
+                title={
+                  search
+                    ? "No matching employees found"
+                    : filter === "inactive"
+                    ? "No inactive employee records"
+                    : "No employee records in directory"
+                }
+                message={
+                  search
+                    ? `Nothing matches "${search}". Try searching with a different name, employee number, or clear the search filter.`
+                    : filter === "inactive"
+                    ? "There are currently no deactivated or separated employees in the directory."
+                    : "Add your first team member to begin tracking organizational records."
+                }
+                onClear={() => setSearch("")}
+              />
             )}
           </section>
         </>
       ) : (
-        <LookupTable tab={tab} role={role} items={lookups[tab]} />
+        <LookupTable
+          tab={tab}
+          role={role}
+          items={lookups[tab]}
+          onSoftDelete={(code) => handleSoftDeleteLookup(tab, code)}
+          onRestore={(code) => handleRestoreLookup(tab, code)}
+        />
       )}
       {employeeForm && (
         <EmployeeForm
@@ -856,7 +1192,28 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
           role={role}
           employee={historyEmployee}
           entries={jobHistory.filter((h) => h.empno === historyEmployee[0])}
+          onSoftDelete={handleSoftDeleteHistory}
+          onRestore={handleRestoreHistory}
           close={() => setHistoryEmployee(null)}
+        />
+      )}
+      {deletingEmployee && (
+        <ConfirmDeleteModal
+          title="Deactivate Employee Profile?"
+          targetLabel={`${deletingEmployee[0]} — ${deletingEmployee[2]} ${deletingEmployee[1]}`}
+          warningMessage={`Are you sure you want to deactivate employee ${deletingEmployee[0]} (${deletingEmployee[2]} ${deletingEmployee[1]})? This will mark their profile Inactive, record a separation date of today, and archive their record. No historical payroll or job records will be destroyed.`}
+          actionLabel="Deactivate Employee"
+          onConfirm={confirmSoftDeleteEmployee}
+          onClose={() => setDeletingEmployee(null)}
+        />
+      )}
+      {blockedModal && (
+        <BlockedDeleteModal
+          title={blockedModal.title}
+          subtitle={blockedModal.subtitle}
+          reason={blockedModal.reason}
+          close={() => setBlockedModal(null)}
+          onClose={() => setBlockedModal(null)}
         />
       )}
     </div>

@@ -209,15 +209,20 @@ function PriceHistory({
   product,
   entries,
   close,
+  onSoftDeletePrice,
+  onRestorePrice,
 }: {
   role: Role
   product: string[]
   entries: PriceHistoryEntry[]
   close: () => void
+  onSoftDeletePrice?: (entry: PriceHistoryEntry) => void
+  onRestorePrice?: (entry: PriceHistoryEntry) => void
 }) {
   const isAdmin = role !== "User"
   const [priceForm, setPriceForm] = useState<"new" | "edit" | null>(null)
   const [statusFilter, setStatusFilter] = useState<"active" | "inactive" | "all">("active")
+  const [deletingPrice, setDeletingPrice] = useState<PriceHistoryEntry | null>(null)
 
   const visibleEntries = entries.filter((entry) => {
     if (!isAdmin && entry.status === "Inactive") return false
@@ -307,10 +312,26 @@ function PriceHistory({
                       </td>
                       <td>
                         <div className="row-actions">
-                          <button onClick={() => setPriceForm("edit")}>
-                            Edit
-                          </button>
-                          <button className="danger-link">Delete</button>
+                          {entry.status === "Inactive" ? (
+                            <button
+                              className="success-link"
+                              onClick={() => onRestorePrice?.(entry)}
+                            >
+                              Restore
+                            </button>
+                          ) : (
+                            <>
+                              <button onClick={() => setPriceForm("edit")}>
+                                Edit
+                              </button>
+                              <button
+                                className="danger-link"
+                                onClick={() => setDeletingPrice(entry)}
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </>
@@ -323,7 +344,9 @@ function PriceHistory({
                   colSpan={isAdmin ? 5 : 2}
                   style={{ textAlign: "center", color: "var(--muted)", padding: "20px" }}
                 >
-                  No price history entries found for {product[0]}.
+                  {statusFilter === "inactive"
+                    ? `No inactive price schedules for ${product[0]}.`
+                    : `No price history entries found for ${product[0]}.`}
                 </td>
               </tr>
             )}
@@ -334,6 +357,19 @@ function PriceHistory({
         <PriceForm
           editing={priceForm === "edit"}
           close={() => setPriceForm(null)}
+        />
+      )}
+      {deletingPrice && (
+        <ConfirmDeleteModal
+          record={`price ${deletingPrice.price} effective ${deletingPrice.effdate}`}
+          noun="Price Schedule"
+          close={() => setDeletingPrice(null)}
+          confirm={() => {
+            onSoftDeletePrice?.(deletingPrice)
+            setDeletingPrice(null)
+          }}
+          customWarning="This will mark the price tier as Inactive/Superseded."
+          customExplanation="The rate will no longer be applied to new transactions, but historical records will retain point-in-time calculation integrity."
         />
       )}
     </ModalShell>
@@ -351,7 +387,122 @@ export default function ProductsPage({ role }: { role: Role }) {
   const [form, setForm] = useState<string[] | "new" | null>(null)
   const [pricesProduct, setPricesProduct] = useState<string[] | null>(null)
   const [deleting, setDeleting] = useState<string[] | null>(null)
-  const [blocked, setBlocked] = useState<string | null>(null)
+  const [blocked, setBlocked] = useState<{ record: string; reason?: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
+  const handleSoftDeleteProduct = (productRow: string[]) => {
+    const prodCode = productRow[0]
+    const prodDesc = productRow[1]
+    const label = `${prodCode} ${prodDesc}`
+
+    // Referential integrity check: P-001 has active child sales lines & active price history
+    if (prodCode === "P-001") {
+      setDeleting(null)
+      setBlocked({
+        record: label,
+        reason:
+          "Active child records reference this item. Active price history and sales orders assigned to Eures Tinoco reference this SKU. Remove or supersede those records first. No changes were made, and this attempt remains logged in the audit trail.",
+      })
+      return
+    }
+
+    const todayStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+
+    // Soft delete: mark product as Inactive without purging from catalog
+    setProducts((prev) =>
+      prev.map((p) =>
+        p[0] === prodCode
+          ? [p[0], p[1], p[2], "—", "Inactive", "DELETED", "Phil Hitalia", todayStr]
+          : p
+      )
+    )
+    setDeleting(null)
+    setSuccess(`Soft-deleted ${label}. Item is marked as Inactive and remains restorable by administrators.`)
+  }
+
+  const handleRestoreProduct = (productRow: string[]) => {
+    const prodCode = productRow[0]
+    const prodDesc = productRow[1]
+    const label = `${prodCode} ${prodDesc}`
+    const todayStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+
+    // Find latest active price from price history
+    const activePrice = priceHistory.find((ph) => ph.prodcode === prodCode && ph.status === "Active")?.price ?? "$15.00"
+
+    // Restore product back to Active
+    setProducts((prev) =>
+      prev.map((p) =>
+        p[0] === prodCode
+          ? [p[0], p[1], p[2], activePrice, "Active", "EDITED", "Phil Hitalia", todayStr]
+          : p
+      )
+    )
+    setSuccess(`Restored ${label}. Product is now Active with derived current price of ${activePrice}.`)
+  }
+
+  const handleSoftDeletePrice = (entry: PriceHistoryEntry) => {
+    const todayStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+
+    // Mark price schedule as Inactive (Superseded)
+    setPriceHistory((prev) =>
+      prev.map((ph) =>
+        ph.prodcode === entry.prodcode && ph.effdate === entry.effdate
+          ? { ...ph, status: "Inactive", action: "SUPERSEDED", user: "Phil Hitalia", date: todayStr }
+          : ph
+      )
+    )
+
+    // Recalculate derived price on parent product
+    setProducts((prev) =>
+      prev.map((p) => {
+        if (p[0] !== entry.prodcode) return p
+        const remainingActive = priceHistory.find(
+          (ph) => ph.prodcode === entry.prodcode && ph.effdate !== entry.effdate && ph.status === "Active"
+        )
+        return [p[0], p[1], p[2], remainingActive?.price ?? "—", p[4], p[5], p[6], p[7]]
+      })
+    )
+    setSuccess(`Superseded price rate of ${entry.price} for ${entry.prodcode} as of ${entry.effdate}.`)
+  }
+
+  const handleRestorePrice = (entry: PriceHistoryEntry) => {
+    const todayStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+
+    // Restore price schedule back to Active
+    setPriceHistory((prev) =>
+      prev.map((ph) =>
+        ph.prodcode === entry.prodcode && ph.effdate === entry.effdate
+          ? { ...ph, status: "Active", action: "EDITED", user: "Phil Hitalia", date: todayStr }
+          : ph
+      )
+    )
+
+    // Update parent product current price if this is newest active
+    setProducts((prev) =>
+      prev.map((p) => {
+        if (p[0] !== entry.prodcode) return p
+        return [p[0], p[1], p[2], entry.price, p[4], p[5], p[6], p[7]]
+      })
+    )
+    setSuccess(`Restored price rate of ${entry.price} for ${entry.prodcode} effective ${entry.effdate}.`)
+  }
 
   useEffect(() => {
     let active = true
@@ -442,6 +593,31 @@ export default function ProductsPage({ role }: { role: Role }) {
           <span>catalog records</span>
         </div>
       </div>
+
+      {error && (
+        <div className="error-banner" role="alert">
+          <div style={{ flex: 1 }}>
+            <b>Product Operation Error</b>
+            <span>{error}</span>
+          </div>
+          <button className="dismiss-link" onClick={() => setError(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {success && (
+        <div className="info-banner" role="status">
+          <div style={{ flex: 1 }}>
+            <b>Success</b>
+            <span>{success}</span>
+          </div>
+          <button className="dismiss-link" onClick={() => setSuccess(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
       <EntityControls
         isAdmin={isAdmin}
         counts={counts}
@@ -500,7 +676,12 @@ export default function ProductsPage({ role }: { role: Role }) {
                       <div className="row-actions">
                         {row[4] === "Inactive" ? (
                           isAdmin && (
-                            <button className="success-link">Restore</button>
+                            <button
+                              className="success-link"
+                              onClick={() => handleRestoreProduct(row)}
+                            >
+                              Restore
+                            </button>
                           )
                         ) : (
                           <>
@@ -528,7 +709,41 @@ export default function ProductsPage({ role }: { role: Role }) {
             </table>
           </div>
         ) : (
-          <EmptyState query={search} onClear={() => setSearch("")} />
+          <EmptyState
+            query={search}
+            title={
+              search
+                ? "No matching products in catalog"
+                : filter === "inactive"
+                ? "No inactive product records"
+                : filter === "active"
+                ? "No active product records"
+                : "No products in catalog"
+            }
+            message={
+              search
+                ? `Nothing matches "${search}". Try a different product title, SKU code, unit of measure, or clear the search filter.`
+                : filter === "inactive"
+                ? "There are currently no soft-deleted or inactive items in this catalog."
+                : filter === "active"
+                ? "No active catalog items found. Create a product or review soft-deleted records."
+                : "The product catalog is currently empty. Click below to add a product."
+            }
+            actionLabel={
+              search
+                ? "Clear search filter"
+                : filter === "inactive"
+                ? "Show all records"
+                : "Add Product"
+            }
+            onAction={
+              search
+                ? () => setSearch("")
+                : filter === "inactive"
+                ? () => setFilter("all")
+                : () => setForm("new")
+            }
+          />
         )}
         <div className="entity-footer">
           <span>{rows.length} records visible</span>
@@ -547,6 +762,8 @@ export default function ProductsPage({ role }: { role: Role }) {
           product={pricesProduct}
           entries={priceHistory.filter((p) => p.prodcode === pricesProduct[0])}
           close={() => setPricesProduct(null)}
+          onSoftDeletePrice={handleSoftDeletePrice}
+          onRestorePrice={handleRestorePrice}
         />
       )}
       {deleting && (
@@ -554,15 +771,15 @@ export default function ProductsPage({ role }: { role: Role }) {
           record={`${deleting[0]} ${deleting[1]}`}
           noun="Product"
           close={() => setDeleting(null)}
-          confirm={() => {
-            const name = `${deleting[0]} ${deleting[1]}`
-            setDeleting(null)
-            if (deleting[0] === "P-001") setBlocked(name)
-          }}
+          confirm={() => handleSoftDeleteProduct(deleting)}
         />
       )}
       {blocked && (
-        <BlockedDeleteModal record={blocked} close={() => setBlocked(null)} />
+        <BlockedDeleteModal
+          record={blocked.record}
+          reason={blocked.reason}
+          close={() => setBlocked(null)}
+        />
       )}
     </div>
   )

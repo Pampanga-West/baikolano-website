@@ -5,9 +5,12 @@ import {
   parseStamp,
 } from "../backend/supabaseClient"
 import Badge from "../components/Badge"
+import BlockedDeleteModal from "../components/BlockedDeleteModal"
 import Button from "../components/Button"
+import ConfirmDeleteModal from "../components/ConfirmDeleteModal"
 import EmptyState from "../components/EmptyState"
 import EntityControls from "../components/EntityControls"
+import Icon from "../components/Icon"
 import ModalShell from "../components/ModalShell"
 import Stamp from "../components/Stamp"
 import type { Role } from "../lib/types"
@@ -212,16 +215,21 @@ function SaleDetails({
   role,
   sale,
   lines,
+  onSoftDeleteLine,
+  onRestoreLine,
   close,
 }: {
   role: Role
   sale: string[]
   lines: SaleLineItem[]
+  onSoftDeleteLine: (line: SaleLineItem) => void
+  onRestoreLine: (line: SaleLineItem) => void
   close: () => void
 }) {
   const isAdmin = role !== "User"
   const [lineForm, setLineForm] = useState<"new" | "edit" | null>(null)
   const [statusFilter, setStatusFilter] = useState<"active" | "inactive" | "all">("active")
+  const [deletingLine, setDeletingLine] = useState<SaleLineItem | null>(null)
 
   const visibleLines = lines.filter((line) => {
     if (!isAdmin && line.status === "Inactive") return false
@@ -324,10 +332,26 @@ function SaleDetails({
                       </td>
                       <td>
                         <div className="row-actions">
-                          <button onClick={() => setLineForm("edit")}>
-                            Edit
-                          </button>
-                          <button className="danger-link">Delete</button>
+                          {row.status === "Inactive" ? (
+                            <button
+                              className="success-link"
+                              onClick={() => onRestoreLine(row)}
+                            >
+                              Restore
+                            </button>
+                          ) : (
+                            <>
+                              <button onClick={() => setLineForm("edit")}>
+                                Edit
+                              </button>
+                              <button
+                                className="danger-link"
+                                onClick={() => setDeletingLine(row)}
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </>
@@ -357,6 +381,19 @@ function SaleDetails({
           close={() => setLineForm(null)}
         />
       )}
+      {deletingLine && (
+        <ConfirmDeleteModal
+          title="Deactivate Line Item?"
+          targetLabel={`${deletingLine.product} (Qty: ${deletingLine.qty})`}
+          warningMessage={`Are you sure you want to deactivate this line item from transaction ${sale[0]}? The item will be soft-deleted, marked Inactive, and the invoice amount updated.`}
+          actionLabel="Deactivate Line Item"
+          onConfirm={() => {
+            onSoftDeleteLine(deletingLine)
+            setDeletingLine(null)
+          }}
+          onClose={() => setDeletingLine(null)}
+        />
+      )}
     </ModalShell>
   )
 }
@@ -366,6 +403,8 @@ function Payments({
   sale,
   receipts,
   customerBalances,
+  onSoftDeleteReceipt,
+  onRestoreReceipt,
   close,
 }: {
   role: Role
@@ -377,10 +416,15 @@ function Payments({
     paid: number
     open: number
   }[]
+  onSoftDeleteReceipt: (receipt: PaymentRecord) => void
+  onRestoreReceipt: (receipt: PaymentRecord) => void
   close: () => void
 }) {
   const isAdmin = role !== "User"
   const [tab, setTab] = useState<"payments" | "balances">("payments")
+  const [deletingReceipt, setDeletingReceipt] = useState<PaymentRecord | null>(
+    null
+  )
   const visibleReceipts = receipts.filter(
     (r) => isAdmin || r.status === "Active"
   )
@@ -485,10 +529,24 @@ function Payments({
                               </td>
                               <td>
                                 <div className="row-actions">
-                                  <button>Edit</button>
-                                  <button className="danger-link">
-                                    Delete
-                                  </button>
+                                  {r.status === "Inactive" ? (
+                                    <button
+                                      className="success-link"
+                                      onClick={() => onRestoreReceipt(r)}
+                                    >
+                                      Restore
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <button>Edit</button>
+                                      <button
+                                        className="danger-link"
+                                        onClick={() => setDeletingReceipt(r)}
+                                      >
+                                        Delete
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               </td>
                             </>
@@ -571,6 +629,19 @@ function Payments({
           </div>
         </div>
       )}
+      {deletingReceipt && (
+        <ConfirmDeleteModal
+          title="Void / Deactivate Receipt?"
+          targetLabel={`${deletingReceipt.orno} — ${deletingReceipt.amount}`}
+          warningMessage={`Are you sure you want to void receipt ${deletingReceipt.orno}? The payment will be soft-deleted and marked Inactive. Customer open balance will be automatically adjusted.`}
+          actionLabel="Void Receipt"
+          onConfirm={() => {
+            onSoftDeleteReceipt(deletingReceipt)
+            setDeletingReceipt(null)
+          }}
+          onClose={() => setDeletingReceipt(null)}
+        />
+      )}
     </ModalShell>
   )
 }
@@ -587,6 +658,160 @@ export default function SalesPage({ role }: { role: Role }) {
   const [saleForm, setSaleForm] = useState<"new" | "edit" | null>(null)
   const [detailsSale, setDetailsSale] = useState<string[] | null>(null)
   const [paymentsSale, setPaymentsSale] = useState<string[] | null>(null)
+  const [deletingSale, setDeletingSale] = useState<string[] | null>(null)
+  const [blockedModal, setBlockedModal] = useState<{
+    title: string
+    subtitle: string
+    reason: string
+  } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
+  const recalculateTransTotal = (
+    transno: string,
+    updatedLines: SaleLineItem[]
+  ) => {
+    const activeTotal = updatedLines
+      .filter((l) => l.transno === transno && l.status === "Active")
+      .reduce((sum, l) => sum + l.lineTotalNum, 0)
+    setSales((prev) =>
+      prev.map((s) => (s[0] === transno ? [...s.slice(0, 4), formatMoney(activeTotal), ...s.slice(5)] : s))
+    )
+  }
+
+  const handleDeleteSaleClick = (row: string[]) => {
+    const activePayments = paymentRecords.filter(
+      (p) => p.transno === row[0] && p.status === "Active"
+    )
+    if (activePayments.length > 0) {
+      setBlockedModal({
+        title: "Referential Integrity Guard",
+        subtitle: `Cannot deactivate sales transaction ${row[0]}`,
+        reason: `Sales transaction ${row[0]} has recorded active payment receipts (${activePayments
+          .map((p) => p.orno)
+          .join(", ")}). Void all related receipts before deactivating this sales transaction.`,
+      })
+      return
+    }
+    setDeletingSale(row)
+  }
+
+  const confirmSoftDeleteSale = () => {
+    if (!deletingSale) return
+    const transno = deletingSale[0]
+    setSales((prev) =>
+      prev.map((s) =>
+        s[0] === transno
+          ? [
+              s[0],
+              s[1],
+              s[2],
+              s[3],
+              s[4],
+              "Inactive",
+              "DELETED",
+              "Phil Hitalia",
+              "2026-11-20 11:30 AM",
+            ]
+          : s
+      )
+    )
+    setSuccess(
+      `Sales transaction ${transno} has been deactivated (soft-deleted). Record preserved for accounting audit history.`
+    )
+    setDeletingSale(null)
+  }
+
+  const handleRestoreSale = (transno: string) => {
+    setSales((prev) =>
+      prev.map((s) =>
+        s[0] === transno
+          ? [
+              s[0],
+              s[1],
+              s[2],
+              s[3],
+              s[4],
+              "Active",
+              "EDITED",
+              "Phil Hitalia",
+              "2026-11-20 11:30 AM",
+            ]
+          : s
+      )
+    )
+    setSuccess(`Sales transaction ${transno} restored to active status.`)
+  }
+
+  const handleSoftDeleteLine = (line: SaleLineItem) => {
+    const updated = saleLines.map((l) =>
+      l.transno === line.transno && l.product === line.product
+        ? {
+            ...l,
+            status: "Inactive",
+            action: "DELETED",
+            user: "Phil Hitalia",
+            date: "2026-11-20 11:30 AM",
+          }
+        : l
+    )
+    setSaleLines(updated)
+    recalculateTransTotal(line.transno, updated)
+    setSuccess(`Line item ${line.product} deactivated (soft-deleted).`)
+  }
+
+  const handleRestoreLine = (line: SaleLineItem) => {
+    const updated = saleLines.map((l) =>
+      l.transno === line.transno && l.product === line.product
+        ? {
+            ...l,
+            status: "Active",
+            action: "EDITED",
+            user: "Phil Hitalia",
+            date: "2026-11-20 11:30 AM",
+          }
+        : l
+    )
+    setSaleLines(updated)
+    recalculateTransTotal(line.transno, updated)
+    setSuccess(`Line item ${line.product} restored to active.`)
+  }
+
+  const handleSoftDeleteReceipt = (receipt: PaymentRecord) => {
+    setPaymentRecords((prev) =>
+      prev.map((p) =>
+        p.orno === receipt.orno
+          ? {
+              ...p,
+              status: "Inactive",
+              action: "DELETED",
+              user: "Phil Hitalia",
+              date: "2026-11-20 11:30 AM",
+            }
+          : p
+      )
+    )
+    setSuccess(
+      `Receipt ${receipt.orno} voided / deactivated. Customer balance updated.`
+    )
+  }
+
+  const handleRestoreReceipt = (receipt: PaymentRecord) => {
+    setPaymentRecords((prev) =>
+      prev.map((p) =>
+        p.orno === receipt.orno
+          ? {
+              ...p,
+              status: "Active",
+              action: "EDITED",
+              user: "Phil Hitalia",
+              date: "2026-11-20 11:30 AM",
+            }
+          : p
+      )
+    )
+    setSuccess(`Receipt ${receipt.orno} restored to active.`)
+  }
 
   useEffect(() => {
     let active = true
@@ -809,6 +1034,24 @@ export default function SalesPage({ role }: { role: Role }) {
           <span>active sales value</span>
         </div>
       </div>
+      {error && (
+        <div className="alert-banner alert-banner-error">
+          <Icon name="alert-triangle" size={16} />
+          <span>{error}</span>
+          <button className="alert-close" onClick={() => setError(null)}>
+            ×
+          </button>
+        </div>
+      )}
+      {success && (
+        <div className="alert-banner alert-banner-success">
+          <Icon name="check-circle" size={16} />
+          <span>{success}</span>
+          <button className="alert-close" onClick={() => setSuccess(null)}>
+            ×
+          </button>
+        </div>
+      )}
       <EntityControls
         isAdmin={isAdmin}
         counts={counts}
@@ -869,7 +1112,12 @@ export default function SalesPage({ role }: { role: Role }) {
                       <div className="row-actions">
                         {row[5] === "Inactive" ? (
                           isAdmin && (
-                            <button className="success-link">Restore</button>
+                            <button
+                              className="success-link"
+                              onClick={() => handleRestoreSale(row[0])}
+                            >
+                              Restore
+                            </button>
                           )
                         ) : (
                           <>
@@ -884,7 +1132,12 @@ export default function SalesPage({ role }: { role: Role }) {
                                 <button onClick={() => setSaleForm("edit")}>
                                   Edit
                                 </button>
-                                <button className="danger-link">Delete</button>
+                                <button
+                                  className="danger-link"
+                                  onClick={() => handleDeleteSaleClick(row)}
+                                >
+                                  Delete
+                                </button>
                               </>
                             )}
                           </>
@@ -897,7 +1150,24 @@ export default function SalesPage({ role }: { role: Role }) {
             </table>
           </div>
         ) : (
-          <EmptyState query={search} onClear={() => setSearch("")} />
+          <EmptyState
+            query={search}
+            title={
+              search
+                ? "No matching sales orders"
+                : filter === "inactive"
+                ? "No inactive sales orders"
+                : "No sales orders in ledger"
+            }
+            message={
+              search
+                ? `Nothing matches "${search}". Try searching with a different transaction ID, customer, or employee.`
+                : filter === "inactive"
+                ? "There are currently no deactivated or cancelled sales orders."
+                : "Create your first sales order to begin recording transactions."
+            }
+            onClear={() => setSearch("")}
+          />
         )}
       </section>
       {saleForm && (
@@ -911,6 +1181,8 @@ export default function SalesPage({ role }: { role: Role }) {
           role={role}
           sale={detailsSale}
           lines={saleLines.filter((l) => l.transno === detailsSale[0])}
+          onSoftDeleteLine={handleSoftDeleteLine}
+          onRestoreLine={handleRestoreLine}
           close={() => setDetailsSale(null)}
         />
       )}
@@ -920,7 +1192,28 @@ export default function SalesPage({ role }: { role: Role }) {
           sale={paymentsSale}
           receipts={paymentRecords.filter((p) => p.transno === paymentsSale[0])}
           customerBalances={customerBalances}
+          onSoftDeleteReceipt={handleSoftDeleteReceipt}
+          onRestoreReceipt={handleRestoreReceipt}
           close={() => setPaymentsSale(null)}
+        />
+      )}
+      {deletingSale && (
+        <ConfirmDeleteModal
+          title="Deactivate Sales Transaction?"
+          targetLabel={`${deletingSale[0]} — ${deletingSale[2]} (${deletingSale[4]})`}
+          warningMessage={`Are you sure you want to deactivate transaction ${deletingSale[0]}? The transaction will be marked Inactive (soft-deleted). Sales revenue will be excluded from active totals, but complete financial audit trails will remain preserved.`}
+          actionLabel="Deactivate Sale"
+          onConfirm={confirmSoftDeleteSale}
+          onClose={() => setDeletingSale(null)}
+        />
+      )}
+      {blockedModal && (
+        <BlockedDeleteModal
+          title={blockedModal.title}
+          subtitle={blockedModal.subtitle}
+          reason={blockedModal.reason}
+          close={() => setBlockedModal(null)}
+          onClose={() => setBlockedModal(null)}
         />
       )}
     </div>

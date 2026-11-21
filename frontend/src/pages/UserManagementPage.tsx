@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react"
 import Badge from "../components/Badge"
 import Button from "../components/Button"
+import ConfirmDeleteModal from "../components/ConfirmDeleteModal"
+import EmptyState from "../components/EmptyState"
 import Field from "../components/Field"
 import Icon from "../components/Icon"
 import ModalShell from "../components/ModalShell"
@@ -69,6 +71,8 @@ export default function UserManagementPage({
   const [generatingRequestId, setGeneratingRequestId] = useState<string | null>(null)
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null)
   const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null)
+  const [blockingUser, setBlockingUser] = useState<ManagedUser | null>(null)
+  const [deletingResetReq, setDeletingResetReq] = useState<PasswordResetRequest | null>(null)
 
   const fetchResetRequests = async () => {
     setResetLoading(true)
@@ -127,7 +131,13 @@ export default function UserManagementPage({
     }
   }
 
-  const handleDeleteResetRequest = async (req: PasswordResetRequest) => {
+  const handleDeleteResetRequest = (req: PasswordResetRequest) => {
+    setDeletingResetReq(req)
+  }
+
+  const confirmDeleteResetRequest = async () => {
+    if (!deletingResetReq) return
+    const req = deletingResetReq
     setDeletingRequestId(req.id)
     setError(null)
     try {
@@ -138,6 +148,7 @@ export default function UserManagementPage({
       setError(err.message || "Failed to delete password reset token.")
     } finally {
       setDeletingRequestId(null)
+      setDeletingResetReq(null)
     }
   }
 
@@ -199,17 +210,28 @@ export default function UserManagementPage({
     }
   }
 
-  const handleToggleBlock = async (u: ManagedUser) => {
+  const handleToggleBlock = (u: ManagedUser) => {
+    if (!u.blocked) {
+      setBlockingUser(u)
+    } else {
+      executeToggleBlock(u, false)
+    }
+  }
+
+  const executeToggleBlock = async (u: ManagedUser, nextBlocked: boolean) => {
     setActionLoadingId(u.id)
     setError(null)
     try {
-      await userApi.toggleBlockUser(u.id, !u.blocked)
-      setSuccess(`Account for ${u.email} was ${u.blocked ? "unblocked" : "blocked"}.`)
+      await userApi.toggleBlockUser(u.id, nextBlocked)
+      setSuccess(
+        `Account for ${u.email} was ${nextBlocked ? "blocked (restricted)" : "unblocked"}.`
+      )
       fetchUsers()
     } catch (err: any) {
       setError(err.message || "Failed to change block status.")
     } finally {
       setActionLoadingId(null)
+      setBlockingUser(null)
     }
   }
 
@@ -394,8 +416,29 @@ export default function UserManagementPage({
                 </tr>
               ) : filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: "center", padding: "32px 0", color: "var(--muted)" }}>
-                    No users match your criteria.
+                  <td colSpan={5} style={{ padding: "20px 0" }}>
+                    <EmptyState
+                      query={search}
+                      title={
+                        search
+                          ? "No matching user accounts"
+                          : statusFilter === "BLOCKED"
+                          ? "No blocked users"
+                          : statusFilter === "PENDING"
+                          ? "No pending approvals"
+                          : "No users in directory"
+                      }
+                      message={
+                        search
+                          ? `Nothing matches "${search}". Try searching with a different name or email.`
+                          : statusFilter === "BLOCKED"
+                          ? "There are currently no blocked or restricted user accounts."
+                          : statusFilter === "PENDING"
+                          ? "All user accounts have been reviewed and approved."
+                          : "Invite team members to grant access to the workspace."
+                      }
+                      onClear={() => setSearch("")}
+                    />
                   </td>
                 </tr>
               ) : (
@@ -838,6 +881,129 @@ export default function UserManagementPage({
             </div>
           </form>
         </ModalShell>
+      )}
+
+      {/* ==================== BLOCK USER CONFIRMATION MODAL ==================== */}
+      {blockingUser && (
+        <ModalShell
+          title="Block User Account?"
+          subtitle="Review account status before restricting workspace access."
+          close={() => setBlockingUser(null)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setBlockingUser(null)}>
+                Cancel
+              </Button>
+              <Button
+                className="danger-button"
+                style={{
+                  background: "#c5221f",
+                  borderColor: "#c5221f",
+                  color: "#fff",
+                  fontWeight: 600,
+                }}
+                onClick={() => executeToggleBlock(blockingUser, true)}
+                disabled={actionLoadingId === blockingUser.id}
+              >
+                {actionLoadingId === blockingUser.id ? "Blocking…" : "Confirm Block"}
+              </Button>
+            </>
+          }
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px", padding: "8px 0" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "12px 16px",
+                borderRadius: "10px",
+                border: "1px solid var(--border)",
+                background: "var(--surface)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <span
+                  className="avatar"
+                  style={{
+                    background: "#fee2e2",
+                    color: "#991b1b",
+                    width: "40px",
+                    height: "40px",
+                    borderRadius: "50%",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: 700,
+                    fontSize: "14px",
+                  }}
+                >
+                  {(
+                    blockingUser.firstName && blockingUser.lastName
+                      ? `${blockingUser.firstName[0]}${blockingUser.lastName[0]}`
+                      : blockingUser.email.slice(0, 2)
+                  ).toUpperCase()}
+                </span>
+                <div>
+                  <b style={{ display: "block", fontSize: "14px", color: "var(--ink)" }}>
+                    {[blockingUser.firstName, blockingUser.lastName].filter(Boolean).join(" ") ||
+                      blockingUser.email.split("@")[0]}
+                  </b>
+                  <small style={{ color: "var(--muted)", fontSize: "12px" }}>
+                    {blockingUser.email}
+                  </small>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <Badge kind={blockingUser.role.toLowerCase()}>{blockingUser.role}</Badge>
+                <Badge kind="blocked">Suspended</Badge>
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: "14px 16px",
+                borderRadius: "10px",
+                border: "1px solid #fecaca",
+                background: "#fff5f5",
+                color: "#991b1b",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  fontWeight: 700,
+                  fontSize: "13px",
+                  marginBottom: "6px",
+                }}
+              >
+                <Icon name="alert-triangle" size={16} />
+                <span>Immediate restriction of active sessions</span>
+              </div>
+              <p style={{ margin: 0, fontSize: "12.5px", lineHeight: "1.5", color: "#b91c1c" }}>
+                Blocking this account immediately terminates all active sessions, revokes
+                workspace tokens, and prevents{" "}
+                {[blockingUser.firstName, blockingUser.lastName].filter(Boolean).join(" ") ||
+                  blockingUser.email}{" "}
+                from signing in until unblocked by a Superadmin.
+              </p>
+            </div>
+          </div>
+        </ModalShell>
+      )}
+
+      {/* ==================== DELETE RESET REQUEST MODAL ==================== */}
+      {deletingResetReq && (
+        <ConfirmDeleteModal
+          title="Delete Password Reset Request?"
+          targetLabel={`${deletingResetReq.email} (Token: ${deletingResetReq.securityResetToken || "Pending"})`}
+          warningMessage={`Are you sure you want to delete this password recovery request for ${deletingResetReq.email}? Any generated security reset token will be invalidated.`}
+          actionLabel="Delete Request"
+          onConfirm={confirmDeleteResetRequest}
+          onClose={() => setDeletingResetReq(null)}
+        />
       )}
     </div>
   )
