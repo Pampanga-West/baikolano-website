@@ -528,9 +528,13 @@ export default function CustomersPage({ role }: { role: Role }) {
         <CustomerModal
           customer={form === "new" ? undefined : form}
           suggestedCustno={suggestedCustno}
+          existingCustNos={customers.map((c) => c.custno)}
           currentUser={user}
           close={() => setForm(null)}
-          onSaved={loadCustomers}
+          onSaved={(msg) => {
+            if (msg) setSuccess(msg)
+            loadCustomers()
+          }}
         />
       )}
 
