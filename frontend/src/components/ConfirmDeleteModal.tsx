@@ -4,35 +4,64 @@ import ModalShell from "./ModalShell"
 
 export default function ConfirmDeleteModal({
   record,
-  noun,
+  targetLabel,
+  title,
+  noun = "Record",
   operator,
   close,
+  onClose,
   confirm,
+  onConfirm,
   loading = false,
+  isDeleting = false,
+  customWarning,
+  warningMessage,
+  customExplanation,
+  actionLabel,
 }: {
-  record: string
-  noun: string
+  record?: string
+  targetLabel?: string
+  title?: string
+  noun?: string
   operator?: string
-  close: () => void
-  confirm: () => void
+  close?: () => void
+  onClose?: () => void
+  confirm?: () => void
+  onConfirm?: () => void
   loading?: boolean
+  isDeleting?: boolean
+  customWarning?: string
+  warningMessage?: string
+  customExplanation?: string
+  actionLabel?: string
 }) {
+  const handleClose = close || onClose || (() => {})
+  const handleConfirm = confirm || onConfirm || (() => {})
+  const busy = Boolean(loading || isDeleting)
+  const target = targetLabel || record || noun
+  const modalTitle = title || `Delete ${target}?`
+  const warning =
+    warningMessage || customWarning || "This will mark the record as Inactive."
+  const explanation =
+    customExplanation ||
+    "This action uses soft-delete. The record will disappear from standard views but remain preserved in audit logs and restorable by administrators."
+
   return (
     <ModalShell
-      title={`Delete ${record}?`}
+      title={modalTitle}
       subtitle={
         operator
           ? `Initiated by ${operator} · Reversible soft-deletion`
           : "This action uses soft-delete and can be reversed by an administrator."
       }
-      close={close}
+      close={handleClose}
       footer={
         <>
-          <Button variant="secondary" onClick={close} disabled={loading}>
+          <Button variant="secondary" onClick={handleClose} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="danger" onClick={confirm} disabled={loading}>
-            {loading ? "Deleting…" : `Delete ${noun}`}
+          <Button variant="danger" onClick={handleConfirm} disabled={busy}>
+            {busy ? "Deleting…" : (actionLabel ?? `Delete ${noun}`)}
           </Button>
         </>
       }
@@ -42,11 +71,8 @@ export default function ConfirmDeleteModal({
           <Icon name="lock" />
         </span>
         <div>
-          <b>This will mark the record as Inactive.</b>
-          <p>
-            The record disappears immediately from active views for standard team members,
-            but remains available for full restoration and audit inspection.
-          </p>
+          <b>{warning}</b>
+          <p>{explanation}</p>
         </div>
       </div>
     </ModalShell>
