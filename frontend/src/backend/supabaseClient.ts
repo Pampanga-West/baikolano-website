@@ -927,6 +927,15 @@ export async function softDeleteCustomerInSupabase(
   // Referential Integrity check: active sales orders referencing this customer
   const { hasActiveSales, salesCount } = await checkCustomerHasActiveSales(custno)
   if (hasActiveSales) {
+    await insertAuditLogIntoSupabase({
+      table_name: "customer",
+      action: "DELETE_BLOCKED",
+      record_key: custno,
+      old_values: existing,
+      new_values: { reason: "Active child sales orders", sales_count: salesCount },
+      action_by: actionBy,
+    }).catch(() => {})
+
     const err: any = new Error(
       `Active child records reference this item. Active sales orders (${salesCount}) reference customer ${custno}. Remove or reassign those records first.`
     )

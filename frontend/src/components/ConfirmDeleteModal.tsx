@@ -5,26 +5,34 @@ import ModalShell from "./ModalShell"
 export default function ConfirmDeleteModal({
   record,
   noun,
+  operator,
   close,
   confirm,
+  loading = false,
 }: {
   record: string
   noun: string
+  operator?: string
   close: () => void
   confirm: () => void
+  loading?: boolean
 }) {
   return (
     <ModalShell
       title={`Delete ${record}?`}
-      subtitle="This action uses soft-delete and can be reversed by an administrator."
+      subtitle={
+        operator
+          ? `Initiated by ${operator} · Reversible soft-deletion`
+          : "This action uses soft-delete and can be reversed by an administrator."
+      }
       close={close}
       footer={
         <>
-          <Button variant="secondary" onClick={close}>
+          <Button variant="secondary" onClick={close} disabled={loading}>
             Cancel
           </Button>
-          <Button variant="danger" onClick={confirm}>
-            Delete {noun}
+          <Button variant="danger" onClick={confirm} disabled={loading}>
+            {loading ? "Deleting…" : `Delete ${noun}`}
           </Button>
         </>
       }
@@ -36,8 +44,8 @@ export default function ConfirmDeleteModal({
         <div>
           <b>This will mark the record as Inactive.</b>
           <p>
-            It will disappear from standard User views but remain available to
-            administrators for restoration and audit.
+            The record disappears immediately from active views for standard team members,
+            but remains available for full restoration and audit inspection.
           </p>
         </div>
       </div>

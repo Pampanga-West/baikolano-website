@@ -4,15 +4,23 @@ import ModalShell from "./ModalShell"
 
 export default function BlockedDeleteModal({
   record,
+  message,
+  operator,
   close,
 }: {
   record: string
+  message?: string
+  operator?: string
   close: () => void
 }) {
   return (
     <ModalShell
       title="Record cannot be deleted"
-      subtitle={record}
+      subtitle={
+        operator
+          ? `${record} · Attempted by ${operator}`
+          : record
+      }
       close={close}
       footer={<Button onClick={close}>Return to records</Button>}
     >
@@ -21,8 +29,8 @@ export default function BlockedDeleteModal({
         <div>
           <b>Active child records reference this item.</b>
           <p>
-            Remove or reassign those records first. No changes were made, and
-            this attempt remains visible in the audit trail.
+            {message ||
+              "Remove or reassign those records first. No changes were made, and this attempt remains logged in the audit trail."}
           </p>
         </div>
       </div>

@@ -187,7 +187,14 @@ export default function CustomersPage({ role }: { role: Role }) {
   const [permissionError, setPermissionError] = useState<string | null>(null)
   const [form, setForm] = useState<Customer | "new" | null>(null)
   const [deleting, setDeleting] = useState<Customer | null>(null)
-  const [blocked, setBlocked] = useState<string | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [blocked, setBlocked] = useState<{ record: string; message?: string } | null>(null)
+  const [restoringCustno, setRestoringCustno] = useState<string | null>(null)
+
+  const operatorName =
+    [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+    user?.email ||
+    "Authorized User"
 
   const loadCustomers = () => {
     let active = true
@@ -265,29 +272,42 @@ export default function CustomersPage({ role }: { role: Role }) {
 
   const handleDelete = async (target: Customer) => {
     const recordLabel = `${target.custno} ${target.custname}`
-    setDeleting(null)
+    setDeleteLoading(true)
     try {
       const res = await customerApi.deleteCustomer(target.custno)
+      setDeleting(null)
       if (res?.blocked) {
-        setBlocked(recordLabel)
+        setBlocked({
+          record: recordLabel,
+          message: res.message,
+        })
       } else {
         loadCustomers()
       }
     } catch (err: any) {
+      setDeleting(null)
       if (err.blocked || err.status === 409 || err.message?.includes("Active child records")) {
-        setBlocked(recordLabel)
+        setBlocked({
+          record: recordLabel,
+          message: err.message,
+        })
       } else {
         alert(err.message || "Failed to delete customer.")
       }
+    } finally {
+      setDeleteLoading(false)
     }
   }
 
   const handleRestore = async (custno: string) => {
+    setRestoringCustno(custno)
     try {
       await customerApi.restoreCustomer(custno)
       loadCustomers()
     } catch (err: any) {
       alert(err.message || "Failed to restore customer.")
+    } finally {
+      setRestoringCustno(null)
     }
   }
 
@@ -387,9 +407,10 @@ export default function CustomersPage({ role }: { role: Role }) {
                                 canEdit && (
                                   <button
                                     className="success-link"
+                                    disabled={restoringCustno === row.custno}
                                     onClick={() => handleRestore(row.custno)}
                                   >
-                                    Restore
+                                    {restoringCustno === row.custno ? "Restoring…" : "Restore"}
                                   </button>
                                 )
                               ) : (
@@ -449,13 +470,22 @@ export default function CustomersPage({ role }: { role: Role }) {
         <ConfirmDeleteModal
           record={`${deleting.custno} ${deleting.custname}`}
           noun="Customer"
-          close={() => setDeleting(null)}
+          operator={operatorName}
+          loading={deleteLoading}
+          close={() => {
+            if (!deleteLoading) setDeleting(null)
+          }}
           confirm={() => handleDelete(deleting)}
         />
       )}
 
       {blocked && (
-        <BlockedDeleteModal record={blocked} close={() => setBlocked(null)} />
+        <BlockedDeleteModal
+          record={blocked.record}
+          message={blocked.message}
+          operator={operatorName}
+          close={() => setBlocked(null)}
+        />
       )}
     </div>
   )
