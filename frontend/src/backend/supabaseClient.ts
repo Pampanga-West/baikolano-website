@@ -826,6 +826,11 @@ export async function insertCustomerIntoSupabase(
     } else {
       custno = "C0001"
     }
+  } else {
+    const already = await fetchCustomerByCustnoFromSupabase(custno)
+    if (already) {
+      throw new Error(`Customer number '${custno}' is already taken.`)
+    }
   }
 
   const now = new Date()
@@ -872,6 +877,10 @@ export async function updateCustomerInSupabase(
   const existing = await fetchCustomerByCustnoFromSupabase(custno)
   if (!existing) {
     throw new Error(`Customer ${custno} does not exist.`)
+  }
+
+  if (updates.custname !== undefined && !updates.custname.trim()) {
+    throw new Error("Customer name cannot be empty.")
   }
 
   const now = new Date()

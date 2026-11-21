@@ -6,9 +6,9 @@ import Badge from "../components/Badge"
 import BlockedDeleteModal from "../components/BlockedDeleteModal"
 import Button from "../components/Button"
 import ConfirmDeleteModal from "../components/ConfirmDeleteModal"
+import CustomerModal from "../components/CustomerModal"
 import EmptyState from "../components/EmptyState"
 import EntityControls from "../components/EntityControls"
-import ModalShell from "../components/ModalShell"
 import Stamp from "../components/Stamp"
 import type { Customer, Role } from "../lib/types"
 
@@ -123,119 +123,6 @@ const fallbackCustomers: Customer[] = [
   },
 ]
 
-function CustomerForm({
-  customer,
-  close,
-  onSaved,
-}: {
-  customer?: Customer
-  close: () => void
-  onSaved: () => void
-}) {
-  const editing = Boolean(customer)
-  const [custno, setCustno] = useState(customer?.custno ?? "")
-  const [custname, setCustname] = useState(customer?.custname ?? "")
-  const [address, setAddress] = useState(customer?.address ?? "")
-  const [payterm, setPayterm] = useState(customer?.payterm ?? "Net 30")
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const handleSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault()
-    if (!custname.trim()) {
-      setError("Customer Name is required.")
-      return
-    }
-
-    setSaving(true)
-    setError(null)
-    try {
-      if (editing && customer) {
-        await customerApi.updateCustomer(customer.custno, {
-          custname: custname.trim(),
-          address: address.trim(),
-          payterm,
-        })
-      } else {
-        await customerApi.createCustomer({
-          custno: custno.trim() || undefined,
-          custname: custname.trim(),
-          address: address.trim(),
-          payterm,
-        })
-      }
-      onSaved()
-      close()
-    } catch (err: any) {
-      setError(err.message || "Failed to save customer.")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <ModalShell
-      title={editing ? `Edit Customer — ${customer?.custno}` : "Add Customer"}
-      subtitle={
-        editing
-          ? `Update ${customer?.custno} without changing its audit history.`
-          : "Create a customer master record."
-      }
-      close={close}
-      footer={
-        <>
-          <Button variant="secondary" onClick={close} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={() => handleSubmit()} disabled={saving}>
-            {saving ? "Saving…" : editing ? "Save Changes" : "Add Customer"}
-          </Button>
-        </>
-      }
-    >
-      <form onSubmit={handleSubmit} className="record-form">
-        {error && <div className="form-error-banner">{error}</div>}
-        <label>
-          <span>Cust No</span>
-          <input
-            value={custno}
-            onChange={(e) => setCustno(e.target.value)}
-            disabled={editing}
-            placeholder={editing ? customer?.custno : "Auto-generated e.g. C0083"}
-          />
-        </label>
-        <label>
-          <span>Customer Name *</span>
-          <input
-            value={custname}
-            onChange={(e) => setCustname(e.target.value)}
-            placeholder="Legal customer name"
-            required
-          />
-        </label>
-        <label className="form-span">
-          <span>Address</span>
-          <input
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder="Street, city, province"
-          />
-        </label>
-        <label>
-          <span>Pay Terms</span>
-          <select value={payterm} onChange={(e) => setPayterm(e.target.value)}>
-            {["Net 15", "Net 30", "Net 45", "COD", "Prepaid", "30D", "45D"].map((term) => (
-              <option key={term} value={term}>
-                {term}
-              </option>
-            ))}
-          </select>
-        </label>
-      </form>
-    </ModalShell>
-  )
-}
-
 export default function CustomersPage({ role }: { role: Role }) {
   const { user } = useAuth()
   const [rights, setRights] = useState<string[]>([])
@@ -349,6 +236,18 @@ export default function CustomersPage({ role }: { role: Role }) {
     return [activeCount, inactiveCount, customers.length]
   }, [customers])
 
+  const suggestedCustno = useMemo(() => {
+    let maxNum = 0
+    for (const c of customers) {
+      const match = c.custno.match(/C-?(\d+)/i)
+      if (match) {
+        const num = parseInt(match[1], 10)
+        if (num > maxNum) maxNum = num
+      }
+    }
+    return maxNum > 0 ? `C${String(maxNum + 1).padStart(4, "0")}` : "C0001"
+  }, [customers])
+
   const rows = useMemo(() => {
     return customers.filter((row) => {
       if (!canViewInactive && row.is_deleted) return false
@@ -426,7 +325,9 @@ export default function CustomersPage({ role }: { role: Role }) {
             onSearch={setSearch}
             placeholder="Search customers..."
             addLabel="Add Customer"
-            onAdd={() => setForm("new")}
+            onAdd={() => {
+              if (canAdd) setForm("new")
+            }}
           />
 
           <section className="entity-table-shell">
@@ -535,8 +436,10 @@ export default function CustomersPage({ role }: { role: Role }) {
       )}
 
       {form && (
-        <CustomerForm
+        <CustomerModal
           customer={form === "new" ? undefined : form}
+          suggestedCustno={suggestedCustno}
+          currentUser={user}
           close={() => setForm(null)}
           onSaved={loadCustomers}
         />
