@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import Badge from "../components/Badge"
+import EmptyState from "../components/EmptyState"
 import Icon from "../components/Icon"
 import Stamp from "../components/Stamp"
 
@@ -151,36 +152,52 @@ export default function AuditLogPage() {
           <span>{rows.length} events in current view</span>
           <span>Newest first · timestamps shown in local time</span>
         </div>
-        {rows.map((row, index) => (
-          <article className="audit-entry" key={`${row[0]}-${row[3]}`}>
-            <div className="audit-sequence">
-              {String(index + 1).padStart(2, "0")}
-            </div>
-            <div className="audit-time">{row[0]}</div>
-            <div className="audit-actor">
-              <span>{row[1].slice(0, 2).toUpperCase()}</span>
-              <b>{row[1]}</b>
-            </div>
-            <div className="audit-record">
-              <small>{row[2]}</small>
-              <b>{row[3]}</b>
-            </div>
-            <div>
-              <Badge
-                kind={
-                  row[4] === "DELETED"
-                    ? "blocked"
-                    : row[4] === "CREATED" || row[4] === "RESTORED"
-                      ? "active"
-                      : "pending"
-                }
-              >
-                {row[4]}
-              </Badge>
-            </div>
-            <p>{row[5]}</p>
-          </article>
-        ))}
+        {rows.length > 0 ? (
+          rows.map((row, index) => (
+            <article className="audit-entry" key={`${row[0]}-${row[3]}`}>
+              <div className="audit-sequence">
+                {String(index + 1).padStart(2, "0")}
+              </div>
+              <div className="audit-time">{row[0]}</div>
+              <div className="audit-actor">
+                <span>{row[1].slice(0, 2).toUpperCase()}</span>
+                <b>{row[1]}</b>
+              </div>
+              <div className="audit-record">
+                <small>{row[2]}</small>
+                <b>{row[3]}</b>
+              </div>
+              <div>
+                <Badge
+                  kind={
+                    row[4] === "DELETED"
+                      ? "blocked"
+                      : row[4] === "CREATED" || row[4] === "RESTORED"
+                        ? "active"
+                        : "pending"
+                  }
+                >
+                  {row[4]}
+                </Badge>
+              </div>
+              <p>{row[5]}</p>
+            </article>
+          ))
+        ) : (
+          <EmptyState
+            query={query}
+            title={query ? "No matching audit events" : "No audit events found"}
+            message={
+              query
+                ? `Nothing matches "${query}". Try searching with a different record code, user, or action keyword.`
+                : "There are no audit events recorded matching the selected filter criteria."
+            }
+            onClear={() => {
+              setQuery("")
+              setAction("ALL")
+            }}
+          />
+        )}
       </section>
       <div className="audit-integrity">
         <Icon name="shield" />

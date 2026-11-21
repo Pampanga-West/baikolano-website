@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import Badge from "../components/Badge"
 import Button from "../components/Button"
+import ConfirmDeleteModal from "../components/ConfirmDeleteModal"
+import EmptyState from "../components/EmptyState"
 import Field from "../components/Field"
 import Icon from "../components/Icon"
 import ModalShell from "../components/ModalShell"
@@ -383,6 +385,11 @@ export default function TableEditorPage({
 
   // Single Delete Row State
   const [deletingRowKey, setDeletingRowKey] = useState<string | null>(null)
+  const [rowToDelete, setRowToDelete] = useState<{ row: Record<string, any>; idx: number } | null>(null)
+  const hasSoftDelete = useMemo(
+    () => schema.columns.some((c) => c.name === "is_deleted"),
+    [schema]
+  )
 
   const getRowCompositeKey = (row: Record<string, any>, idx?: number): string => {
     const pkParts = schema.primaryKeys.map((k) => `${k}:${row[k]}`)
@@ -583,7 +590,9 @@ export default function TableEditorPage({
   }
 
   // ==================== DELETE (SINGLE & BULK) ====================
-  const handleDeleteRow = async (row: Record<string, any>, idx: number) => {
+  const confirmDeleteRow = async () => {
+    if (!rowToDelete) return
+    const { row, idx } = rowToDelete
     const rowKey = getRowCompositeKey(row, idx)
     setDeletingRowKey(rowKey)
     setError(null)
@@ -591,21 +600,64 @@ export default function TableEditorPage({
 
     try {
       const pkPayload = extractPrimaryKeyObject(row)
-      await tableEditorApi.deleteRow(schema.name, pkPayload)
-      setRows((prev) => prev.filter((r, i) => getRowCompositeKey(r, i) !== rowKey))
-      setSelectedKeys((prev) => {
-        const next = new Set(prev)
-        next.delete(rowKey)
-        return next
-      })
       const label = Object.entries(pkPayload)
         .map(([k, v]) => `${k}=${v}`)
         .join(", ")
-      setSuccess(`Deleted row (${label}) from public.${schema.name}.`)
+
+      if (hasSoftDelete) {
+        // Soft delete: update is_deleted to true and provenance audit stamp
+        const updatePayload: Record<string, any> = { is_deleted: true }
+        if (schema.columns.some((c) => c.name === "stamp")) {
+          updatePayload.stamp = "DELETED Phil Hitalia 2026-11-20 11:30 AM"
+        }
+        const updated = await tableEditorApi.updateRow(schema.name, pkPayload, updatePayload)
+        setRows((prev) =>
+          prev.map((r, i) =>
+            getRowCompositeKey(r, i) === rowKey ? { ...r, ...updated, is_deleted: true } : r
+          )
+        )
+        setSuccess(`Deactivated row (${label}) via soft-delete in public.${schema.name}.`)
+      } else {
+        await tableEditorApi.deleteRow(schema.name, pkPayload)
+        setRows((prev) => prev.filter((r, i) => getRowCompositeKey(r, i) !== rowKey))
+        setSelectedKeys((prev) => {
+          const next = new Set(prev)
+          next.delete(rowKey)
+          return next
+        })
+        setSuccess(`Deleted row (${label}) from public.${schema.name}.`)
+      }
     } catch (err: any) {
       setError(err.message || `Failed to delete row from ${schema.name}.`)
     } finally {
       setDeletingRowKey(null)
+      setRowToDelete(null)
+    }
+  }
+
+  const handleRestoreRow = async (row: Record<string, any>, idx: number) => {
+    const rowKey = getRowCompositeKey(row, idx)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const pkPayload = extractPrimaryKeyObject(row)
+      const label = Object.entries(pkPayload)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(", ")
+      const updatePayload: Record<string, any> = { is_deleted: false }
+      if (schema.columns.some((c) => c.name === "stamp")) {
+        updatePayload.stamp = "EDITED Phil Hitalia 2026-11-20 11:30 AM"
+      }
+      const updated = await tableEditorApi.updateRow(schema.name, pkPayload, updatePayload)
+      setRows((prev) =>
+        prev.map((r, i) =>
+          getRowCompositeKey(r, i) === rowKey ? { ...r, ...updated, is_deleted: false } : r
+        )
+      )
+      setSuccess(`Restored row (${label}) to active status in public.${schema.name}.`)
+    } catch (err: any) {
+      setError(err.message || `Failed to restore row in ${schema.name}.`)
     }
   }
 
@@ -1125,12 +1177,23 @@ export default function TableEditorPage({
                     <td
                       colSpan={schema.columns.length + 2}
                       style={{
-                        textAlign: "center",
-                        padding: "40px 0",
-                        color: "var(--muted)",
+                        padding: "24px 0",
                       }}
                     >
-                      No matching rows in <code>public.{schema.name}</code>.
+                      <EmptyState
+                        query={search}
+                        title={
+                          search
+                            ? `No matching rows in public.${schema.name}`
+                            : `Table public.${schema.name} is empty`
+                        }
+                        message={
+                          search
+                            ? `Nothing matches "${search}". Try adjusting your column filter or search keywords.`
+                            : `There are currently no records in public.${schema.name}. Click "Insert Row" to add a record.`
+                        }
+                        onClear={() => setSearch("")}
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -1345,14 +1408,24 @@ export default function TableEditorPage({
                             >
                               Edit Row
                             </button>
-                            <button
-                              type="button"
-                              className="danger-link"
-                              disabled={isDeleting}
-                              onClick={() => handleDeleteRow(row, idx)}
-                            >
-                              {isDeleting ? "Deleting…" : "Delete"}
-                            </button>
+                            {hasSoftDelete && row.is_deleted ? (
+                              <button
+                                type="button"
+                                className="success-link"
+                                onClick={() => handleRestoreRow(row, idx)}
+                              >
+                                Restore
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="danger-link"
+                                disabled={isDeleting}
+                                onClick={() => setRowToDelete({ row, idx })}
+                              >
+                                {isDeleting ? "Deleting…" : "Delete"}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1619,6 +1692,28 @@ export default function TableEditorPage({
             </div>
           </form>
         </ModalShell>
+      )}
+
+      {/* ==================== DELETE ROW CONFIRMATION MODAL ==================== */}
+      {rowToDelete && (
+        <ConfirmDeleteModal
+          title={
+            hasSoftDelete
+              ? `Deactivate Row in public.${schema.name}?`
+              : `Delete Row from public.${schema.name}?`
+          }
+          targetLabel={Object.entries(extractPrimaryKeyObject(rowToDelete.row))
+            .map(([k, v]) => `${k}=${v}`)
+            .join(", ")}
+          warningMessage={
+            hasSoftDelete
+              ? `Are you sure you want to deactivate this row in public.${schema.name}? The record will be soft-deleted (is_deleted = true) and preserve relational integrity and audit provenance.`
+              : `Are you sure you want to delete this row from public.${schema.name}? This operation permanently removes the record from Postgres.`
+          }
+          actionLabel={hasSoftDelete ? "Deactivate Row" : "Delete Row"}
+          onConfirm={confirmDeleteRow}
+          onClose={() => setRowToDelete(null)}
+        />
       )}
     </div>
   )
