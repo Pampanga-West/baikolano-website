@@ -119,87 +119,327 @@ const fallbackPriceHistory: PriceHistoryEntry[] = [
 function ProductForm({
   product,
   close,
+  onSave,
+  existingProdCodes = [],
 }: {
   product?: string[]
   close: () => void
+  onSave: (data: {
+    prodCode: string
+    description: string
+    unit: string
+  }) => void
+  existingProdCodes?: string[]
 }) {
+  const isEditing = Boolean(product)
+  const defaultCode = useMemo(() => {
+    if (product?.[0]) return product[0]
+    const numbers = existingProdCodes
+      .map((c) => {
+        const m = c.match(/P-(\d+)/i)
+        return m ? parseInt(m[1], 10) : 0
+      })
+      .filter((n) => !isNaN(n))
+    const maxNum = numbers.length ? Math.max(...numbers) : 5
+    return `P-${String(maxNum + 1).padStart(3, "0")}`
+  }, [product, existingProdCodes])
+
+  const [prodCode, setProdCode] = useState(product?.[0] ?? defaultCode)
+  const [description, setDescription] = useState(product?.[1] ?? "")
+  const [unitSelect, setUnitSelect] = useState(
+    ["pcs", "box", "kg", "liter", "can", "pair", "meter", "pack", "set", "roll"].includes(
+      product?.[2] ?? "pcs"
+    )
+      ? product?.[2] ?? "pcs"
+      : "Custom"
+  )
+  const [customUnit, setCustomUnit] = useState(
+    ["pcs", "box", "kg", "liter", "can", "pair", "meter", "pack", "set", "roll"].includes(
+      product?.[2] ?? "pcs"
+    )
+      ? ""
+      : product?.[2] ?? ""
+  )
+  const [validationError, setValidationError] = useState<string | null>(null)
+
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    if (!prodCode.trim()) {
+      setValidationError("Product Code is required.")
+      return
+    }
+    if (!description.trim()) {
+      setValidationError("Description is required.")
+      return
+    }
+    if (
+      !isEditing &&
+      existingProdCodes.some(
+        (c) => c.toLowerCase() === prodCode.trim().toLowerCase()
+      )
+    ) {
+      setValidationError(`Product Code "${prodCode.trim()}" already exists.`)
+      return
+    }
+
+    const resolvedUnit =
+      unitSelect === "Custom"
+        ? customUnit.trim() || "pcs"
+        : unitSelect
+
+    onSave({
+      prodCode: prodCode.trim(),
+      description: description.trim(),
+      unit: resolvedUnit,
+    })
+    close()
+  }
+
   return (
     <ModalShell
-      title={product ? "Edit Product" : "Add Product"}
-      subtitle="Product identity is separate from its effective-dated price history."
+      title={isEditing ? "Edit Product" : "Add Product"}
+      subtitle={isEditing ? "Update product details" : "Enter new product details"}
       close={close}
       footer={
-        <>
-          <Button variant="secondary" onClick={close}>
+        <div className="modal-footer-duo">
+          <Button
+            className="btn-save-main"
+            onClick={handleSubmit}
+          >
+            {isEditing ? "Save Changes" : "Save Product"}
+          </Button>
+          <Button
+            variant="secondary"
+            className="btn-cancel-main"
+            onClick={close}
+          >
             Cancel
           </Button>
-          <Button onClick={close}>
-            {product ? "Save Changes" : "Add Product"}
-          </Button>
-        </>
+        </div>
       }
     >
-      <div className="record-form">
-        <label>
-          <span>Product Code</span>
-          <input defaultValue={product?.[0] ?? "P-006"} />
-        </label>
-        <label>
-          <span>Unit</span>
-          <select defaultValue={product?.[2] ?? "pcs"}>
-            {["pcs", "can", "pair", "meter"].map((unit) => (
-              <option key={unit}>{unit}</option>
-            ))}
-          </select>
-        </label>
-        <label className="form-span">
-          <span>Description</span>
+      <form onSubmit={handleSubmit} className="modal-form-vertical">
+        {validationError && (
+          <div
+            className="validation-error"
+            style={{
+              fontSize: "12px",
+              padding: "9px 12px",
+              background: "var(--danger-bg)",
+              color: "var(--danger-text)",
+              borderRadius: "6px",
+              fontWeight: 600,
+            }}
+          >
+            {validationError}
+          </div>
+        )}
+        <div className="field-group">
+          <label>Product Code</label>
           <input
-            defaultValue={product?.[1]}
-            placeholder="Product description"
+            className="field-input"
+            value={prodCode}
+            onChange={(e) => {
+              setProdCode(e.target.value)
+              setValidationError(null)
+            }}
+            placeholder="e.g. P-001"
+            required
           />
-        </label>
-      </div>
+        </div>
+        <div className="field-group">
+          <label>Description</label>
+          <input
+            className="field-input"
+            value={description}
+            onChange={(e) => {
+              setDescription(e.target.value)
+              setValidationError(null)
+            }}
+            placeholder="Product description"
+            required
+          />
+        </div>
+        <div className="field-group">
+          <label>Unit</label>
+          <select
+            className="field-input"
+            value={unitSelect}
+            onChange={(e) => setUnitSelect(e.target.value)}
+          >
+            <option value="pcs">pcs (pieces)</option>
+            <option value="box">box</option>
+            <option value="kg">kg (kilograms)</option>
+            <option value="liter">liter</option>
+            <option value="can">can</option>
+            <option value="pair">pair</option>
+            <option value="meter">meter</option>
+            <option value="pack">pack</option>
+            <option value="set">set</option>
+            <option value="roll">roll</option>
+            <option value="Custom">Custom unit...</option>
+          </select>
+          {unitSelect === "Custom" && (
+            <input
+              className="field-input"
+              style={{ marginTop: "6px" }}
+              value={customUnit}
+              onChange={(e) => setCustomUnit(e.target.value)}
+              placeholder="e.g. pcs, box, kg, liter"
+              autoFocus
+            />
+          )}
+        </div>
+      </form>
     </ModalShell>
   )
 }
 
 function PriceForm({
-  editing,
+  productCode,
+  entry,
   close,
+  onSave,
 }: {
-  editing?: boolean
+  productCode: string
+  entry?: PriceHistoryEntry | null
   close: () => void
+  onSave: (data: {
+    prodcode: string
+    effdate: string
+    price: string
+    isEditing?: boolean
+    originalEffDate?: string
+  }) => void
 }) {
+  const isEditing = Boolean(entry)
+  const todayStr = useMemo(() => {
+    const d = new Date()
+    return d.toISOString().split("T")[0]
+  }, [])
+
+  const [effDate, setEffDate] = useState(entry?.effdate ?? todayStr)
+  const [unitPrice, setUnitPrice] = useState(
+    entry?.price ? entry.price.replace(/[^0-9.]/g, "") : ""
+  )
+  const [validationError, setValidationError] = useState<string | null>(null)
+
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    if (!effDate) {
+      setValidationError("Effective Date is required.")
+      return
+    }
+    const numPrice = parseFloat(unitPrice)
+    if (isNaN(numPrice) || numPrice <= 0) {
+      setValidationError("Please enter a valid unit price greater than 0.")
+      return
+    }
+
+    onSave({
+      prodcode: productCode,
+      effdate: effDate,
+      price: `$${numPrice.toFixed(2)}`,
+      isEditing,
+      originalEffDate: entry?.effdate,
+    })
+    close()
+  }
+
   return (
     <ModalShell
-      title={editing ? "Edit Price" : "Add Price"}
-      subtitle="The latest active price on or before a transaction date is applied."
+      title={isEditing ? "Edit Price" : "Add Price"}
+      subtitle={isEditing ? "Update effective unit price" : "Set a new effective unit price"}
       close={close}
       footer={
-        <>
-          <Button variant="secondary" onClick={close}>
+        <div className="modal-footer-duo">
+          <Button
+            className="btn-save-main"
+            onClick={handleSubmit}
+          >
+            Save Price
+          </Button>
+          <Button
+            variant="secondary"
+            className="btn-cancel-main"
+            onClick={close}
+          >
             Cancel
           </Button>
-          <Button onClick={close}>
-            {editing ? "Save Price" : "Add Price"}
-          </Button>
-        </>
+        </div>
       }
     >
-      <div className="record-form">
-        <label>
-          <span>Effective Date</span>
-          <input type="date" defaultValue="2026-02-01" />
-        </label>
-        <label>
-          <span>Unit Price</span>
-          <div className="money-input">
-            <span>$</span>
-            <input type="number" defaultValue="28.00" />
+      <form onSubmit={handleSubmit} className="modal-form-vertical">
+        {validationError && (
+          <div
+            className="validation-error"
+            style={{
+              fontSize: "12px",
+              padding: "9px 12px",
+              background: "var(--danger-bg)",
+              color: "var(--danger-text)",
+              borderRadius: "6px",
+              fontWeight: 600,
+            }}
+          >
+            {validationError}
           </div>
-        </label>
-      </div>
+        )}
+        <div className="field-group">
+          <label>Product Code</label>
+          <input
+            className="field-input"
+            value={productCode}
+            readOnly
+            disabled
+          />
+        </div>
+        <div className="field-group">
+          <label>Effective Date</label>
+          <input
+            type="date"
+            className="field-input"
+            value={effDate}
+            onChange={(e) => {
+              setEffDate(e.target.value)
+              setValidationError(null)
+            }}
+            placeholder="dd/mm/yyyy"
+            required
+          />
+        </div>
+        <div className="field-group">
+          <label>Unit Price</label>
+          <div style={{ position: "relative" }}>
+            <span
+              style={{
+                position: "absolute",
+                left: "14px",
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "var(--muted)",
+                fontWeight: 600,
+              }}
+            >
+              $
+            </span>
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              className="field-input"
+              style={{ paddingLeft: "30px" }}
+              value={unitPrice}
+              onChange={(e) => {
+                setUnitPrice(e.target.value)
+                setValidationError(null)
+              }}
+              placeholder="0.00"
+              required
+            />
+          </div>
+        </div>
+      </form>
     </ModalShell>
   )
 }
@@ -211,6 +451,7 @@ function PriceHistory({
   close,
   onSoftDeletePrice,
   onRestorePrice,
+  onSavePrice,
 }: {
   role: Role
   product: string[]
@@ -218,9 +459,16 @@ function PriceHistory({
   close: () => void
   onSoftDeletePrice?: (entry: PriceHistoryEntry) => void
   onRestorePrice?: (entry: PriceHistoryEntry) => void
+  onSavePrice: (data: {
+    prodcode: string
+    effdate: string
+    price: string
+    isEditing?: boolean
+    originalEffDate?: string
+  }) => void
 }) {
   const isAdmin = role !== "User"
-  const [priceForm, setPriceForm] = useState<"new" | "edit" | null>(null)
+  const [priceForm, setPriceForm] = useState<"new" | PriceHistoryEntry | null>(null)
   const [statusFilter, setStatusFilter] = useState<"active" | "inactive" | "all">("active")
   const [deletingPrice, setDeletingPrice] = useState<PriceHistoryEntry | null>(null)
 
@@ -237,11 +485,6 @@ function PriceHistory({
       subtitle={`${product[1]} · Unit: ${product[2]}`}
       close={close}
       wide
-      footer={
-        <Button variant="secondary" onClick={close}>
-          Close
-        </Button>
-      }
     >
       {isAdmin && (
         <div className="nested-toolbar">
@@ -321,7 +564,7 @@ function PriceHistory({
                             </button>
                           ) : (
                             <>
-                              <button onClick={() => setPriceForm("edit")}>
+                              <button onClick={() => setPriceForm(entry)}>
                                 Edit
                               </button>
                               <button
@@ -355,8 +598,10 @@ function PriceHistory({
       </div>
       {priceForm && (
         <PriceForm
-          editing={priceForm === "edit"}
+          productCode={product[0]}
+          entry={priceForm === "new" ? null : priceForm}
           close={() => setPriceForm(null)}
+          onSave={onSavePrice}
         />
       )}
       {deletingPrice && (
@@ -390,6 +635,106 @@ export default function ProductsPage({ role }: { role: Role }) {
   const [blocked, setBlocked] = useState<{ record: string; reason?: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+
+  const handleSaveProduct = (data: {
+    prodCode: string
+    description: string
+    unit: string
+  }) => {
+    const isEditing = Boolean(form && form !== "new")
+    const todayStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+
+    if (isEditing && typeof form !== "string" && form) {
+      const originalCode = form[0]
+      setProducts((prev) =>
+        prev.map((p) =>
+          p[0] === originalCode
+            ? [
+                data.prodCode,
+                data.description,
+                data.unit,
+                p[3], // preserve current price
+                p[4], // preserve status
+                "EDITED",
+                "Phil Hitalia",
+                todayStr,
+              ]
+            : p
+        )
+      )
+      setSuccess(`Successfully updated product ${data.prodCode} (${data.description}).`)
+    } else {
+      const newRow = [
+        data.prodCode,
+        data.description,
+        data.unit,
+        "—", // initial price until price schedule created
+        "Active",
+        "CREATED",
+        "Phil Hitalia",
+        todayStr,
+      ]
+      setProducts((prev) => [newRow, ...prev])
+      setSuccess(`Successfully created product ${data.prodCode} (${data.description}).`)
+    }
+    setForm(null)
+  }
+
+  const handleSavePrice = (data: {
+    prodcode: string
+    effdate: string
+    price: string
+    isEditing?: boolean
+    originalEffDate?: string
+  }) => {
+    const todayStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+
+    if (data.isEditing && data.originalEffDate) {
+      setPriceHistory((prev) =>
+        prev.map((ph) =>
+          ph.prodcode === data.prodcode && ph.effdate === data.originalEffDate
+            ? {
+                ...ph,
+                effdate: data.effdate,
+                price: data.price,
+                action: "EDITED",
+                user: "Phil Hitalia",
+                date: todayStr,
+              }
+            : ph
+        )
+      )
+      setSuccess(`Updated effective price for ${data.prodcode} to ${data.price} as of ${data.effdate}.`)
+    } else {
+      const newEntry: PriceHistoryEntry = {
+        prodcode: data.prodcode,
+        effdate: data.effdate,
+        price: data.price,
+        status: "Active",
+        action: "CREATED",
+        user: "Phil Hitalia",
+        date: todayStr,
+      }
+      setPriceHistory((prev) => [newEntry, ...prev])
+      setSuccess(`Added new price rate for ${data.prodcode}: ${data.price} effective ${data.effdate}.`)
+    }
+
+    // Update parent product current price if applicable
+    setProducts((prev) =>
+      prev.map((p) => {
+        if (p[0] !== data.prodcode) return p
+        return [p[0], p[1], p[2], data.price, p[4], "EDITED", "Phil Hitalia", todayStr]
+      })
+    )
+  }
 
   const handleSoftDeleteProduct = (productRow: string[]) => {
     const prodCode = productRow[0]
@@ -754,6 +1099,8 @@ export default function ProductsPage({ role }: { role: Role }) {
         <ProductForm
           product={form === "new" ? undefined : form}
           close={() => setForm(null)}
+          onSave={handleSaveProduct}
+          existingProdCodes={products.map((p) => p[0])}
         />
       )}
       {pricesProduct && (
@@ -764,6 +1111,7 @@ export default function ProductsPage({ role }: { role: Role }) {
           close={() => setPricesProduct(null)}
           onSoftDeletePrice={handleSoftDeletePrice}
           onRestorePrice={handleRestorePrice}
+          onSavePrice={handleSavePrice}
         />
       )}
       {deleting && (

@@ -66,59 +66,186 @@ const fallbackCustomers = [
 function CustomerForm({
   customer,
   close,
+  onSave,
+  existingCustNos = [],
 }: {
   customer?: string[]
   close: () => void
+  onSave: (data: {
+    custNo: string
+    custName: string
+    address: string
+    payTerm: string
+  }) => void
+  existingCustNos?: string[]
 }) {
-  const editing = Boolean(customer)
+  const isEditing = Boolean(customer)
+  const defaultNo = useMemo(() => {
+    if (customer?.[0]) return customer[0]
+    const numbers = existingCustNos
+      .map((n) => {
+        const m = n.match(/C-(\d+)/i)
+        return m ? parseInt(m[1], 10) : 0
+      })
+      .filter((n) => !isNaN(n))
+    const maxNum = numbers.length ? Math.max(...numbers) : 5
+    return `C-${String(maxNum + 1).padStart(3, "0")}`
+  }, [customer, existingCustNos])
+
+  const [custNo, setCustNo] = useState(customer?.[0] ?? defaultNo)
+  const [custName, setCustName] = useState(customer?.[1] ?? "")
+  const [address, setAddress] = useState(customer?.[2] ?? "")
+  const [payTermSelect, setPayTermSelect] = useState(
+    ["Net 15", "Net 30", "Net 45", "Net 60", "COD", "Prepaid"].includes(
+      customer?.[3] ?? "Net 30"
+    )
+      ? customer?.[3] ?? "Net 30"
+      : "Custom"
+  )
+  const [customPayTerm, setCustomPayTerm] = useState(
+    ["Net 15", "Net 30", "Net 45", "Net 60", "COD", "Prepaid"].includes(
+      customer?.[3] ?? "Net 30"
+    )
+      ? ""
+      : customer?.[3] ?? ""
+  )
+  const [validationError, setValidationError] = useState<string | null>(null)
+
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    if (!custNo.trim()) {
+      setValidationError("Customer No. is required.")
+      return
+    }
+    if (!custName.trim()) {
+      setValidationError("Customer Name is required.")
+      return
+    }
+    if (
+      !isEditing &&
+      existingCustNos.some(
+        (no) => no.toLowerCase() === custNo.trim().toLowerCase()
+      )
+    ) {
+      setValidationError(`Customer No. "${custNo.trim()}" already exists.`)
+      return
+    }
+
+    const resolvedPayTerm =
+      payTermSelect === "Custom"
+        ? customPayTerm.trim() || "Net 30"
+        : payTermSelect
+
+    onSave({
+      custNo: custNo.trim(),
+      custName: custName.trim(),
+      address: address.trim(),
+      payTerm: resolvedPayTerm,
+    })
+    close()
+  }
+
   return (
     <ModalShell
-      title={editing ? "Edit Customer" : "Add Customer"}
-      subtitle={
-        editing
-          ? `Update ${customer?.[0]} without changing its audit history.`
-          : "Create a customer master record."
-      }
+      title={isEditing ? "Edit Customer" : "Add Customer"}
+      subtitle={isEditing ? "Update customer details" : "Enter new customer details"}
       close={close}
       footer={
-        <>
-          <Button variant="secondary" onClick={close}>
+        <div className="modal-footer-duo">
+          <Button
+            className="btn-save-main"
+            onClick={handleSubmit}
+          >
+            {isEditing ? "Save Changes" : "Save Customer"}
+          </Button>
+          <Button
+            variant="secondary"
+            className="btn-cancel-main"
+            onClick={close}
+          >
             Cancel
           </Button>
-          <Button onClick={close}>
-            {editing ? "Save Changes" : "Add Customer"}
-          </Button>
-        </>
+        </div>
       }
     >
-      <div className="record-form">
-        <label>
-          <span>Cust No</span>
-          <input defaultValue={customer?.[0] ?? "C-006"} />
-        </label>
-        <label>
-          <span>Customer Name</span>
+      <form onSubmit={handleSubmit} className="modal-form-vertical">
+        {validationError && (
+          <div
+            className="validation-error"
+            style={{
+              fontSize: "12px",
+              padding: "9px 12px",
+              background: "var(--danger-bg)",
+              color: "var(--danger-text)",
+              borderRadius: "6px",
+              fontWeight: 600,
+            }}
+          >
+            {validationError}
+          </div>
+        )}
+        <div className="field-group">
+          <label>Customer No.</label>
           <input
-            defaultValue={customer?.[1]}
-            placeholder="Legal customer name"
+            className="field-input"
+            value={custNo}
+            onChange={(e) => {
+              setCustNo(e.target.value)
+              setValidationError(null)
+            }}
+            placeholder="e.g. C-001"
+            required
           />
-        </label>
-        <label className="form-span">
-          <span>Address</span>
+        </div>
+        <div className="field-group">
+          <label>Customer Name</label>
           <input
-            defaultValue={customer?.[2]}
-            placeholder="Street, city, province"
+            className="field-input"
+            value={custName}
+            onChange={(e) => {
+              setCustName(e.target.value)
+              setValidationError(null)
+            }}
+            placeholder="Company or person name"
+            required
           />
-        </label>
-        <label>
-          <span>Pay Terms</span>
-          <select defaultValue={customer?.[3] ?? "Net 30"}>
-            {["Net 15", "Net 30", "Net 45", "COD", "Prepaid"].map((term) => (
-              <option key={term}>{term}</option>
-            ))}
+        </div>
+        <div className="field-group">
+          <label>Address</label>
+          <input
+            className="field-input"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="Full address"
+          />
+        </div>
+        <div className="field-group">
+          <label>Payment Terms</label>
+          <select
+            className="field-input"
+            value={payTermSelect}
+            onChange={(e) => setPayTermSelect(e.target.value)}
+          >
+            <option value="Net 15">Net 15</option>
+            <option value="Net 30">Net 30</option>
+            <option value="Net 45">Net 45</option>
+            <option value="Net 60">Net 60</option>
+            <option value="COD">COD (Cash on Delivery)</option>
+            <option value="Prepaid">Prepaid</option>
+            <option value="Custom">Custom terms...</option>
           </select>
-        </label>
-      </div>
+          {payTermSelect === "Custom" && (
+            <input
+              className="field-input"
+              style={{ marginTop: "6px" }}
+              value={customPayTerm}
+              onChange={(e) => setCustomPayTerm(e.target.value)}
+              placeholder="e.g. Net 30, COD, Prepaid"
+              autoFocus
+            />
+          )}
+        </div>
+      </form>
     </ModalShell>
   )
 }
@@ -133,6 +260,55 @@ export default function CustomersPage({ role }: { role: Role }) {
   const [blocked, setBlocked] = useState<{ record: string; reason?: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+
+  const handleSaveCustomer = (data: {
+    custNo: string
+    custName: string
+    address: string
+    payTerm: string
+  }) => {
+    const isEditing = Boolean(form && form !== "new")
+    const todayStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+
+    if (isEditing && typeof form !== "string" && form) {
+      const originalCustNo = form[0]
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c[0] === originalCustNo
+            ? [
+                data.custNo,
+                data.custName,
+                data.address,
+                data.payTerm,
+                c[4], // preserve existing Active/Inactive status
+                "EDITED",
+                "Phil Hitalia",
+                todayStr,
+              ]
+            : c
+        )
+      )
+      setSuccess(`Successfully updated customer ${data.custNo} (${data.custName}).`)
+    } else {
+      const newRow = [
+        data.custNo,
+        data.custName,
+        data.address,
+        data.payTerm,
+        "Active",
+        "CREATED",
+        "Phil Hitalia",
+        todayStr,
+      ]
+      setCustomers((prev) => [newRow, ...prev])
+      setSuccess(`Successfully created customer ${data.custNo} (${data.custName}).`)
+    }
+    setForm(null)
+  }
 
   const handleSoftDelete = (customerRow: string[]) => {
     const custNo = customerRow[0]
@@ -403,6 +579,8 @@ export default function CustomersPage({ role }: { role: Role }) {
         <CustomerForm
           customer={form === "new" ? undefined : form}
           close={() => setForm(null)}
+          onSave={handleSaveCustomer}
+          existingCustNos={customers.map((c) => c[0])}
         />
       )}
       {deleting && (
