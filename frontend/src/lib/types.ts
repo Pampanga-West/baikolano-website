@@ -98,3 +98,37 @@ export interface PasswordResetRequest {
   completedAt: string | null
 }
 
+// Sprint 2 Customer Management Types (S2-DEV-01)
+export interface Customer {
+  custno: string
+  custname: string
+  address: string
+  payterm: string
+  is_deleted: boolean
+  status: "Active" | "Inactive"
+  stamp?: string
+  stampAction?: string
+  stampUser?: string
+  stampDate?: string
+}
+
+export interface CustomerQueryParams {
+  search?: string
+  status?: "active" | "inactive" | "all"
+  payterm?: string
+}
+
+export interface CreateCustomerPayload {
+  custno?: string
+  custname: string
+  address: string
+  payterm: string
+}
+
+export interface UpdateCustomerPayload {
+  custname?: string
+  address?: string
+  payterm?: string
+}
+
+
