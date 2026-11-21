@@ -481,6 +481,7 @@ td { height: 67px; padding: 0 17px; border-top: 1px solid var(--border); color: 
 .record-form label, .payment-form label, .report-filters label, .audit-filters label { display: block; }
 .record-form label > span, .payment-form label > span, .report-filters label > span, .audit-filters label > span { display: block; margin-bottom: 6px; color: #475467; font-size: 10px; font-weight: 700; }
 .record-form input, .record-form select, .payment-form input, .report-filters input, .report-filters select, .audit-filters input, .audit-filters select { width: 100%; height: 42px; padding: 0 11px; border: 1px solid #d7d9dd; border-radius: 8px; background: var(--white); color: var(--ink); font-size: 12px; }
+.record-form textarea { width: 100%; min-height: 68px; padding: 8px 11px; border: 1px solid #d7d9dd; border-radius: 8px; background: var(--white); color: var(--ink); font-size: 12px; font-family: inherit; resize: vertical; }
 .record-form input[readonly] { color: var(--muted); background: #f1f1ed; }
 .record-form .form-span { grid-column: 1 / -1; }
 .money-input { height: 42px; display: flex; align-items: center; border: 1px solid #d7d9dd; border-radius: 8px; background: var(--white); overflow: hidden; }
@@ -1008,6 +1009,7 @@ td, .entity-table td { border-color: #edf1f5; }
 [data-theme="dark"] .input-wrap input,
 [data-theme="dark"] .record-form input,
 [data-theme="dark"] .record-form select,
+[data-theme="dark"] .record-form textarea,
 [data-theme="dark"] .payment-form input,
 [data-theme="dark"] .report-filters input,
 [data-theme="dark"] .report-filters select,

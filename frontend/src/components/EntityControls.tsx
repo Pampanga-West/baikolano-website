@@ -12,6 +12,8 @@ export default function EntityControls({
   addLabel,
   onAdd,
   canAdd = true,
+  showFilters,
+  showAdd,
 }: {
   isAdmin: boolean
   counts: [number, number, number]
@@ -23,10 +25,15 @@ export default function EntityControls({
   addLabel: string
   onAdd: () => void
   canAdd?: boolean
+  showFilters?: boolean
+  showAdd?: boolean
 }) {
+  const displayFilters = showFilters ?? isAdmin
+  const displayAdd = showAdd ?? (isAdmin && canAdd)
+
   return (
     <div className="entity-controls">
-      {isAdmin && (
+      {displayFilters && (
         <div className="filter-tabs" aria-label="Record status filter">
           {[
             ["active", `Active (${counts[0]})`],
@@ -52,7 +59,7 @@ export default function EntityControls({
             placeholder={placeholder}
           />
         </label>
-        {isAdmin && (
+        {displayAdd && (
           <Button icon="plus" onClick={onAdd} disabled={!canAdd}>
             {addLabel}
           </Button>

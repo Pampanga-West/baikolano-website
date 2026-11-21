@@ -1,5 +1,19 @@
 import { handleEmbeddedRequest, installEmbeddedFetchInterceptor } from "../backend/embeddedServer"
-import { ApiError, normalizeRole, type AccountStatus, type AuthResponse, type AuthUser, type ManagedUser, type PasswordResetRequest, type Role, type UserPermission } from "./types"
+import {
+  ApiError,
+  normalizeRole,
+  type AccountStatus,
+  type AuthResponse,
+  type AuthUser,
+  type ManagedUser,
+  type PasswordResetRequest,
+  type Role,
+  type UserPermission,
+  type Customer,
+  type CustomerQueryParams,
+  type CreateCustomerPayload,
+  type UpdateCustomerPayload,
+} from "./types"
 
 // Automatically install global in-browser mock server interceptor
 installEmbeddedFetchInterceptor()
@@ -451,6 +465,93 @@ export const rightsApi = {
       method: "POST",
       body: JSON.stringify({ rights }),
     })
+  },
+}
+
+// ============================================================================
+// Sprint 2 Customer Management APIs (S2-DEV-01)
+// Connects to /api/customers backed by Supabase PostgreSQL customer table
+// ============================================================================
+
+export const customerApi = {
+  /**
+   * Retrieves customers with optional search query, status filter, and payment terms filter.
+   * Server-side permission check: requires Customer - View (or Admin/Superadmin).
+   * Endpoint: GET /api/customers
+   */
+  listCustomers: async (params?: CustomerQueryParams): Promise<Customer[]> => {
+    const query = new URLSearchParams()
+    if (params?.search) query.set("search", params.search)
+    if (params?.status) query.set("status", params.status)
+    if (params?.payterm) query.set("payterm", params.payterm)
+    const queryString = query.toString() ? `?${query.toString()}` : ""
+    return apiFetch<Customer[]>(`/api/customers${queryString}`)
+  },
+
+  /**
+   * Retrieves a single customer record by custno.
+   * Endpoint: GET /api/customers/:custno
+   */
+  getCustomer: async (custno: string): Promise<Customer> => {
+    return apiFetch<Customer>(`/api/customers/${encodeURIComponent(custno)}`)
+  },
+
+  /**
+   * Creates a new customer master record.
+   * Server-side permission check: requires Customer - Add (or Admin/Superadmin).
+   * Endpoint: POST /api/customers
+   */
+  createCustomer: (data: CreateCustomerPayload): Promise<Customer> => {
+    return apiFetch<Customer>("/api/customers", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Updates existing customer details.
+   * Server-side permission check: requires Customer - Edit (or Admin/Superadmin).
+   * Endpoint: PUT /api/customers/:custno
+   */
+  updateCustomer: (
+    custno: string,
+    data: UpdateCustomerPayload
+  ): Promise<Customer> => {
+    return apiFetch<Customer>(`/api/customers/${encodeURIComponent(custno)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Soft deletes a customer record (flags is_deleted = true).
+   * Checks referential integrity against sales orders.
+   * Server-side permission check: requires Customer - Delete (or Admin/Superadmin).
+   * Endpoint: DELETE /api/customers/:custno
+   */
+  deleteCustomer: (
+    custno: string
+  ): Promise<{ message: string; blocked?: boolean }> => {
+    return apiFetch<{ message: string; blocked?: boolean }>(
+      `/api/customers/${encodeURIComponent(custno)}`,
+      {
+        method: "DELETE",
+      }
+    )
+  },
+
+  /**
+   * Restores a soft-deleted customer record (flags is_deleted = false).
+   * Server-side permission check: requires Customer - Edit (or Admin/Superadmin).
+   * Endpoint: POST /api/customers/:custno/restore
+   */
+  restoreCustomer: (custno: string): Promise<{ message: string }> => {
+    return apiFetch<{ message: string }>(
+      `/api/customers/${encodeURIComponent(custno)}/restore`,
+      {
+        method: "POST",
+      }
+    )
   },
 }
 

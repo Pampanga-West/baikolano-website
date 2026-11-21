@@ -727,3 +727,273 @@ export async function deleteTableRowFromSupabase(
     }).catch(() => {})
   }
 }
+
+// ----------------------------------------------------------------------------
+// Sprint 2 Customer Master Operations (S2-DEV-01)
+// ----------------------------------------------------------------------------
+
+export interface CustomerFilterParams {
+  search?: string
+  status?: "active" | "inactive" | "all"
+  payterm?: string
+}
+
+export async function fetchCustomersFromSupabase(
+  params: CustomerFilterParams = {}
+): Promise<Record<string, any>[]> {
+  const queryParams = new URLSearchParams()
+  queryParams.set("select", "*")
+  queryParams.set("order", "custno.asc")
+
+  // PostgREST query
+  const rows = await postgrestFetch<Record<string, any>[]>(
+    `/customer?${queryParams.toString()}&limit=1000`
+  )
+
+  const { search, status = "active", payterm } = params
+
+  return rows.filter((r) => {
+    const isDeleted = Boolean(r.is_deleted)
+
+    if (status === "active" && isDeleted) return false
+    if (status === "inactive" && !isDeleted) return false
+
+    if (payterm && payterm !== "all") {
+      const term = String(r.payterm || "").trim().toLowerCase()
+      if (!term.includes(payterm.toLowerCase())) return false
+    }
+
+    if (search && search.trim()) {
+      const q = search.trim().toLowerCase()
+      const searchTarget = `${r.custno || ""} ${r.custname || ""} ${r.address || ""} ${r.payterm || ""}`.toLowerCase()
+      if (!searchTarget.includes(q)) return false
+    }
+
+    return true
+  })
+}
+
+export async function fetchCustomerByCustnoFromSupabase(
+  custno: string
+): Promise<Record<string, any> | null> {
+  const rows = await postgrestFetch<Record<string, any>[]>(
+    `/customer?custno=eq.${encodeURIComponent(custno)}&limit=1`
+  )
+  return rows[0] || null
+}
+
+export async function checkCustomerHasActiveSales(
+  custno: string
+): Promise<{ hasActiveSales: boolean; salesCount: number }> {
+  try {
+    const rows = await postgrestFetch<Record<string, any>[]>(
+      `/sales?custno=eq.${encodeURIComponent(custno)}&select=transno,is_deleted&limit=50`
+    )
+    const active = rows.filter((r) => !r.is_deleted)
+    return {
+      hasActiveSales: active.length > 0,
+      salesCount: active.length,
+    }
+  } catch {
+    return { hasActiveSales: false, salesCount: 0 }
+  }
+}
+
+export async function insertCustomerIntoSupabase(
+  payload: {
+    custno?: string
+    custname: string
+    address?: string
+    payterm?: string
+  },
+  actionBy: string
+): Promise<Record<string, any>> {
+  let custno = payload.custno?.trim()
+  if (!custno) {
+    // Generate next customer number e.g. C0083
+    const existing = await postgrestFetch<Record<string, any>[]>(
+      "/customer?select=custno&order=custno.desc&limit=1"
+    )
+    if (existing.length && existing[0].custno) {
+      const last = existing[0].custno
+      const match = last.match(/C-?(\d+)/i)
+      if (match) {
+        const nextNum = parseInt(match[1], 10) + 1
+        custno = `C${String(nextNum).padStart(4, "0")}`
+      } else {
+        custno = `C${Date.now().toString().slice(-4)}`
+      }
+    } else {
+      custno = "C0001"
+    }
+  } else {
+    const already = await fetchCustomerByCustnoFromSupabase(custno)
+    if (already) {
+      throw new Error(`Customer number '${custno}' is already taken.`)
+    }
+  }
+
+  const now = new Date()
+  const dateStr = now.toISOString().replace("T", " ").slice(0, 19)
+  const stamp = `CREATED ${actionBy} ${dateStr}`
+
+  const record = {
+    custno,
+    custname: payload.custname.trim(),
+    address: payload.address?.trim() || "",
+    payterm: payload.payterm?.trim() || "30D",
+    is_deleted: false,
+    stamp,
+  }
+
+  const res = await postgrestFetch<Record<string, any>[]>("/customer", {
+    method: "POST",
+    headers: {
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(record),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "customer",
+    action: "ADD",
+    record_key: custno,
+    new_values: record,
+    action_by: actionBy,
+  }).catch(() => {})
+
+  return res[0] || record
+}
+
+export async function updateCustomerInSupabase(
+  custno: string,
+  updates: {
+    custname?: string
+    address?: string
+    payterm?: string
+  },
+  actionBy: string
+): Promise<Record<string, any>> {
+  const existing = await fetchCustomerByCustnoFromSupabase(custno)
+  if (!existing) {
+    throw new Error(`Customer ${custno} does not exist.`)
+  }
+
+  if (updates.custname !== undefined && !updates.custname.trim()) {
+    throw new Error("Customer name cannot be empty.")
+  }
+
+  const now = new Date()
+  const dateStr = now.toISOString().replace("T", " ").slice(0, 19)
+  const stamp = `EDITED ${actionBy} ${dateStr}`
+
+  const patch: Record<string, any> = {
+    ...updates,
+    stamp,
+  }
+
+  const res = await postgrestFetch<Record<string, any>[]>(
+    `/customer?custno=eq.${encodeURIComponent(custno)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(patch),
+    }
+  )
+
+  await insertAuditLogIntoSupabase({
+    table_name: "customer",
+    action: "EDIT",
+    record_key: custno,
+    old_values: existing,
+    new_values: patch,
+    action_by: actionBy,
+  }).catch(() => {})
+
+  return res[0] || { ...existing, ...patch }
+}
+
+export async function softDeleteCustomerInSupabase(
+  custno: string,
+  actionBy: string
+): Promise<void> {
+  const existing = await fetchCustomerByCustnoFromSupabase(custno)
+  if (!existing) {
+    throw new Error(`Customer ${custno} does not exist.`)
+  }
+
+  // Referential Integrity check: active sales orders referencing this customer
+  const { hasActiveSales, salesCount } = await checkCustomerHasActiveSales(custno)
+  if (hasActiveSales) {
+    await insertAuditLogIntoSupabase({
+      table_name: "customer",
+      action: "DELETE_BLOCKED",
+      record_key: custno,
+      old_values: existing,
+      new_values: { reason: "Active child sales orders", sales_count: salesCount },
+      action_by: actionBy,
+    }).catch(() => {})
+
+    const err: any = new Error(
+      `Active child records reference this item. Active sales orders (${salesCount}) reference customer ${custno}. Remove or reassign those records first.`
+    )
+    err.blocked = true
+    err.statusCode = 409
+    throw err
+  }
+
+  const now = new Date()
+  const dateStr = now.toISOString().replace("T", " ").slice(0, 19)
+  const stamp = `DELETED ${actionBy} ${dateStr}`
+
+  await postgrestFetch(`/customer?custno=eq.${encodeURIComponent(custno)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      is_deleted: true,
+      stamp,
+    }),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "customer",
+    action: "DELETE",
+    record_key: custno,
+    old_values: existing,
+    new_values: { is_deleted: true, stamp },
+    action_by: actionBy,
+  }).catch(() => {})
+}
+
+export async function restoreCustomerInSupabase(
+  custno: string,
+  actionBy: string
+): Promise<void> {
+  const existing = await fetchCustomerByCustnoFromSupabase(custno)
+  if (!existing) {
+    throw new Error(`Customer ${custno} does not exist.`)
+  }
+
+  const now = new Date()
+  const dateStr = now.toISOString().replace("T", " ").slice(0, 19)
+  const stamp = `RESTORED ${actionBy} ${dateStr}`
+
+  await postgrestFetch(`/customer?custno=eq.${encodeURIComponent(custno)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      is_deleted: false,
+      stamp,
+    }),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "customer",
+    action: "RESTORE",
+    record_key: custno,
+    old_values: existing,
+    new_values: { is_deleted: false, stamp },
+    action_by: actionBy,
+  }).catch(() => {})
+}
+
