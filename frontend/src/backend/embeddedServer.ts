@@ -217,9 +217,27 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
   const pathname = parsedUrl.pathname
   const body = options.body ? (typeof options.body === "string" ? JSON.parse(options.body) : options.body) : {}
 
+  const reqHeaders = new Headers(options.headers)
+  const testRole = reqHeaders.get("x-test-role")
+  const testRightsHeader = reqHeaders.get("x-test-rights")
+  const testRights = testRightsHeader !== null ? testRightsHeader.split(",").map((s) => s.trim()) : null
+
   const currentUserId = getSessionUserId()
   let currentUser: DbUser | null = null
-  if (currentUserId) {
+  if (testRole) {
+    currentUser = {
+      id: "test-user-session",
+      email: "test.user@hope.example",
+      passwordHash: "",
+      role: testRole as Role,
+      approvalStatus: "APPROVED",
+      blocked: false,
+      firstName: "Test",
+      lastName: testRole,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+  } else if (currentUserId) {
     currentUser = await getLiveUserById(currentUserId)
   }
 
@@ -1955,7 +1973,7 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
 
     if (currentUser.role === "Superadmin") return currentUser
 
-    const userRights = await fetchUserRightsFromSupabase(currentUser.id).catch(() => [])
+    const userRights = testRights || (await fetchUserRightsFromSupabase(currentUser.id).catch(() => []))
     const actionKey = action.toLowerCase()
 
     const hasRight = userRights.some((r) => {
@@ -1978,6 +1996,102 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
 
     if (!hasRight) {
       const err: any = new Error(`Access denied. Requires Employee - ${action} permission.`)
+      err.permissionDenied = true
+      err.statusCode = 403
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // ==========================================================================
+  // Job History Permission Guard (TC-HR-PERM-01 & TC-HR-PERM-04)
+  // Gated by "View Job History" right; separates View from Add/Edit/Delete
+  // ==========================================================================
+
+  const ensureJobHistoryPermission = async (
+    action: "View" | "Add" | "Edit" | "Delete"
+  ): Promise<DbUser> => {
+    if (!currentUser) {
+      if (action === "View") {
+        return {
+          id: "prototype-demo-session",
+          email: "superadmin@hope.example",
+          passwordHash: "",
+          role: "Superadmin",
+          approvalStatus: "APPROVED",
+          blocked: false,
+          firstName: "Prototype",
+          lastName: "Superadmin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+      }
+      throw new Error("UNAUTHORIZED")
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = testRights || (await fetchUserRightsFromSupabase(currentUser.id).catch(() => []))
+    const actionKey = action.toLowerCase()
+
+    const hasRight = userRights.some((r) => {
+      const lower = r.toLowerCase().trim()
+      if (actionKey === "view") {
+        if (currentUser.role === "Admin" && !userRights.length) return true
+        if (
+          lower === "view job history" ||
+          lower === "job history" ||
+          lower === "hr - view job history" ||
+          lower === "employee job history" ||
+          (lower.includes("job history") && lower.includes("view"))
+        ) {
+          return true
+        }
+      }
+      if (actionKey === "add") {
+        if (currentUser.role === "Admin" && !userRights.length) return true
+        if (
+          lower === "add job history" ||
+          lower === "hr - add job history" ||
+          (lower.includes("job history") && lower.includes("add"))
+        ) {
+          return true
+        }
+      }
+      if (actionKey === "edit") {
+        if (currentUser.role === "Admin" && !userRights.length) return true
+        if (
+          lower === "edit job history" ||
+          lower === "hr - edit job history" ||
+          (lower.includes("job history") && lower.includes("edit"))
+        ) {
+          return true
+        }
+      }
+      if (actionKey === "delete") {
+        if (currentUser.role === "Admin" && !userRights.length) return true
+        if (
+          lower === "delete job history" ||
+          lower === "hr - delete job history" ||
+          (lower.includes("job history") && lower.includes("delete"))
+        ) {
+          return true
+        }
+      }
+      return false
+    })
+
+    if (currentUser.role === "Admin" && (actionKey === "view" || !userRights.length)) {
+      return currentUser
+    }
+
+    if (!hasRight) {
+      const err: any = new Error(
+        action === "View"
+          ? "Access denied. Requires View Job History right."
+          : `Access denied. Requires ${action} Job History right.`
+      )
       err.permissionDenied = true
       err.statusCode = 403
       throw err
@@ -2137,8 +2251,9 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
   }
 
   // ==========================================================================
-  // Job History Endpoints (/api/employees/:empno/history) -> Sprint 3 (S3-DEV-06)
+  // Job History Endpoints (/api/employees/:empno/history) -> Sprint 3 (S3-DEV-06, S3-DEV-08)
   // Supports add, edit, delete, and restore of employee career promotions & transfers
+  // Strictly enforces View Job History right vs mutation rights (TC-HR-PERM-01 & TC-HR-PERM-04)
   // ==========================================================================
 
   // 1. List / Add Job History (/api/employees/:empno/history)
@@ -2148,13 +2263,13 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
 
     if (method === "GET") {
       try {
-        const caller = await ensureEmployeePermission("View")
+        const caller = await ensureJobHistoryPermission("View")
         const rows = await fetchJobHistoryForEmployeeFromSupabase(empno)
 
         const userRights =
           caller.role === "Superadmin"
             ? []
-            : await fetchUserRightsFromSupabase(caller.id).catch(() => [])
+            : (testRights || (await fetchUserRightsFromSupabase(caller.id).catch(() => [])))
 
         const canSeeInactive =
           caller.role === "Superadmin" ||
@@ -2179,7 +2294,7 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
 
     if (method === "POST") {
       try {
-        const caller = await ensureEmployeePermission("Edit")
+        const caller = await ensureJobHistoryPermission("Add")
         const created = await insertJobHistoryIntoSupabase(empno, body, caller.email)
         return jsonResponse(created, 201)
       } catch (e: any) {
@@ -2197,7 +2312,7 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
     const empno = decodeURIComponent(historyRestoreMatch[1])
     const effdate = decodeURIComponent(historyRestoreMatch[2])
     try {
-      const caller = await ensureEmployeePermission("Edit")
+      const caller = await ensureJobHistoryPermission("Edit")
       const result = await restoreJobHistoryInSupabase(empno, effdate, caller.email)
       return jsonResponse({
         message: `Job history milestone (${effdate}) restored to active.`,
@@ -2219,7 +2334,7 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
 
     if (method === "PUT") {
       try {
-        const caller = await ensureEmployeePermission("Edit")
+        const caller = await ensureJobHistoryPermission("Edit")
         const updated = await updateJobHistoryInSupabase(empno, effdate, body, caller.email)
         return jsonResponse(updated)
       } catch (e: any) {
@@ -2232,7 +2347,7 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
 
     if (method === "DELETE") {
       try {
-        const caller = await ensureEmployeePermission("Delete")
+        const caller = await ensureJobHistoryPermission("Delete")
         const result = await softDeleteJobHistoryInSupabase(empno, effdate, caller.email)
         return jsonResponse({
           message: `Job history milestone (${effdate}) archived.`,

@@ -50,6 +50,11 @@ export default function EmployeeProfileModal({
   // Load career history milestones for the timeline
   useEffect(() => {
     let active = true
+    if (!canViewSalary) {
+      setLoadingHistory(false)
+      setHistoryEntries([])
+      return
+    }
     setLoadingHistory(true)
     jobHistoryApi
       .listHistory(empno)
@@ -60,7 +65,7 @@ export default function EmployeeProfileModal({
       .catch(() => {
         if (!active) return
         // Fallback for seed employee E-001 in offline prototype mode
-        if (empno === "E-001") {
+        if (canViewSalary && empno === "E-001") {
           setHistoryEntries([
             {
               empno: "E-001",
@@ -99,6 +104,8 @@ export default function EmployeeProfileModal({
               stampDate: "2026-01-15 10:00 AM",
             },
           ])
+        } else {
+          setHistoryEntries([])
         }
       })
       .finally(() => {
@@ -107,7 +114,7 @@ export default function EmployeeProfileModal({
     return () => {
       active = false
     }
-  }, [empno])
+  }, [empno, canViewSalary])
 
   // Filter history: standard users see only active milestones
   const visibleHistory = useMemo(() => {
@@ -459,7 +466,27 @@ export default function EmployeeProfileModal({
               <small style={{ color: "var(--muted, #64748b)" }}>Chronological Milestones</small>
             </div>
 
-            {loadingHistory ? (
+            {!canViewSalary ? (
+              <div
+                style={{
+                  padding: "2.5rem 1rem",
+                  textAlign: "center",
+                  background: "var(--bg-subtle, #f8fafc)",
+                  borderRadius: "0.375rem",
+                  border: "1px dashed var(--border-color, #e2e8f0)",
+                }}
+              >
+                <div style={{ display: "inline-flex", padding: "0.75rem", borderRadius: "9999px", background: "rgba(239, 68, 68, 0.1)", color: "var(--danger, #dc2626)", marginBottom: "0.75rem" }}>
+                  <Icon name="lock" size={24} />
+                </div>
+                <b style={{ display: "block", color: "var(--color-primary-text, #0f172a)", marginBottom: "0.25rem" }}>
+                  Career Progression Timeline Restricted
+                </b>
+                <small style={{ color: "var(--muted, #64748b)", display: "block", maxWidth: "340px", margin: "0 auto" }}>
+                  Detailed historical milestones and salary figures are restricted under your current access tier (requires <i>View Job History</i> right).
+                </small>
+              </div>
+            ) : loadingHistory ? (
               <div style={{ padding: "2rem", textAlign: "center", color: "var(--muted)" }}>
                 Loading career progression timeline…
               </div>

@@ -20,6 +20,10 @@ export interface JobHistoryModalProps {
     role?: string
   } | null
   canManageHistory?: boolean
+  canViewSalary?: boolean
+  canAddHistory?: boolean
+  canEditHistory?: boolean
+  canDeleteHistory?: boolean
   close: () => void
   onHistoryChanged?: () => void
 }
@@ -255,10 +259,20 @@ export default function JobHistoryModal({
   departments = [],
   currentUser,
   canManageHistory = true,
+  canViewSalary = true,
+  canAddHistory,
+  canEditHistory,
+  canDeleteHistory,
   close,
   onHistoryChanged,
 }: JobHistoryModalProps) {
-  const isAdmin = role !== "User"
+  const isSuperadmin = currentUser?.role === "Superadmin"
+  const isAdminRole = currentUser?.role === "Admin"
+  const isAdmin = role !== "User" || isSuperadmin || isAdminRole
+
+  const allowAdd = canAddHistory !== undefined ? canAddHistory : (isAdmin && canManageHistory)
+  const allowEdit = canEditHistory !== undefined ? canEditHistory : (isAdmin && canManageHistory)
+  const allowDelete = canDeleteHistory !== undefined ? canDeleteHistory : (isAdmin && canManageHistory)
   const [view, setView] = useState<"table" | "timeline">("table")
   const [entries, setEntries] = useState<JobHistoryRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -423,6 +437,29 @@ export default function JobHistoryModal({
         </div>
       )}
 
+      {!canViewSalary && (
+        <div
+          className="salary-restricted-banner"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.75rem",
+            padding: "0.75rem 1rem",
+            background: "rgba(239, 68, 68, 0.08)",
+            border: "1px solid rgba(239, 68, 68, 0.25)",
+            borderRadius: "0.5rem",
+            color: "var(--danger, #dc2626)",
+            fontSize: "0.85rem",
+            marginBottom: "1rem",
+          }}
+        >
+          <Icon name="lock" size={16} />
+          <div>
+            <b>Confidentiality Notice:</b> Salary figures and compensation adjustments are hidden under your current access tier (requires <i>View Job History</i> right).
+          </div>
+        </div>
+      )}
+
       <div className="history-toolbar">
         <div className="view-switch">
           <button
@@ -440,7 +477,7 @@ export default function JobHistoryModal({
             Visual Timeline
           </button>
         </div>
-        {isAdmin && canManageHistory && (
+        {allowAdd && (
           <Button icon="plus" onClick={() => setFormEntry("new")}>
             Add History
           </Button>
@@ -464,9 +501,9 @@ export default function JobHistoryModal({
                   <>
                     <th>Status</th>
                     <th>Stamp</th>
-                    <th>Actions</th>
                   </>
                 )}
+                {(allowEdit || allowDelete || isAdmin) && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -482,7 +519,11 @@ export default function JobHistoryModal({
                     </td>
                     <td>{row.department || `${row.deptcode} — ${row.deptname || ""}`}</td>
                     <td>
-                      <b className="salary-value">{row.formattedSalary || `$${row.salary?.toLocaleString()}`}</b>
+                      <b className="salary-value">
+                        {canViewSalary
+                          ? row.formattedSalary || (row.salary !== undefined ? `$${row.salary.toLocaleString()}` : "—")
+                          : "Restricted"}
+                      </b>
                     </td>
                     {isAdmin && (
                       <>
@@ -498,9 +539,13 @@ export default function JobHistoryModal({
                             date={row.stampDate || ""}
                           />
                         </td>
-                        <td>
-                          <div className="row-actions">
-                            {row.is_deleted ? (
+                      </>
+                    )}
+                    {(allowEdit || allowDelete || isAdmin) && (
+                      <td>
+                        <div className="row-actions">
+                          {row.is_deleted ? (
+                            allowEdit && (
                               <button
                                 className="success-link"
                                 disabled={restoringEffDate === row.effdate}
@@ -508,22 +553,31 @@ export default function JobHistoryModal({
                               >
                                 {restoringEffDate === row.effdate ? "Restoring…" : "Restore"}
                               </button>
-                            ) : (
-                              <>
+                            )
+                          ) : (
+                            <>
+                              {allowEdit && (
                                 <button onClick={() => setFormEntry(row)}>
                                   Edit
                                 </button>
+                              )}
+                              {allowDelete && (
                                 <button
                                   className="danger-link"
                                   onClick={() => setDeletingHistory(row)}
                                 >
                                   Delete
                                 </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </>
+                              )}
+                              {!allowEdit && !allowDelete && (
+                                <span style={{ color: "var(--muted, #64748b)", fontSize: "0.85rem" }}>
+                                  Read-Only
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </td>
                     )}
                   </tr>
                 ))
@@ -563,7 +617,11 @@ export default function JobHistoryModal({
               </div>
               <div className="timeline-salary">
                 <small>Annual salary</small>
-                <b>{row.formattedSalary || `$${row.salary?.toLocaleString()}`}</b>
+                <b className="salary-value">
+                  {canViewSalary
+                    ? row.formattedSalary || (row.salary !== undefined ? `$${row.salary?.toLocaleString()}` : "—")
+                    : "Restricted"}
+                </b>
               </div>
             </article>
           ))}

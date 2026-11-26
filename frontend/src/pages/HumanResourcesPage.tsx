@@ -417,13 +417,43 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
     rightsApi
       .getUserRights(user.id)
       .then((r) => {
-        if (active) setRights(r || [])
+        if (active) {
+          const list = r || []
+          setRights(list)
+          if (!isSuperadmin && !isAdminRole) {
+            const hasJobHistory = list.some((item) => {
+              const l = item.toLowerCase().trim()
+              return (
+                l === "view job history" ||
+                l === "job history" ||
+                l === "hr - view job history" ||
+                l === "employee job history"
+              )
+            })
+            setHistoryRight(hasJobHistory)
+          }
+        }
       })
       .catch((err) => {
         console.warn("[HumanResourcesPage] rightsApi error, attempting Supabase fallback:", err)
         fetchUserRightsFromSupabase(user.id)
           .then((direct) => {
-            if (active) setRights(direct || [])
+            if (active) {
+              const list = direct || []
+              setRights(list)
+              if (!isSuperadmin && !isAdminRole) {
+                const hasJobHistory = list.some((item) => {
+                  const l = item.toLowerCase().trim()
+                  return (
+                    l === "view job history" ||
+                    l === "job history" ||
+                    l === "hr - view job history" ||
+                    l === "employee job history"
+                  )
+                })
+                setHistoryRight(hasJobHistory)
+              }
+            }
           })
           .catch(() => {
             if (active) setRights([])
@@ -432,7 +462,7 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
     return () => {
       active = false
     }
-  }, [user?.id])
+  }, [user?.id, isSuperadmin, isAdminRole])
 
   const hasRight = (name: string) => {
     if (isSuperadmin) return true
@@ -444,8 +474,17 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
         rl === n ||
         rl === `department - ${n}` ||
         rl === `${n} department` ||
+        rl === `job - ${n}` ||
+        rl === `${n} job` ||
+        rl === `employee - ${n}` ||
+        rl === `${n} employee` ||
+        rl === `job history - ${n}` ||
+        rl === `${n} job history` ||
         rl === `hr - ${n}` ||
-        (rl.includes("department") && rl.includes(n))
+        (rl.includes("department") && rl.includes(n)) ||
+        (rl.includes("job") && rl.includes(n)) ||
+        (rl.includes("employee") && rl.includes(n)) ||
+        (rl.includes("job history") && rl.includes(n))
       )
     })
   }
@@ -461,6 +500,31 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
   const canAddEmployee = isSuperadmin || isAdminRole || hasRight("add") || hasRight("add employee")
   const canEditEmployee = isSuperadmin || isAdminRole || hasRight("edit") || hasRight("edit employee")
   const canDeleteEmployee = isSuperadmin || isAdminRole || hasRight("delete") || hasRight("delete employee")
+
+  const canViewJobHistory =
+    isSuperadmin ||
+    isAdminRole ||
+    hasRight("view job history") ||
+    hasRight("job history") ||
+    hasRight("hr - view job history")
+
+  const canAddJobHistory =
+    isSuperadmin ||
+    isAdminRole ||
+    hasRight("add job history") ||
+    hasRight("hr - add job history")
+
+  const canEditJobHistory =
+    isSuperadmin ||
+    isAdminRole ||
+    hasRight("edit job history") ||
+    hasRight("hr - edit job history")
+
+  const canDeleteJobHistory =
+    isSuperadmin ||
+    isAdminRole ||
+    hasRight("delete job history") ||
+    hasRight("hr - delete job history")
 
   const operatorName =
     [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
@@ -1370,9 +1434,9 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
         <EmployeeProfileModal
           role={role}
           employee={profileEmployee}
-          canViewSalary={isSuperadmin || isAdminRole || historyRight || hasRight("view job history")}
+          canViewSalary={historyRight}
           canEditEmployee={canEditEmployee}
-          canManageHistory={isSuperadmin || isAdminRole || hasRight("edit") || hasRight("add")}
+          canManageHistory={historyRight && (canAddJobHistory || canEditJobHistory)}
           close={() => setProfileEmployee(null)}
           onOpenEdit={() => {
             const target = profileEmployee
@@ -1391,6 +1455,7 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
             })
           }}
           onOpenHistory={() => {
+            if (!historyRight) return
             const target = profileEmployee
             setProfileEmployee(null)
             setHistoryEmployee(target)
@@ -1404,7 +1469,11 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
           jobs={lookups.jobs}
           departments={lookups.departments}
           currentUser={user}
-          canManageHistory={isAdmin || hasRight("edit") || hasRight("add")}
+          canViewSalary={historyRight}
+          canManageHistory={canAddJobHistory || canEditJobHistory || canDeleteJobHistory}
+          canAddHistory={canAddJobHistory}
+          canEditHistory={canEditJobHistory}
+          canDeleteHistory={canDeleteJobHistory}
           close={() => setHistoryEmployee(null)}
           onHistoryChanged={() => loadData()}
         />
