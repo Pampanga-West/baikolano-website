@@ -642,6 +642,38 @@ export const productApi = {
       }
     )
   },
+
+  /**
+   * Soft deletes / supersedes a price schedule for a product.
+   * Endpoint: DELETE /api/products/:prodcode/prices/:effdate
+   */
+  deletePriceSchedule: (
+    prodcode: string,
+    effdate: string
+  ): Promise<{ message: string }> => {
+    return apiFetch<{ message: string }>(
+      `/api/products/${encodeURIComponent(prodcode)}/prices/${encodeURIComponent(effdate)}`,
+      {
+        method: "DELETE",
+      }
+    )
+  },
+
+  /**
+   * Restores a soft-deleted / superseded price schedule.
+   * Endpoint: POST /api/products/:prodcode/prices/:effdate/restore
+   */
+  restorePriceSchedule: (
+    prodcode: string,
+    effdate: string
+  ): Promise<{ message: string }> => {
+    return apiFetch<{ message: string }>(
+      `/api/products/${encodeURIComponent(prodcode)}/prices/${encodeURIComponent(effdate)}/restore`,
+      {
+        method: "POST",
+      }
+    )
+  },
 }
 
 // ============================================================================
