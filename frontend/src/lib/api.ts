@@ -28,6 +28,8 @@ import {
   type UpdateJobPayload,
   type Employee,
   type EmployeeQueryParams,
+  type CreateEmployeePayload,
+  type UpdateEmployeePayload,
 } from "./types"
 
 // Automatically install global in-browser mock server interceptor
@@ -942,7 +944,35 @@ export const employeeApi = {
   getEmployee: (empno: string): Promise<Employee> => {
     return apiFetch<Employee>(`/api/employees/${encodeURIComponent(empno)}`)
   },
+
+  /**
+   * Creates a new employee personnel record.
+   * Server-side permission check: requires Employee - Add (or Admin/Superadmin).
+   * Endpoint: POST /api/employees
+   */
+  createEmployee: (data: CreateEmployeePayload): Promise<Employee> => {
+    return apiFetch<Employee>("/api/employees", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Updates an existing employee profile information and/or separation date.
+   * Server-side permission check: requires Employee - Edit (or Admin/Superadmin).
+   * Endpoint: PUT /api/employees/:empno
+   */
+  updateEmployee: (
+    empno: string,
+    data: UpdateEmployeePayload
+  ): Promise<Employee> => {
+    return apiFetch<Employee>(`/api/employees/${encodeURIComponent(empno)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
 }
+
 
 
 

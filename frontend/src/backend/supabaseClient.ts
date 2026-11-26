@@ -2554,4 +2554,296 @@ export async function fetchEmployeeByEmpnoFromSupabase(
   return rows.find((r) => r.empno.toLowerCase() === code.toLowerCase()) || null
 }
 
+export async function insertEmployeeIntoSupabase(
+  payload: {
+    empno?: string
+    lastname: string
+    firstname: string
+    gender: string
+    birthdate: string
+    hiredate: string
+    sepdate?: string | null
+  },
+  actionBy: string
+): Promise<Record<string, any>> {
+  const lastname = (payload.lastname || "").trim()
+  const firstname = (payload.firstname || "").trim()
+
+  if (!lastname) {
+    throw new Error("Last name is required.")
+  }
+  if (lastname.length < 2) {
+    throw new Error("Last name must be at least 2 characters long.")
+  }
+  if (!firstname) {
+    throw new Error("First name is required.")
+  }
+  if (firstname.length < 2) {
+    throw new Error("First name must be at least 2 characters long.")
+  }
+
+  const gender = (payload.gender || "M").trim().toUpperCase()
+  if (gender !== "M" && gender !== "F") {
+    throw new Error("Gender must be 'M' or 'F'.")
+  }
+
+  const birthdate = (payload.birthdate || "").trim()
+  if (!birthdate) {
+    throw new Error("Birth date is required.")
+  }
+
+  const hiredate = (payload.hiredate || "").trim()
+  if (!hiredate) {
+    throw new Error("Hire date is required.")
+  }
+
+  const today = new Date().toISOString().split("T")[0]
+  if (birthdate >= today) {
+    throw new Error("Birth date must be in the past.")
+  }
+
+  if (birthdate >= hiredate) {
+    throw new Error("Birth date must be earlier than hire date.")
+  }
+
+  // Age calculation at hire
+  const birthYear = new Date(birthdate).getFullYear()
+  const hireYear = new Date(hiredate).getFullYear()
+  if (hireYear - birthYear < 15) {
+    throw new Error("Employee must be at least 15 years old at the time of hiring.")
+  }
+
+  const sepdate = payload.sepdate && payload.sepdate.trim() ? payload.sepdate.trim() : null
+  if (sepdate && sepdate < hiredate) {
+    throw new Error("Separation date cannot be earlier than hire date.")
+  }
+
+  let code = (payload.empno || "").trim().toUpperCase()
+  if (!code) {
+    // Auto-generate next employee number sequence (E-001, E-002, etc.)
+    const existing = await postgrestFetch<Record<string, any>[]>(
+      `/employee?select=empno&order=empno.desc&limit=100`
+    ).catch(() => [])
+    const maxNum = existing
+      .map((r) => {
+        const m = String(r.empno || "").match(/E-(\d+)/i)
+        return m ? parseInt(m[1], 10) : 0
+      })
+      .filter((n) => !isNaN(n))
+      .reduce((a, b) => Math.max(a, b), 0)
+    code = `E-${String(Math.max(maxNum + 1, 1)).padStart(3, "0")}`
+  }
+
+  if (!/^[A-Z0-9_-]{2,10}$/.test(code)) {
+    throw new Error("Employee number must be 2-10 alphanumeric characters (e.g. E-005).")
+  }
+
+  // Check collision
+  const existingRows = await postgrestFetch<Record<string, any>[]>(
+    `/employee?empno=eq.${encodeURIComponent(code)}&limit=1`
+  ).catch(() => [])
+
+  const dateStr = formatStampDateTime(new Date())
+  const stamp = `CREATED ${actionBy} ${dateStr}`
+
+  if (existingRows && existingRows.length > 0) {
+    const existing = existingRows[0]
+    if (!existing.is_deleted) {
+      const err: any = new Error(
+        `Employee number ${code} is already in use by '${existing.firstname} ${existing.lastname}'.`
+      )
+      err.statusCode = 409
+      throw err
+    }
+
+    // Reactivate soft-deleted row
+    const restoreStamp = `RESTORED ${actionBy} ${dateStr}`
+    const patch = {
+      lastname,
+      firstname,
+      gender,
+      birthdate,
+      hiredate,
+      sepdate,
+      is_deleted: false,
+      stamp: restoreStamp,
+    }
+    await postgrestFetch(`/employee?empno=eq.${encodeURIComponent(code)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    })
+
+    await insertAuditLogIntoSupabase({
+      table_name: "employee",
+      action: "RESTORE",
+      record_key: code,
+      new_values: patch,
+      action_by: actionBy,
+    }).catch(() => {})
+
+    return {
+      empno: code,
+      lastname,
+      firstname,
+      gender,
+      birthdate,
+      hiredate,
+      sepdate: sepdate || "—",
+      is_deleted: false,
+      status: sepdate && sepdate <= today ? "Separated" : "Active",
+      stamp: restoreStamp,
+      stampAction: "RESTORED",
+      stampUser: actionBy,
+      stampDate: dateStr,
+    }
+  }
+
+  const row = {
+    empno: code,
+    lastname,
+    firstname,
+    gender,
+    birthdate,
+    hiredate,
+    sepdate,
+    is_deleted: false,
+    stamp,
+  }
+
+  await postgrestFetch("/employee", {
+    method: "POST",
+    body: JSON.stringify(row),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "employee",
+    action: "ADD",
+    record_key: code,
+    new_values: row,
+    action_by: actionBy,
+  }).catch(() => {})
+
+  return {
+    empno: code,
+    lastname,
+    firstname,
+    gender,
+    birthdate,
+    hiredate,
+    sepdate: sepdate || "—",
+    is_deleted: false,
+    status: sepdate && sepdate <= today ? "Separated" : "Active",
+    stamp,
+    stampAction: "CREATED",
+    stampUser: actionBy,
+    stampDate: dateStr,
+  }
+}
+
+export async function updateEmployeeInSupabase(
+  empno: string,
+  payload: {
+    lastname?: string
+    firstname?: string
+    gender?: string
+    birthdate?: string
+    hiredate?: string
+    sepdate?: string | null
+  },
+  actionBy: string
+): Promise<Record<string, any>> {
+  const code = String(empno).trim()
+  const existing = await fetchEmployeeByEmpnoFromSupabase(code)
+  if (!existing) {
+    const err: any = new Error(`Employee ${code} not found.`)
+    err.statusCode = 404
+    throw err
+  }
+
+  const lastname = payload.lastname !== undefined ? payload.lastname.trim() : existing.lastname
+  const firstname = payload.firstname !== undefined ? payload.firstname.trim() : existing.firstname
+
+  if (!lastname || lastname.length < 2) {
+    throw new Error("Last name must be at least 2 characters long.")
+  }
+  if (!firstname || firstname.length < 2) {
+    throw new Error("First name must be at least 2 characters long.")
+  }
+
+  const gender = payload.gender !== undefined ? payload.gender.trim().toUpperCase() : existing.gender
+  if (gender !== "M" && gender !== "F") {
+    throw new Error("Gender must be 'M' or 'F'.")
+  }
+
+  const birthdate = payload.birthdate !== undefined ? payload.birthdate.trim() : existing.birthdate
+  const hiredate = payload.hiredate !== undefined ? payload.hiredate.trim() : existing.hiredate
+
+  if (birthdate >= hiredate) {
+    throw new Error("Birth date must be earlier than hire date.")
+  }
+
+  const today = new Date().toISOString().split("T")[0]
+  const sepdate =
+    payload.sepdate !== undefined
+      ? payload.sepdate && payload.sepdate.trim()
+        ? payload.sepdate.trim()
+        : null
+      : existing.sepdate && existing.sepdate !== "—"
+      ? existing.sepdate
+      : null
+
+  if (sepdate && sepdate < hiredate) {
+    throw new Error("Separation date cannot be earlier than hire date.")
+  }
+
+  const dateStr = formatStampDateTime(new Date())
+  const stamp = `EDITED ${actionBy} ${dateStr}`
+  const patch: any = {
+    lastname,
+    firstname,
+    gender,
+    birthdate,
+    hiredate,
+    sepdate,
+    stamp,
+  }
+
+  await postgrestFetch(`/employee?empno=eq.${encodeURIComponent(code)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "employee",
+    action: "EDIT",
+    record_key: code,
+    old_values: {
+      lastname: existing.lastname,
+      firstname: existing.firstname,
+      gender: existing.gender,
+      birthdate: existing.birthdate,
+      hiredate: existing.hiredate,
+      sepdate: existing.sepdate,
+    },
+    new_values: patch,
+    action_by: actionBy,
+  }).catch(() => {})
+
+  return {
+    ...existing,
+    lastname,
+    firstname,
+    gender,
+    birthdate,
+    hiredate,
+    sepdate: sepdate || "—",
+    status: sepdate && sepdate <= today ? "Separated" : existing.status,
+    stamp,
+    stampAction: "EDITED",
+    stampUser: actionBy,
+    stampDate: dateStr,
+  }
+}
+
+
 

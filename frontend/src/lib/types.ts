@@ -259,4 +259,23 @@ export interface EmployeeQueryParams {
   job?: string
 }
 
+export interface CreateEmployeePayload {
+  empno?: string
+  lastname: string
+  firstname: string
+  gender: "M" | "F" | string
+  birthdate: string
+  hiredate: string
+  sepdate?: string | null
+}
+
+export interface UpdateEmployeePayload {
+  lastname?: string
+  firstname?: string
+  gender?: "M" | "F" | string
+  birthdate?: string
+  hiredate?: string
+  sepdate?: string | null
+}
+
 
