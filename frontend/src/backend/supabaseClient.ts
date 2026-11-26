@@ -1133,6 +1133,7 @@ export async function insertProductIntoSupabase(
     prodcode?: string
     description: string
     unit?: string
+    initialPrice?: number | string
   },
   actionBy: string
 ): Promise<Record<string, any>> {
@@ -1189,7 +1190,45 @@ export async function insertProductIntoSupabase(
     action_by: actionBy,
   }).catch(() => {})
 
-  return res[0] || record
+  let derivedPrice = "—"
+  let numericPrice: number | null = null
+
+  if (payload.initialPrice !== undefined && payload.initialPrice !== null && payload.initialPrice !== "") {
+    const num =
+      typeof payload.initialPrice === "number"
+        ? payload.initialPrice
+        : parseFloat(String(payload.initialPrice).replace(/[^0-9.]/g, ""))
+    if (!isNaN(num) && num > 0) {
+      numericPrice = num
+      derivedPrice = formatMoney(num)
+      const today = now.toISOString().slice(0, 10)
+      const priceRecord = {
+        prodcode,
+        effdate: today,
+        unitprice: num,
+        is_deleted: false,
+        stamp: `CREATED ${actionBy} ${dateStr}`,
+      }
+      await postgrestFetch("/pricehist", {
+        method: "POST",
+        body: JSON.stringify(priceRecord),
+      }).catch(() => {})
+      await insertAuditLogIntoSupabase({
+        table_name: "pricehist",
+        action: "ADD",
+        record_key: `${prodcode}/${today}`,
+        new_values: priceRecord,
+        action_by: actionBy,
+      }).catch(() => {})
+    }
+  }
+
+  const baseRecord = res[0] || record
+  return {
+    ...baseRecord,
+    price: derivedPrice,
+    numericPrice,
+  }
 }
 
 export async function updateProductInSupabase(

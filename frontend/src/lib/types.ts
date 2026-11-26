@@ -156,6 +156,7 @@ export interface CreateProductPayload {
   prodcode?: string
   description: string
   unit: string
+  initialPrice?: number | string
 }
 
 export interface UpdateProductPayload {
