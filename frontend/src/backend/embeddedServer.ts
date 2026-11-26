@@ -51,6 +51,13 @@ import {
   fetchPriceHistoryForProductFromSupabase,
   insertPriceScheduleIntoSupabase,
   updatePriceScheduleInSupabase,
+  fetchDepartmentsFromSupabase,
+  fetchDepartmentByDeptcodeFromSupabase,
+  insertDepartmentIntoSupabase,
+  updateDepartmentInSupabase,
+  softDeleteDepartmentInSupabase,
+  restoreDepartmentInSupabase,
+  checkDepartmentHasActiveReferences,
   parseStamp,
   type SupabaseUserRow,
 } from "./supabaseClient.ts"
@@ -1519,6 +1526,200 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
       if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
       if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
       return jsonResponse({ message: e.message || "Failed to create product." }, 400)
+    }
+  }
+
+  // ==========================================================================
+  // Department Master Endpoints (/api/departments) -> Sprint 3 (S3-DEV-01)
+  // Enforces role-based per-action permission checks against Supabase user_permission
+  // ==========================================================================
+
+  const ensureDepartmentPermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+    if (!currentUser) {
+      if (action === "View") {
+        return {
+          id: "prototype-demo-session",
+          email: "superadmin@hope.example",
+          passwordHash: "",
+          role: "Superadmin",
+          approvalStatus: "APPROVED",
+          blocked: false,
+          firstName: "Prototype",
+          lastName: "Superadmin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+      }
+      throw new Error("UNAUTHORIZED")
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = await fetchUserRightsFromSupabase(currentUser.id).catch(() => [])
+    const actionKey = action.toLowerCase()
+
+    const hasRight = userRights.some((r) => {
+      const lower = r.toLowerCase().trim()
+      if (lower === `department - ${actionKey}` || lower === `${actionKey} department`) return true
+      if (lower.includes("department") && lower.includes(actionKey)) return true
+      if (action === "View" && (currentUser.role === "Admin" || lower.includes("department") || lower.includes("hr"))) return true
+      return false
+    })
+
+    if (currentUser.role === "Admin" && (action === "View" || !userRights.length)) {
+      return currentUser
+    }
+
+    if (!hasRight) {
+      const err: any = new Error(`Access denied. Requires Department - ${action} permission.`)
+      err.permissionDenied = true
+      err.statusCode = 403
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // 1. List Departments with Search and Status Filter (GET /api/departments)
+  if (pathname === "/api/departments" && method === "GET") {
+    try {
+      const caller = await ensureDepartmentPermission("View")
+      const search = parsedUrl.searchParams.get("search")?.trim() || ""
+      const statusParam = (parsedUrl.searchParams.get("status")?.trim().toLowerCase() || "active") as
+        | "active"
+        | "inactive"
+        | "all"
+
+      const rawRows = await fetchDepartmentsFromSupabase({
+        search,
+        status: statusParam,
+      })
+
+      const userRights =
+        caller.role === "Superadmin"
+          ? []
+          : await fetchUserRightsFromSupabase(caller.id).catch(() => [])
+
+      const canSeeInactive =
+        caller.role === "Superadmin" ||
+        caller.role === "Admin" ||
+        userRights.some((r) => {
+          const lower = r.toLowerCase().trim()
+          return (
+            lower.includes("department") &&
+            (lower.includes("edit") || lower.includes("delete") || lower.includes("view"))
+          )
+        })
+
+      const dtoList = rawRows.filter((r) => {
+        if (!canSeeInactive && Boolean(r.is_deleted)) return false
+        return true
+      })
+
+      return jsonResponse(dtoList)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) {
+        return jsonResponse({ message: e.message || "Access denied. Requires Department - View permission." }, 403)
+      }
+      return jsonResponse({ message: e.message || "Failed to list departments." }, 500)
+    }
+  }
+
+  // 2. Department Item Sub-actions (/api/departments/:deptcode)
+  const deptMatch = pathname.match(/^\/api\/departments\/([^/]+)(?:\/(restore))?$/)
+  if (deptMatch) {
+    const deptcode = decodeURIComponent(deptMatch[1])
+    const subAction = deptMatch[2]
+
+    // Restore Department (POST /api/departments/:deptcode/restore)
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensureDepartmentPermission("Edit")
+        await restoreDepartmentInSupabase(deptcode, caller.email)
+        return jsonResponse({ message: `Department ${deptcode} restored successfully.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore department." }, 400)
+      }
+    }
+
+    // Get Single Department (GET /api/departments/:deptcode)
+    if (!subAction && method === "GET") {
+      try {
+        await ensureDepartmentPermission("View")
+        const row = await fetchDepartmentByDeptcodeFromSupabase(deptcode)
+        if (!row) {
+          return jsonResponse({ message: `Department ${deptcode} not found.` }, 404)
+        }
+        return jsonResponse(row)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to get department." }, 500)
+      }
+    }
+
+    // Update Department (PUT/PATCH /api/departments/:deptcode)
+    if (!subAction && (method === "PUT" || method === "PATCH")) {
+      try {
+        const caller = await ensureDepartmentPermission("Edit")
+        const updated = await updateDepartmentInSupabase(
+          deptcode,
+          { deptname: body.deptname },
+          caller.email
+        )
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to update department." }, 400)
+      }
+    }
+
+    // Soft-Delete Department (DELETE /api/departments/:deptcode)
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensureDepartmentPermission("Delete")
+        await softDeleteDepartmentInSupabase(deptcode, caller.email)
+        return jsonResponse({ message: `Department ${deptcode} marked as Inactive.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.blocked || e.statusCode === 409) {
+          return jsonResponse({ message: e.message, blocked: true, reason: e.reason }, 409)
+        }
+        return jsonResponse({ message: e.message || "Failed to delete department." }, 400)
+      }
+    }
+  }
+
+  // 3. Create Department (POST /api/departments)
+  if (pathname === "/api/departments" && method === "POST") {
+    try {
+      const caller = await ensureDepartmentPermission("Add")
+      const deptname = (body.deptname || "").trim()
+      if (!deptname) {
+        return jsonResponse({ message: "Department name is required." }, 400)
+      }
+      if (deptname.length < 2) {
+        return jsonResponse({ message: "Department name must be at least 2 characters long." }, 400)
+      }
+
+      const created = await insertDepartmentIntoSupabase(
+        {
+          deptcode: body.deptcode,
+          deptname,
+        },
+        caller.email
+      )
+      return jsonResponse(created, 201)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
+      return jsonResponse({ message: e.message || "Failed to create department." }, 400)
     }
   }
 
