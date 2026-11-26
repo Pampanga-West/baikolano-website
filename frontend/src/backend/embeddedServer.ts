@@ -48,6 +48,9 @@ import {
   restoreProductInSupabase,
   softDeletePriceScheduleInSupabase,
   restorePriceScheduleInSupabase,
+  fetchPriceHistoryForProductFromSupabase,
+  insertPriceScheduleIntoSupabase,
+  updatePriceScheduleInSupabase,
   parseStamp,
   type SupabaseUserRow,
 } from "./supabaseClient.ts"
@@ -1369,7 +1372,44 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
     }
   }
 
-  // 2b. Price Schedule Sub-actions (/api/products/:prodcode/prices/:effdate)
+  // 2b. Price Schedule Collection (/api/products/:prodcode/prices)
+  const priceCollectionMatch = pathname.match(/^\/api\/products\/([^/]+)\/prices$/)
+  if (priceCollectionMatch) {
+    const prodcode = decodeURIComponent(priceCollectionMatch[1])
+
+    if (method === "GET") {
+      try {
+        await ensureProductPermission("View")
+        const rows = await fetchPriceHistoryForProductFromSupabase(prodcode)
+        return jsonResponse(rows)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to fetch price history." }, 500)
+      }
+    }
+
+    if (method === "POST") {
+      try {
+        const caller = await ensureProductPermission("Edit")
+        const created = await insertPriceScheduleIntoSupabase(
+          {
+            prodcode,
+            effdate: body.effdate,
+            unitprice: body.unitprice,
+          },
+          caller.email
+        )
+        return jsonResponse(created, 201)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to create price schedule." }, 400)
+      }
+    }
+  }
+
+  // 2c. Price Schedule Item Sub-actions (/api/products/:prodcode/prices/:effdate)
   const priceScheduleMatch = pathname.match(/^\/api\/products\/([^/]+)\/prices\/([^/]+)(?:\/(restore))?$/)
   if (priceScheduleMatch) {
     const prodcode = decodeURIComponent(priceScheduleMatch[1])
@@ -1385,6 +1425,26 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
         if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
         if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
         return jsonResponse({ message: e.message || "Failed to restore price schedule." }, 400)
+      }
+    }
+
+    if (!subAction && (method === "PUT" || method === "PATCH")) {
+      try {
+        const caller = await ensureProductPermission("Edit")
+        const updated = await updatePriceScheduleInSupabase(
+          prodcode,
+          effdate,
+          {
+            effdate: body.effdate || effdate,
+            unitprice: body.unitprice,
+          },
+          caller.email
+        )
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to update price schedule." }, 400)
       }
     }
 

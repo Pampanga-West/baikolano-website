@@ -17,6 +17,7 @@ import {
   type ProductQueryParams,
   type CreateProductPayload,
   type UpdateProductPayload,
+  type PriceHistoryRecord,
 } from "./types"
 
 // Automatically install global in-browser mock server interceptor
@@ -639,6 +640,51 @@ export const productApi = {
       `/api/products/${encodeURIComponent(prodcode)}/restore`,
       {
         method: "POST",
+      }
+    )
+  },
+
+  /**
+   * Fetches full price schedule history for a specific product.
+   * Endpoint: GET /api/products/:prodcode/prices
+   */
+  listPriceHistory: (prodcode: string): Promise<PriceHistoryRecord[]> => {
+    return apiFetch<PriceHistoryRecord[]>(
+      `/api/products/${encodeURIComponent(prodcode)}/prices`
+    )
+  },
+
+  /**
+   * Adds a new price schedule rate with an effective date for a product.
+   * Endpoint: POST /api/products/:prodcode/prices
+   */
+  createPriceSchedule: (
+    prodcode: string,
+    data: { effdate: string; unitprice: number }
+  ): Promise<PriceHistoryRecord> => {
+    return apiFetch<PriceHistoryRecord>(
+      `/api/products/${encodeURIComponent(prodcode)}/prices`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    )
+  },
+
+  /**
+   * Updates an existing price schedule rate and/or effective date.
+   * Endpoint: PUT /api/products/:prodcode/prices/:effdate
+   */
+  updatePriceSchedule: (
+    prodcode: string,
+    originalEffDate: string,
+    data: { effdate: string; unitprice: number }
+  ): Promise<PriceHistoryRecord> => {
+    return apiFetch<PriceHistoryRecord>(
+      `/api/products/${encodeURIComponent(prodcode)}/prices/${encodeURIComponent(originalEffDate)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
       }
     )
   },
