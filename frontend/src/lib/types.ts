@@ -131,13 +131,14 @@ export interface UpdateCustomerPayload {
   payterm?: string
 }
 
-// Sprint 2 Product Catalog Types (S2-DEV-04)
+// Sprint 2 Product Catalog Types (S2-DEV-04, S2-DEV-08)
 export interface Product {
   prodcode: string
   description: string
   unit: string
   price: string
   numericPrice?: number | null
+  currentEffDate?: string | null
   is_deleted: boolean
   status: "Active" | "Inactive"
   stamp?: string
@@ -150,6 +151,7 @@ export interface ProductQueryParams {
   search?: string
   status?: "active" | "inactive" | "all"
   unit?: string
+  asOfDate?: string
 }
 
 export interface CreateProductPayload {

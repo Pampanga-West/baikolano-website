@@ -1172,7 +1172,9 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
   // Enforces role-based per-action permission checks against Supabase user_permission
   // ==========================================================================
 
-  const ensureProductPermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+  const ensureProductPermission = async (
+    action: "View" | "Add" | "Edit" | "Delete" | "AddPrice" | "EditPrice" | "DeletePrice"
+  ): Promise<DbUser> => {
     if (!currentUser) {
       // In prototype / standalone preview mode, allow read-only viewing of product master data
       if (action === "View") {
@@ -1199,18 +1201,43 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
 
     const hasRight = userRights.some((r) => {
       const lower = r.toLowerCase().trim()
-      if (lower === `product - ${actionKey}` || lower === `${actionKey} product`) return true
-      if (lower.includes("product") && lower.includes(actionKey)) return true
-      if (action === "View" && (currentUser.role === "Admin" || lower.includes("product"))) return true
+      if (actionKey === "view") {
+        if (currentUser.role === "Admin" || lower.includes("product") || lower.includes("price")) return true
+      }
+      if (actionKey === "add") {
+        if (lower === "product - add" || lower === "add product" || (lower.includes("product") && lower.includes("add"))) return true
+      }
+      if (actionKey === "edit") {
+        if (lower === "product - edit" || lower === "edit product" || (lower.includes("product") && lower.includes("edit"))) return true
+      }
+      if (actionKey === "delete") {
+        if (lower === "product - delete" || lower === "delete product" || (lower.includes("product") && lower.includes("delete"))) return true
+      }
+      if (actionKey === "addprice") {
+        if (lower === "add price" || lower === "product - add price" || lower === "product - edit" || lower === "edit product" || lower === "add product" || lower.includes("add price")) return true
+      }
+      if (actionKey === "editprice") {
+        if (lower === "edit price" || lower === "product - edit price" || lower === "product - edit" || lower === "edit product" || lower.includes("edit price")) return true
+      }
+      if (actionKey === "deleteprice") {
+        if (lower === "delete price" || lower === "product - delete price" || lower === "product - delete" || lower === "delete product" || lower === "product - edit" || lower.includes("delete price")) return true
+      }
       return false
     })
 
-    if (currentUser.role === "Admin" && (action === "View" || !userRights.length)) {
+    if (currentUser.role === "Admin" && (actionKey === "view" || !userRights.length)) {
       return currentUser
     }
 
     if (!hasRight) {
-      const err: any = new Error(`Access denied. Requires Product - ${action} permission.`)
+      const displayAction = actionKey.startsWith("addprice")
+        ? "Add Price"
+        : actionKey.startsWith("editprice")
+        ? "Edit Price"
+        : actionKey.startsWith("deleteprice")
+        ? "Delete Price"
+        : action
+      const err: any = new Error(`Access denied. Requires Product - ${displayAction} permission.`)
       err.permissionDenied = true
       err.statusCode = 403
       throw err
@@ -1229,11 +1256,13 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
         | "inactive"
         | "all"
       const unit = parsedUrl.searchParams.get("unit")?.trim() || ""
+      const asOfDate = parsedUrl.searchParams.get("asOfDate")?.trim() || undefined
 
       const rawRows = await fetchProductsFromSupabase({
         search,
         status: statusParam,
         unit,
+        asOfDate,
       })
 
       const userRights =
@@ -1267,6 +1296,7 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
             unit: String(r.unit ?? ""),
             price: String(r.price ?? "—"),
             numericPrice: r.numericPrice ?? null,
+            currentEffDate: r.currentEffDate ?? null,
             is_deleted: isDeleted,
             status: isDeleted ? "Inactive" : "Active",
             stamp: String(r.stamp ?? ""),
@@ -1309,7 +1339,8 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
     if (!subAction && method === "GET") {
       try {
         await ensureProductPermission("View")
-        const row = await fetchProductByProdcodeFromSupabase(prodcode)
+        const asOfDate = parsedUrl.searchParams.get("asOfDate")?.trim() || undefined
+        const row = await fetchProductByProdcodeFromSupabase(prodcode, asOfDate)
         if (!row) {
           return jsonResponse({ message: `Product ${prodcode} not found.` }, 404)
         }
@@ -1321,6 +1352,7 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
           unit: String(row.unit ?? ""),
           price: String(row.price ?? "—"),
           numericPrice: row.numericPrice ?? null,
+          currentEffDate: row.currentEffDate ?? null,
           is_deleted: isDeleted,
           status: isDeleted ? "Inactive" : "Active",
           stamp: String(row.stamp ?? ""),
@@ -1391,7 +1423,7 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
 
     if (method === "POST") {
       try {
-        const caller = await ensureProductPermission("Edit")
+        const caller = await ensureProductPermission("AddPrice")
         const created = await insertPriceScheduleIntoSupabase(
           {
             prodcode,
@@ -1418,7 +1450,7 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
 
     if (subAction === "restore" && method === "POST") {
       try {
-        const caller = await ensureProductPermission("Edit")
+        const caller = await ensureProductPermission("EditPrice")
         await restorePriceScheduleInSupabase(prodcode, effdate, caller.email)
         return jsonResponse({ message: `Price schedule for ${prodcode} (${effdate}) restored.` })
       } catch (e: any) {
@@ -1430,7 +1462,7 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
 
     if (!subAction && (method === "PUT" || method === "PATCH")) {
       try {
-        const caller = await ensureProductPermission("Edit")
+        const caller = await ensureProductPermission("EditPrice")
         const updated = await updatePriceScheduleInSupabase(
           prodcode,
           effdate,
@@ -1450,7 +1482,7 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
 
     if (!subAction && method === "DELETE") {
       try {
-        const caller = await ensureProductPermission("Edit")
+        const caller = await ensureProductPermission("DeletePrice")
         await softDeletePriceScheduleInSupabase(prodcode, effdate, caller.email)
         return jsonResponse({ message: `Price schedule for ${prodcode} (${effdate}) superseded.` })
       } catch (e: any) {

@@ -25,6 +25,7 @@ const fallbackProducts: Product[] = [
     unit: "pcs",
     price: "$13.75",
     numericPrice: 13.75,
+    currentEffDate: "2026-01-01",
     is_deleted: false,
     status: "Active",
     stamp: "CREATED system 2026-10-01 9:00 AM",
@@ -38,6 +39,7 @@ const fallbackProducts: Product[] = [
     unit: "pcs",
     price: "$48.50",
     numericPrice: 48.50,
+    currentEffDate: "2026-01-15",
     is_deleted: false,
     status: "Active",
     stamp: "CREATED system 2026-10-02 10:00 AM",
@@ -51,6 +53,7 @@ const fallbackProducts: Product[] = [
     unit: "can",
     price: "$28.00",
     numericPrice: 28.0,
+    currentEffDate: "2026-02-01",
     is_deleted: false,
     status: "Active",
     stamp: "EDITED user1 2026-10-13 1:01 PM",
@@ -77,6 +80,7 @@ const fallbackProducts: Product[] = [
     unit: "meter",
     price: "$2.35",
     numericPrice: 2.35,
+    currentEffDate: "2026-01-20",
     is_deleted: false,
     status: "Active",
     stamp: "CREATED system 2026-10-05 3:30 PM",
@@ -198,9 +202,13 @@ export default function ProductsPage({ role }: { role: Role }) {
     })
   }
 
-  const canAdd = isSuperadmin || hasRight("add")
-  const canEdit = isSuperadmin || hasRight("edit")
-  const canDelete = isSuperadmin || hasRight("delete")
+  const canAdd = isSuperadmin || hasRight("add") || hasRight("add product")
+  const canEdit = isSuperadmin || hasRight("edit") || hasRight("edit product")
+  const canDelete = isSuperadmin || hasRight("delete") || hasRight("delete product")
+  const canAddPrice = isSuperadmin || isAdminRole || hasRight("add price") || canEdit
+  const canEditPrice = isSuperadmin || isAdminRole || hasRight("edit price") || canEdit
+  const canDeletePrice = isSuperadmin || isAdminRole || hasRight("delete price") || canDelete
+  const canManagePrices = canAddPrice || canEditPrice || canDeletePrice
   const canViewInactive = isSuperadmin || isAdminRole || canEdit || canDelete
   const canFilter = isSuperadmin || isAdminRole || canAdd || canEdit || canDelete || rights.length > 0
   const showAudit = isSuperadmin || isAdminRole || canEdit || canDelete
@@ -403,7 +411,10 @@ export default function ProductsPage({ role }: { role: Role }) {
       )}
 
       <EntityControls
-        isAdmin={canFilter}
+        isAdmin={isAdmin}
+        showFilters={canFilter}
+        showAdd={canAdd}
+        canAdd={canAdd}
         counts={counts}
         activeFilter={filter}
         onFilter={setFilter}
@@ -411,7 +422,9 @@ export default function ProductsPage({ role }: { role: Role }) {
         onSearch={setSearch}
         placeholder="Search products..."
         addLabel="Add Product"
-        onAdd={canAdd ? () => setForm("new") : undefined}
+        onAdd={() => {
+          if (canAdd) setForm("new")
+        }}
       />
 
       {permissionError ? (
@@ -457,6 +470,18 @@ export default function ProductsPage({ role }: { role: Role }) {
                       <td>{row.unit}</td>
                       <td>
                         <b className="price-value">{row.price}</b>
+                        {row.currentEffDate && (
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: "0.72rem",
+                              color: "var(--color-muted)",
+                              marginTop: "2px",
+                            }}
+                          >
+                            eff. {row.currentEffDate}
+                          </span>
+                        )}
                       </td>
                       {canViewInactive && (
                         <td>
@@ -576,7 +601,10 @@ export default function ProductsPage({ role }: { role: Role }) {
           role={role}
           product={pricesProduct}
           currentUser={user}
-          canManagePrices={canEdit || isSuperadmin || isAdminRole}
+          canManagePrices={canManagePrices}
+          canAddPrice={canAddPrice}
+          canEditPrice={canEditPrice}
+          canDeletePrice={canDeletePrice}
           initialEntries={priceHistory.filter((p) => p.prodcode === pricesProduct.prodcode)}
           close={() => setPricesProduct(null)}
           onPriceChanged={() => {

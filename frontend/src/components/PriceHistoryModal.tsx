@@ -17,6 +17,9 @@ export interface PriceHistoryModalProps {
     role?: string
   } | null
   canManagePrices?: boolean
+  canAddPrice?: boolean
+  canEditPrice?: boolean
+  canDeletePrice?: boolean
   initialEntries?: PriceHistoryRecord[]
   close: () => void
   onPriceChanged?: (newPrice?: string) => void
@@ -203,10 +206,16 @@ export default function PriceHistoryModal({
   product,
   currentUser,
   canManagePrices = true,
+  canAddPrice,
+  canEditPrice,
+  canDeletePrice,
   initialEntries = [],
   close,
   onPriceChanged,
 }: PriceHistoryModalProps) {
+  const allowAdd = canAddPrice !== undefined ? canAddPrice : canManagePrices
+  const allowEdit = canEditPrice !== undefined ? canEditPrice : canManagePrices
+  const allowDelete = canDeletePrice !== undefined ? canDeletePrice : canManagePrices
   const isAdmin = role !== "User"
   const operatorName =
     [currentUser?.firstName, currentUser?.lastName].filter(Boolean).join(" ") ||
@@ -257,13 +266,19 @@ export default function PriceHistoryModal({
     return cleanup
   }, [product.prodcode])
 
-  // Derive latest active price
-  const latestDerivedPrice = useMemo(() => {
+  const todayStr = useMemo(() => new Date().toISOString().split("T")[0], [])
+
+  // Derive latest active price effective on or before today
+  const { currentPriceStr, currentEffDate } = useMemo(() => {
     const activeEntries = entries
       .filter((e) => !e.is_deleted)
       .sort((a, b) => b.effdate.localeCompare(a.effdate))
-    return activeEntries.length ? activeEntries[0].price : "—"
-  }, [entries])
+    const current = activeEntries.find((e) => e.effdate <= todayStr)
+    return {
+      currentPriceStr: current ? current.price : activeEntries.length ? activeEntries[0].price : "—",
+      currentEffDate: current ? current.effdate : null,
+    }
+  }, [entries, todayStr])
 
   const counts = useMemo(() => {
     const activeCount = entries.filter((e) => !e.is_deleted).length
@@ -362,7 +377,7 @@ export default function PriceHistoryModal({
   return (
     <ModalShell
       title={`Price History — ${product.prodcode}`}
-      subtitle={`${product.description} · Unit: ${product.unit} · Current Price: ${latestDerivedPrice}`}
+      subtitle={`${product.description} · Unit: ${product.unit} · Current Price: ${currentPriceStr}${currentEffDate ? ` (effective ${currentEffDate})` : ""}`}
       close={close}
       wide
     >
@@ -412,7 +427,7 @@ export default function PriceHistoryModal({
               All ({counts.all})
             </button>
           </div>
-          {canManagePrices && (
+          {allowAdd && (
             <Button icon="plus" onClick={() => setPriceForm("new")}>
               Add Price
             </Button>
@@ -426,19 +441,15 @@ export default function PriceHistoryModal({
             <tr>
               <th>Effective Date</th>
               <th>Unit Price</th>
-              {isAdmin && (
-                <>
-                  <th>Status</th>
-                  <th>Stamp</th>
-                  <th>Actions</th>
-                </>
-              )}
+              <th>Status</th>
+              {isAdmin && <th>Stamp</th>}
+              {(canManagePrices || isAdmin) && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
             {loading && !entries.length ? (
               <tr>
-                <td colSpan={isAdmin ? 5 : 2} style={{ textAlign: "center", padding: "28px" }}>
+                <td colSpan={isAdmin ? 5 : (canManagePrices ? 4 : 3)} style={{ textAlign: "center", padding: "28px" }}>
                   <div className="module-loading">
                     <span></span>
                     Loading price schedules…
@@ -455,57 +466,70 @@ export default function PriceHistoryModal({
                   <td>
                     <b className="price-value">{entry.price}</b>
                   </td>
+                  <td>
+                    {entry.is_deleted ? (
+                      <Badge kind="inactive">Inactive</Badge>
+                    ) : entry.effdate === currentEffDate ? (
+                      <Badge kind="active">Current Rate</Badge>
+                    ) : entry.effdate > todayStr ? (
+                      <Badge kind="pending">Scheduled</Badge>
+                    ) : (
+                      <Badge kind="neutral">Historical</Badge>
+                    )}
+                  </td>
                   {isAdmin && (
-                    <>
-                      <td>
-                        <Badge kind={entry.is_deleted ? "inactive" : "active"}>
-                          {entry.is_deleted ? "Inactive" : "Active"}
-                        </Badge>
-                      </td>
-                      <td>
-                        <Stamp
-                          action={entry.stampAction || "CREATED"}
-                          user={entry.stampUser || "system"}
-                          date={entry.stampDate || "—"}
-                        />
-                      </td>
-                      <td>
-                        <div className="row-actions">
-                          {entry.is_deleted ? (
-                            canManagePrices && (
-                              <button
-                                className="success-link"
-                                onClick={() => handleRestorePrice(entry)}
-                                disabled={restoringEffDate === entry.effdate}
-                              >
-                                {restoringEffDate === entry.effdate ? "Restoring…" : "Restore"}
-                              </button>
-                            )
+                    <td>
+                      <Stamp
+                        action={entry.stampAction || "CREATED"}
+                        user={entry.stampUser || "system"}
+                        date={entry.stampDate || "—"}
+                      />
+                    </td>
+                  )}
+                  {(canManagePrices || isAdmin) && (
+                    <td>
+                      <div className="row-actions">
+                        {entry.is_deleted ? (
+                          (allowEdit || allowDelete) ? (
+                            <button
+                              className="success-link"
+                              onClick={() => handleRestorePrice(entry)}
+                              disabled={restoringEffDate === entry.effdate}
+                            >
+                              {restoringEffDate === entry.effdate ? "Restoring…" : "Restore"}
+                            </button>
                           ) : (
-                            canManagePrices && (
-                              <>
-                                <button onClick={() => setPriceForm(entry)}>
-                                  Edit
-                                </button>
-                                <button
-                                  className="danger-link"
-                                  onClick={() => setDeletingPrice(entry)}
-                                >
-                                  Delete
-                                </button>
-                              </>
-                            )
-                          )}
-                        </div>
-                      </td>
-                    </>
+                            <span style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>Inactive</span>
+                          )
+                        ) : (
+                          <>
+                            {allowEdit && (
+                              <button onClick={() => setPriceForm(entry)}>
+                                Edit
+                              </button>
+                            )}
+                            {allowDelete && (
+                              <button
+                                className="danger-link"
+                                onClick={() => setDeletingPrice(entry)}
+                              >
+                                Delete
+                              </button>
+                            )}
+                            {!allowEdit && !allowDelete && (
+                              <span style={{ fontSize: "0.78rem", color: "var(--color-muted)" }}>Read-only</span>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </td>
                   )}
                 </tr>
               ))
             ) : (
               <tr>
                 <td
-                  colSpan={isAdmin ? 5 : 2}
+                  colSpan={isAdmin ? 5 : (canManagePrices ? 4 : 3)}
                   style={{ textAlign: "center", color: "var(--muted)", padding: "24px" }}
                 >
                   {statusFilter === "inactive"
