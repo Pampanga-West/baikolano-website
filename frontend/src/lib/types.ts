@@ -278,4 +278,38 @@ export interface UpdateEmployeePayload {
   sepdate?: string | null
 }
 
+// Sprint 3 Job History Types (S3-DEV-06)
+export interface JobHistoryRecord {
+  empno: string
+  effdate: string
+  jobcode: string
+  jobdesc?: string
+  jobTitle?: string
+  deptcode: string
+  deptname?: string
+  departmentName?: string
+  salary: number
+  formattedSalary?: string
+  is_deleted: boolean
+  status: "Active" | "Inactive"
+  stamp?: string
+  stampAction?: string
+  stampUser?: string
+  stampDate?: string
+}
+
+export interface CreateJobHistoryPayload {
+  effdate: string
+  jobcode: string
+  deptcode: string
+  salary: number | string
+}
+
+export interface UpdateJobHistoryPayload {
+  jobcode?: string
+  deptcode?: string
+  salary?: number | string
+}
+
+
 

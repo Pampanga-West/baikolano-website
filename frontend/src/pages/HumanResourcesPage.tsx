@@ -8,11 +8,12 @@ import {
   formatMoney,
   parseStamp,
 } from "../backend/supabaseClient"
-import { departmentApi, employeeApi, jobApi, rightsApi } from "../lib/api"
+import { departmentApi, employeeApi, jobApi, jobHistoryApi, rightsApi } from "../lib/api"
 import { useAuth } from "../contexts/AuthContext"
 import DepartmentModal from "../components/DepartmentModal"
 import JobModal from "../components/JobModal"
 import EmployeeModal from "../components/EmployeeModal"
+import JobHistoryModal from "../components/JobHistoryModal"
 import Badge from "../components/Badge"
 import BlockedDeleteModal from "../components/BlockedDeleteModal"
 import Button from "../components/Button"
@@ -143,263 +144,7 @@ const fallbackJobHistory: JobHistoryEntry[] = [
 
 
 
-function HistoryForm({
-  editing,
-  close,
-}: {
-  editing?: boolean
-  close: () => void
-}) {
-  return (
-    <ModalShell
-      title={editing ? "Edit Job History" : "Add Job History"}
-      subtitle="Effective dates must be unique for this employee."
-      close={close}
-      footer={
-        <>
-          <Button variant="secondary" onClick={close}>
-            Cancel
-          </Button>
-          <Button onClick={close}>
-            {editing ? "Save History" : "Add History"}
-          </Button>
-        </>
-      }
-    >
-      <div className="record-form">
-        <label>
-          <span>Effective Date</span>
-          <input
-            className={!editing ? "input-error" : ""}
-            type="date"
-            defaultValue={editing ? "2023-01-01" : "2020-03-01"}
-          />
-          {!editing && (
-            <small className="validation-error">
-              A history row already exists on this effective date.
-            </small>
-          )}
-        </label>
-        <label>
-          <span>Salary</span>
-          <div className="money-input">
-            <span>$</span>
-            <input defaultValue={editing ? "52000" : "45000"} />
-          </div>
-        </label>
-        <label>
-          <span>Job</span>
-          <select>
-            <option>J-001 — Software Engineer</option>
-            <option>J-002 — Sales Manager</option>
-          </select>
-        </label>
-        <label>
-          <span>Department</span>
-          <select>
-            <option>D-001 — Engineering</option>
-            <option>D-002 — Sales</option>
-          </select>
-        </label>
-      </div>
-    </ModalShell>
-  )
-}
-
-function JobHistory({
-  role,
-  employee,
-  entries,
-  onSoftDelete,
-  onRestore,
-  close,
-}: {
-  role: Role
-  employee: string[]
-  entries: JobHistoryEntry[]
-  onSoftDelete: (entry: JobHistoryEntry) => void
-  onRestore: (entry: JobHistoryEntry) => void
-  close: () => void
-}) {
-  const isAdmin = role !== "User"
-  const [view, setView] = useState<"table" | "timeline">("table")
-  const [form, setForm] = useState<"new" | "edit" | null>(null)
-  const [deletingHistory, setDeletingHistory] = useState<JobHistoryEntry | null>(
-    null
-  )
-  const history = entries.filter((e) => isAdmin || e.status === "Active")
-  return (
-    <ModalShell
-      title={`Job History — ${employee[0]} (${employee[2]} ${employee[1]})`}
-      subtitle="Career movement, effective dates, and salary progression."
-      close={close}
-      wide
-      className="history-modal"
-      footer={
-        <Button variant="secondary" onClick={close}>
-          Close
-        </Button>
-      }
-    >
-      <div className="history-toolbar">
-        <div className="view-switch">
-          <button
-            className={view === "table" ? "selected" : ""}
-            onClick={() => setView("table")}
-          >
-            <Icon name="report" size={15} />
-            Table View
-          </button>
-          <button
-            className={view === "timeline" ? "selected" : ""}
-            onClick={() => setView("timeline")}
-          >
-            <Icon name="briefcase" size={15} />
-            Visual Timeline
-          </button>
-        </div>
-        {isAdmin && (
-          <Button icon="plus" onClick={() => setForm("new")}>
-            Add History
-          </Button>
-        )}
-      </div>
-      {view === "table" ? (
-        <div className="table-scroll">
-          <table className="entity-table">
-            <thead>
-              <tr>
-                <th>Eff Date</th>
-                <th>Job</th>
-                <th>Department</th>
-                <th>Salary</th>
-                {isAdmin && (
-                  <>
-                    <th>Status</th>
-                    <th>Stamp</th>
-                    <th>Actions</th>
-                  </>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {history.length ? (
-                history.map((row) => (
-                  <tr
-                    key={`${row.empno}-${row.effdate}-${row.job}`}
-                    className={row.status === "Inactive" ? "inactive-row" : ""}
-                  >
-                    <td className="code-cell">{row.effdate}</td>
-                    <td>
-                      <b className="record-name">{row.job}</b>
-                    </td>
-                    <td>{row.department}</td>
-                    <td>
-                      <b className="salary-value">{row.salary}</b>
-                    </td>
-                    {isAdmin && (
-                      <>
-                        <td>
-                          <Badge kind={row.status.toLowerCase()}>
-                            {row.status}
-                          </Badge>
-                        </td>
-                        <td>
-                          <Stamp
-                            action={row.action}
-                            user={row.user}
-                            date={row.date}
-                          />
-                        </td>
-                        <td>
-                          <div className="row-actions">
-                            {row.status === "Inactive" ? (
-                              <button
-                                className="success-link"
-                                onClick={() => onRestore(row)}
-                              >
-                                Restore
-                              </button>
-                            ) : (
-                              <>
-                                <button onClick={() => setForm("edit")}>
-                                  Edit
-                                </button>
-                                <button
-                                  className="danger-link"
-                                  onClick={() => setDeletingHistory(row)}
-                                >
-                                  Delete
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </>
-                    )}
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td
-                    colSpan={isAdmin ? 7 : 4}
-                    style={{
-                      textAlign: "center",
-                      color: "var(--muted)",
-                      padding: "20px",
-                    }}
-                  >
-                    No job history entries found for {employee[0]}.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="career-timeline">
-          {history.map((row, index) => (
-            <article key={`${row.empno}-${row.effdate}-${row.job}`}>
-              <div className="timeline-rail">
-                <span>{index + 1}</span>
-              </div>
-              <div className="timeline-date">
-                {row.effdate}
-                <small>
-                  {index === 0 ? "Latest assignment" : "Career progression"}
-                </small>
-              </div>
-              <div className="timeline-role">
-                <b>{row.job}</b>
-                <span>{row.department}</span>
-              </div>
-              <div className="timeline-salary">
-                <small>Annual salary</small>
-                <b>{row.salary}</b>
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
-      {form && (
-        <HistoryForm editing={form === "edit"} close={() => setForm(null)} />
-      )}
-      {deletingHistory && (
-        <ConfirmDeleteModal
-          title="Deactivate Job History Entry?"
-          targetLabel={`${deletingHistory.job} (${deletingHistory.effdate})`}
-          warningMessage="Are you sure you want to deactivate this career milestone? This record will be soft-deleted (archived) and marked Inactive."
-          actionLabel="Deactivate History"
-          onConfirm={() => {
-            onSoftDelete(deletingHistory)
-            setDeletingHistory(null)
-          }}
-          onClose={() => setDeletingHistory(null)}
-        />
-      )}
-    </ModalShell>
-  )
-}
+// JobHistory & HistoryForm are encapsulated in JobHistoryModal (Sprint 3 S3-DEV-06)
 
 function LookupTable({
   tab,
@@ -1588,13 +1333,15 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
         />
       )}
       {historyEmployee && (
-        <JobHistory
+        <JobHistoryModal
           role={role}
           employee={historyEmployee}
-          entries={jobHistory.filter((h) => h.empno === historyEmployee[0])}
-          onSoftDelete={handleSoftDeleteHistory}
-          onRestore={handleRestoreHistory}
+          jobs={lookups.jobs}
+          departments={lookups.departments}
+          currentUser={user}
+          canManageHistory={isAdmin || hasRight("edit") || hasRight("add")}
           close={() => setHistoryEmployee(null)}
+          onHistoryChanged={() => loadData()}
         />
       )}
       {deletingEmployee && (

@@ -72,6 +72,11 @@ import {
   softDeleteEmployeeInSupabase,
   restoreEmployeeInSupabase,
   checkEmployeeHasActiveReferences,
+  fetchJobHistoryForEmployeeFromSupabase,
+  insertJobHistoryIntoSupabase,
+  updateJobHistoryInSupabase,
+  softDeleteJobHistoryInSupabase,
+  restoreJobHistoryInSupabase,
   parseStamp,
   type SupabaseUserRow,
 } from "./supabaseClient.ts"
@@ -2128,6 +2133,117 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
       if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
       if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
       return jsonResponse({ message: e.message || "Failed to create employee." }, 400)
+    }
+  }
+
+  // ==========================================================================
+  // Job History Endpoints (/api/employees/:empno/history) -> Sprint 3 (S3-DEV-06)
+  // Supports add, edit, delete, and restore of employee career promotions & transfers
+  // ==========================================================================
+
+  // 1. List / Add Job History (/api/employees/:empno/history)
+  const historyListMatch = pathname.match(/^\/api\/employees\/([^/]+)\/history$/)
+  if (historyListMatch) {
+    const empno = decodeURIComponent(historyListMatch[1])
+
+    if (method === "GET") {
+      try {
+        const caller = await ensureEmployeePermission("View")
+        const rows = await fetchJobHistoryForEmployeeFromSupabase(empno)
+
+        const userRights =
+          caller.role === "Superadmin"
+            ? []
+            : await fetchUserRightsFromSupabase(caller.id).catch(() => [])
+
+        const canSeeInactive =
+          caller.role === "Superadmin" ||
+          caller.role === "Admin" ||
+          userRights.some((r) => {
+            const l = r.toLowerCase()
+            return l.includes("delete") || l.includes("all employees") || l.includes("edit")
+          })
+
+        const filtered = rows.filter((r) => {
+          if (!canSeeInactive && r.status !== "Active") return false
+          return true
+        })
+
+        return jsonResponse(filtered)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to list job history." }, 400)
+      }
+    }
+
+    if (method === "POST") {
+      try {
+        const caller = await ensureEmployeePermission("Edit")
+        const created = await insertJobHistoryIntoSupabase(empno, body, caller.email)
+        return jsonResponse(created, 201)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
+        return jsonResponse({ message: e.message || "Failed to add job history milestone." }, 400)
+      }
+    }
+  }
+
+  // 2. Restore Job History Milestone (/api/employees/:empno/history/:effdate/restore)
+  const historyRestoreMatch = pathname.match(/^\/api\/employees\/([^/]+)\/history\/([^/]+)\/restore$/)
+  if (historyRestoreMatch && method === "POST") {
+    const empno = decodeURIComponent(historyRestoreMatch[1])
+    const effdate = decodeURIComponent(historyRestoreMatch[2])
+    try {
+      const caller = await ensureEmployeePermission("Edit")
+      const result = await restoreJobHistoryInSupabase(empno, effdate, caller.email)
+      return jsonResponse({
+        message: `Job history milestone (${effdate}) restored to active.`,
+        ...result,
+      })
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+      return jsonResponse({ message: e.message || "Failed to restore job history milestone." }, 400)
+    }
+  }
+
+  // 3. Update / Delete Job History Milestone (/api/employees/:empno/history/:effdate)
+  const historyItemMatch = pathname.match(/^\/api\/employees\/([^/]+)\/history\/([^/]+)$/)
+  if (historyItemMatch) {
+    const empno = decodeURIComponent(historyItemMatch[1])
+    const effdate = decodeURIComponent(historyItemMatch[2])
+
+    if (method === "PUT") {
+      try {
+        const caller = await ensureEmployeePermission("Edit")
+        const updated = await updateJobHistoryInSupabase(empno, effdate, body, caller.email)
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+        return jsonResponse({ message: e.message || "Failed to update job history milestone." }, 400)
+      }
+    }
+
+    if (method === "DELETE") {
+      try {
+        const caller = await ensureEmployeePermission("Delete")
+        const result = await softDeleteJobHistoryInSupabase(empno, effdate, caller.email)
+        return jsonResponse({
+          message: `Job history milestone (${effdate}) archived.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+        return jsonResponse({ message: e.message || "Failed to delete job history milestone." }, 400)
+      }
     }
   }
 
