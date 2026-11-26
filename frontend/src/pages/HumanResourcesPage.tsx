@@ -7,7 +7,7 @@ import {
   formatMoney,
   parseStamp,
 } from "../backend/supabaseClient"
-import { departmentApi, jobApi, rightsApi } from "../lib/api"
+import { departmentApi, employeeApi, jobApi, rightsApi } from "../lib/api"
 import { useAuth } from "../contexts/AuthContext"
 import DepartmentModal from "../components/DepartmentModal"
 import JobModal from "../components/JobModal"
@@ -20,7 +20,7 @@ import EntityControls from "../components/EntityControls"
 import Icon from "../components/Icon"
 import ModalShell from "../components/ModalShell"
 import Stamp from "../components/Stamp"
-import type { Department, Job, Role } from "../lib/types"
+import type { Department, Employee, Job, Role } from "../lib/types"
 
 type HrTab = "employees" | "jobs" | "departments"
 
@@ -37,6 +37,8 @@ const fallbackEmployees = [
     "CREATED",
     "system",
     "2026-01-15 10:00 AM",
+    "Engineering",
+    "Software Engineer",
   ],
   [
     "E-002",
@@ -50,6 +52,8 @@ const fallbackEmployees = [
     "EDITED",
     "user1",
     "2026-10-13 1:01 PM",
+    "Sales",
+    "Sales Manager",
   ],
   [
     "E-003",
@@ -63,6 +67,8 @@ const fallbackEmployees = [
     "CREATED",
     "system",
     "2026-02-01 9:00 AM",
+    "Human Resources",
+    "HR Specialist",
   ],
   [
     "E-004",
@@ -76,6 +82,8 @@ const fallbackEmployees = [
     "DELETED",
     "user2",
     "2026-10-13 1:01 PM",
+    "Finance",
+    "Accountant",
   ],
 ]
 
@@ -769,6 +777,10 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
   const canEditJob = isSuperadmin || isAdminRole || hasRight("edit") || hasRight("edit job")
   const canDeleteJob = isSuperadmin || isAdminRole || hasRight("delete") || hasRight("delete job")
 
+  const canAddEmployee = isSuperadmin || isAdminRole || hasRight("add") || hasRight("add employee")
+  const canEditEmployee = isSuperadmin || isAdminRole || hasRight("edit") || hasRight("edit employee")
+  const canDeleteEmployee = isSuperadmin || isAdminRole || hasRight("delete") || hasRight("delete employee")
+
   const operatorName =
     [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
     user?.email ||
@@ -1110,7 +1122,9 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
 
   const loadData = () => {
     return Promise.all([
-      fetchTableRowsFromSupabase("employee", "empno.asc"),
+      employeeApi.listEmployees({ status: "all" }).catch(() =>
+        fetchTableRowsFromSupabase("employee", "empno.asc")
+      ),
       jobApi.listJobs({ status: "all" }).catch(() =>
         fetchTableRowsFromSupabase("job", "jobcode.asc")
       ),
@@ -1141,22 +1155,44 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
           }
         }
 
+        // Build map of latest active job history entry per employee
+        const latestHistMap = new Map<string, { job: string; dept: string }>()
+        if (histRows.length) {
+          for (const h of histRows) {
+            const eNo = String(h.empno ?? "")
+            if (!latestHistMap.has(eNo) && !h.is_deleted) {
+              const jCode = String(h.jobcode ?? "")
+              const dCode = String(h.deptcode ?? "")
+              latestHistMap.set(eNo, {
+                job: jobNameMap.get(jCode) || jCode || "—",
+                dept: deptNameMap.get(dCode) || dCode || "—",
+              })
+            }
+          }
+        }
+
         if (empRows.length) {
-          const mappedEmps = empRows.map((r) => {
+          const mappedEmps = empRows.map((r: any) => {
             const isDeleted = Boolean(r.is_deleted)
             const [action, user, date] = parseStamp(r.stamp, isDeleted)
+            const eNo = String(r.empno ?? "")
+            const hist = latestHistMap.get(eNo)
+            const deptName = r.currentDept && r.currentDept !== "—" ? r.currentDept : (hist?.dept || "—")
+            const jobTitle = r.currentJob && r.currentJob !== "—" ? r.currentJob : (hist?.job || "—")
             return [
-              String(r.empno ?? ""),
+              eNo,
               String(r.lastname ?? "—"),
               String(r.firstname ?? "—"),
               String(r.gender ?? "—"),
               String(r.birthdate ?? "—"),
               String(r.hiredate ?? "—"),
               r.sepdate ? String(r.sepdate) : "—",
-              isDeleted ? "Inactive" : "Active",
-              action,
-              user,
-              date,
+              isDeleted ? "Inactive" : (r.status || "Active"),
+              r.stampAction || action,
+              r.stampUser || user,
+              r.stampDate || date,
+              deptName,
+              jobTitle,
             ]
           })
           setEmployees(mappedEmps)
@@ -1239,9 +1275,23 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
           return false
         const q = search.trim().toLowerCase()
         if (!q) return true
-        return `${row[0]} ${row[1]} ${row[2]} ${row[3]} ${row[4]} ${row[5]} ${row[6]}`
+        const textToSearch = [
+          row[0], // empno
+          row[1], // lastname
+          row[2], // firstname
+          `${row[2]} ${row[1]}`, // firstname lastname
+          `${row[1]}, ${row[2]}`, // lastname, firstname
+          row[3], // gender
+          row[4], // birthdate
+          row[5], // hiredate
+          row[6], // sepdate
+          row[11], // department
+          row[12], // job
+        ]
+          .filter(Boolean)
+          .join(" ")
           .toLowerCase()
-          .includes(q)
+        return textToSearch.includes(q)
       }),
     [employees, filter, isAdmin, search],
   )
@@ -1314,9 +1364,13 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
             onFilter={setFilter}
             search={search}
             onSearch={setSearch}
-            placeholder="Search employees..."
+            placeholder="Search by name, ID, department, or job title..."
             addLabel="Add Employee"
-            onAdd={() => setEmployeeForm("new")}
+            canAdd={canAddEmployee}
+            showAdd={canAddEmployee}
+            onAdd={() => {
+              if (canAddEmployee) setEmployeeForm("new")
+            }}
           />
           {!historyRight && (
             <div className="privacy-banner">
@@ -1339,6 +1393,8 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
                       <th>Emp No</th>
                       <th>Last Name</th>
                       <th>First Name</th>
+                      <th>Department</th>
+                      <th>Current Job</th>
                       <th>Gender</th>
                       <th>Birth Date</th>
                       <th>Hire Date</th>
@@ -1363,6 +1419,16 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
                           <b className="record-name">{row[1]}</b>
                         </td>
                         <td>{row[2]}</td>
+                        <td>
+                          <span style={{ fontSize: "0.85rem", fontWeight: 500, color: "var(--color-primary-text, inherit)" }}>
+                            {row[11] || "—"}
+                          </span>
+                        </td>
+                        <td>
+                          <span style={{ fontSize: "0.85rem", color: "var(--color-muted, #64748b)" }}>
+                            {row[12] || "—"}
+                          </span>
+                        </td>
                         <td>{row[3]}</td>
                         <td>{row[4]}</td>
                         <td>{row[5]}</td>
@@ -1404,22 +1470,22 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
                                       History
                                     </button>
                                   )}
-                                  {isAdmin && (
-                                    <>
-                                      <button
-                                        onClick={() => setEmployeeForm("edit")}
-                                      >
-                                        Edit
-                                      </button>
-                                      <button
-                                        className="danger-link"
-                                        onClick={() =>
-                                          handleSoftDeleteEmployee(row)
-                                        }
-                                      >
-                                        Delete
-                                      </button>
-                                    </>
+                                  {canEditEmployee && (
+                                    <button
+                                      onClick={() => setEmployeeForm("edit")}
+                                    >
+                                      Edit
+                                    </button>
+                                  )}
+                                  {canDeleteEmployee && (
+                                    <button
+                                      className="danger-link"
+                                      onClick={() =>
+                                        handleSoftDeleteEmployee(row)
+                                      }
+                                    >
+                                      Delete
+                                    </button>
                                   )}
                                 </>
                               )}
@@ -1443,7 +1509,7 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
                 }
                 message={
                   search
-                    ? `Nothing matches "${search}". Try searching with a different name, employee number, or clear the search filter.`
+                    ? `Nothing matches "${search}". Try searching with a different name, employee number, department, or job title.`
                     : filter === "inactive"
                     ? "There are currently no deactivated or separated employees in the directory."
                     : "Add your first team member to begin tracking organizational records."
