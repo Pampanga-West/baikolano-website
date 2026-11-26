@@ -69,6 +69,9 @@ import {
   fetchEmployeeByEmpnoFromSupabase,
   insertEmployeeIntoSupabase,
   updateEmployeeInSupabase,
+  softDeleteEmployeeInSupabase,
+  restoreEmployeeInSupabase,
+  checkEmployeeHasActiveReferences,
   parseStamp,
   type SupabaseUserRow,
 } from "./supabaseClient.ts"
@@ -2052,6 +2055,65 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
         if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
         return jsonResponse({ message: e.message || "Failed to update employee." }, 400)
       }
+    }
+
+    if (method === "DELETE") {
+      try {
+        const caller = await ensureEmployeePermission("Delete")
+        const result = await softDeleteEmployeeInSupabase(empno, caller.email)
+        return jsonResponse({
+          message: `Employee ${empno} deactivated (soft-deleted). Separation date set.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+        if (e.statusCode === 409 || e.blocked) {
+          return jsonResponse(
+            {
+              message: e.message,
+              blocked: true,
+              reason: e.reason || "ACTIVE_REFERENCES",
+              details: e.details,
+            },
+            409
+          )
+        }
+        return jsonResponse({ message: e.message || "Failed to delete employee." }, 400)
+      }
+    }
+  }
+
+  // 3. Restore Single Employee (/api/employees/:empno/restore)
+  const restoreEmpMatch = pathname.match(/^\/api\/employees\/([^/]+)\/restore$/)
+  if (restoreEmpMatch && method === "POST") {
+    const empno = decodeURIComponent(restoreEmpMatch[1])
+    try {
+      const caller = await ensureEmployeePermission("Edit")
+      const result = await restoreEmployeeInSupabase(empno, caller.email)
+      return jsonResponse({
+        message: `Employee ${empno} restored to active status. Separation date cleared.`,
+        ...result,
+      })
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+      return jsonResponse({ message: e.message || "Failed to restore employee." }, 400)
+    }
+  }
+
+  // 4. Check Employee References (/api/employees/:empno/check-references)
+  const checkRefMatch = pathname.match(/^\/api\/employees\/([^/]+)\/check-references$/)
+  if (checkRefMatch && method === "GET") {
+    const empno = decodeURIComponent(checkRefMatch[1])
+    try {
+      await ensureEmployeePermission("View")
+      const refCheck = await checkEmployeeHasActiveReferences(empno)
+      return jsonResponse(refCheck)
+    } catch (e: any) {
+      return jsonResponse({ message: e.message || "Failed to check employee references." }, 400)
     }
   }
 

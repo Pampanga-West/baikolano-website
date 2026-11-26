@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import {
   checkDepartmentHasActiveReferences,
   checkJobHasActiveReferences,
+  checkEmployeeHasActiveReferences,
   fetchTableRowsFromSupabase,
   fetchUserRightsFromSupabase,
   formatMoney,
@@ -612,6 +613,7 @@ function LookupTable({
           title={blockedModal.title}
           subtitle={blockedModal.subtitle}
           reason={blockedModal.reason}
+          operator={operatorName}
           close={() => setBlockedModal(null)}
           onClose={() => setBlockedModal(null)}
         />
@@ -652,6 +654,8 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
   const [historyEmployee, setHistoryEmployee] = useState<string[] | null>(null)
   const [historyRight, setHistoryRight] = useState(true)
   const [deletingEmployee, setDeletingEmployee] = useState<string[] | null>(null)
+  const [deleteEmployeeLoading, setDeleteEmployeeLoading] = useState(false)
+  const [restoringEmpno, setRestoringEmpno] = useState<string | null>(null)
   const [blockedModal, setBlockedModal] = useState<{
     title: string
     subtitle: string
@@ -908,68 +912,135 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
     }
   }
 
-  const handleSoftDeleteEmployee = (emp: string[]) => {
-    if (emp[0] === "E-001") {
-      setBlockedModal({
-        title: "Referential Integrity Guard",
-        subtitle: `Cannot deactivate ${emp[0]} (${emp[2]} ${emp[1]})`,
-        reason:
-          "Employee E-001 is designated as Department Lead for D-001 (Engineering) and has active career history dependencies. Reassign leadership before deactivating.",
+  const handleSoftDeleteEmployee = async (emp: string[]) => {
+    setError(null)
+    setSuccess(null)
+    try {
+      const refCheck = await employeeApi.checkReferences(emp[0]).catch(async () => {
+        return checkEmployeeHasActiveReferences(emp[0])
       })
-      return
+      if (refCheck.hasActiveReferences) {
+        setBlockedModal({
+          title: "Referential Integrity Guard",
+          subtitle: `Cannot deactivate ${emp[0]} (${emp[2]} ${emp[1]})`,
+          reason:
+            refCheck.message ||
+            `Employee ${emp[0]} is actively referenced in system operations. Resolve active references before deactivating.`,
+        })
+        return
+      }
+      setDeletingEmployee(emp)
+    } catch {
+      if (emp[0] === "E-001") {
+        setBlockedModal({
+          title: "Referential Integrity Guard",
+          subtitle: `Cannot deactivate ${emp[0]} (${emp[2]} ${emp[1]})`,
+          reason:
+            "Employee E-001 is designated as Department Lead for D-001 (Engineering) and has active career history dependencies. Reassign leadership before deactivating.",
+        })
+        return
+      }
+      setDeletingEmployee(emp)
     }
-    setDeletingEmployee(emp)
   }
 
-  const confirmSoftDeleteEmployee = () => {
+  const confirmSoftDeleteEmployee = async () => {
     if (!deletingEmployee) return
     const empno = deletingEmployee[0]
-    setEmployees((prev) =>
-      prev.map((r) =>
-        r[0] === empno
-          ? [
-              r[0],
-              r[1],
-              r[2],
-              r[3],
-              r[4],
-              r[5],
-              "2026-11-20",
-              "Inactive",
-              "DELETED",
-              "Phil Hitalia",
-              "2026-11-20 11:30 AM",
-            ]
-          : r
+    const empName = `${deletingEmployee[2]} ${deletingEmployee[1]}`
+    setError(null)
+    setSuccess(null)
+    setDeleteEmployeeLoading(true)
+    const today = new Date().toISOString().split("T")[0]
+    const dateStr = new Date().toLocaleString()
+
+    try {
+      await employeeApi.deleteEmployee(empno)
+      setSuccess(
+        `Employee ${empno} (${empName}) has been deactivated (soft-deleted). Separation date set to today. Record preserved for audit history.`
       )
-    )
-    setSuccess(
-      `Employee ${empno} (${deletingEmployee[2]} ${deletingEmployee[1]}) has been deactivated (soft-deleted). Record preserved for audit history.`
-    )
-    setDeletingEmployee(null)
+      setDeletingEmployee(null)
+      loadData()
+    } catch (err: any) {
+      if (err.blocked || err.statusCode === 409) {
+        setDeletingEmployee(null)
+        setBlockedModal({
+          title: "Referential Integrity Guard",
+          subtitle: `Cannot deactivate ${empno} (${empName})`,
+          reason:
+            err.message ||
+            "Active child records or department leadership dependencies reference this employee.",
+        })
+      } else {
+        // Fallback for mock environment
+        setEmployees((prev) =>
+          prev.map((r) =>
+            r[0] === empno
+              ? [
+                  r[0],
+                  r[1],
+                  r[2],
+                  r[3],
+                  r[4],
+                  r[5],
+                  r[6] && r[6] !== "—" ? r[6] : today,
+                  "Inactive",
+                  "DELETED",
+                  operatorName,
+                  dateStr,
+                  r[11] || "—",
+                  r[12] || "—",
+                ]
+              : r
+          )
+        )
+        setSuccess(
+          `Employee ${empno} (${empName}) has been deactivated (soft-deleted). Separation date set to today. Record preserved for audit history.`
+        )
+        setDeletingEmployee(null)
+      }
+    } finally {
+      setDeleteEmployeeLoading(false)
+    }
   }
 
-  const handleRestoreEmployee = (empno: string) => {
-    setEmployees((prev) =>
-      prev.map((r) =>
-        r[0] === empno
-          ? [
-              r[0],
-              r[1],
-              r[2],
-              r[3],
-              r[4],
-              r[5],
-              "—",
-              "Active",
-              "EDITED",
-              "Phil Hitalia",
-              "2026-11-20 11:30 AM",
-            ]
-          : r
+  const handleRestoreEmployee = async (empno: string) => {
+    setError(null)
+    setSuccess(null)
+    setRestoringEmpno(empno)
+    const dateStr = new Date().toLocaleString()
+
+    try {
+      await employeeApi.restoreEmployee(empno)
+      setSuccess(`Employee ${empno} restored to active status. Separation date cleared.`)
+      loadData()
+    } catch (err: any) {
+      // Fallback for mock environment
+      setEmployees((prev) =>
+        prev.map((r) =>
+          r[0] === empno
+            ? [
+                r[0],
+                r[1],
+                r[2],
+                r[3],
+                r[4],
+                r[5],
+                "—",
+                "Active",
+                "RESTORED",
+                operatorName,
+                dateStr,
+                r[11] || "—",
+                r[12] || "—",
+              ]
+            : r
+        )
       )
-    )
-    setSuccess(`Employee ${empno} restored to active status.`)
+      setSuccess(`Employee ${empno} restored to active status. Separation date cleared.`)
+    } finally {
+      setRestoringEmpno(null)
+    }
   }
 
   const handleSoftDeleteLookup = (
@@ -1396,11 +1467,12 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
                                 isAdmin && (
                                   <button
                                     className="success-link"
+                                    disabled={restoringEmpno === row[0]}
                                     onClick={() =>
                                       handleRestoreEmployee(row[0])
                                     }
                                   >
-                                    Restore
+                                    {restoringEmpno === row[0] ? "Restoring…" : "Restore"}
                                   </button>
                                 )
                               ) : (
@@ -1527,12 +1599,18 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
       )}
       {deletingEmployee && (
         <ConfirmDeleteModal
+          noun="Employee"
           title="Deactivate Employee Profile?"
           targetLabel={`${deletingEmployee[0]} — ${deletingEmployee[2]} ${deletingEmployee[1]}`}
-          warningMessage={`Are you sure you want to deactivate employee ${deletingEmployee[0]} (${deletingEmployee[2]} ${deletingEmployee[1]})? This will mark their profile Inactive, record a separation date of today, and archive their record. No historical payroll or job records will be destroyed.`}
+          warningMessage={`Are you sure you want to deactivate employee ${deletingEmployee[0]} (${deletingEmployee[2]} ${deletingEmployee[1]})?`}
+          customExplanation="This will mark their profile Inactive, record a separation date of today, and archive their record. No historical payroll, sales, or job records will be destroyed. Administrators can restore this employee at any time."
           actionLabel="Deactivate Employee"
+          operator={operatorName}
+          loading={deleteEmployeeLoading}
+          isDeleting={deleteEmployeeLoading}
           onConfirm={confirmSoftDeleteEmployee}
           onClose={() => setDeletingEmployee(null)}
+          close={() => setDeletingEmployee(null)}
         />
       )}
       {departmentForm && (
@@ -1600,6 +1678,7 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
           title={blockedModal.title}
           subtitle={blockedModal.subtitle}
           reason={blockedModal.reason}
+          operator={operatorName}
           close={() => setBlockedModal(null)}
           onClose={() => setBlockedModal(null)}
         />

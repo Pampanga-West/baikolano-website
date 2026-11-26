@@ -971,6 +971,47 @@ export const employeeApi = {
       body: JSON.stringify(data),
     })
   },
+
+  /**
+   * Deactivates (soft-deletes) an employee profile and sets separation date to today.
+   * Server-side referential integrity check: blocks deactivation if employee is assigned as department lead or referenced in active sales transactions.
+   * Server-side permission check: requires Employee - Delete (or Admin/Superadmin).
+   * Endpoint: DELETE /api/employees/:empno
+   */
+  deleteEmployee: (
+    empno: string
+  ): Promise<{ message: string; empno: string; sepdate: string; stamp: string; blocked?: boolean; reason?: string }> => {
+    return apiFetch<{ message: string; empno: string; sepdate: string; stamp: string; blocked?: boolean; reason?: string }>(
+      `/api/employees/${encodeURIComponent(empno)}`,
+      { method: "DELETE" }
+    )
+  },
+
+  /**
+   * Restores a previously deactivated (soft-deleted) employee to Active status, clearing the separation date.
+   * Server-side permission check: requires Employee - Edit / Delete (or Admin/Superadmin).
+   * Endpoint: POST /api/employees/:empno/restore
+   */
+  restoreEmployee: (
+    empno: string
+  ): Promise<{ message: string; empno: string; sepdate: null; stamp: string }> => {
+    return apiFetch<{ message: string; empno: string; sepdate: null; stamp: string }>(
+      `/api/employees/${encodeURIComponent(empno)}/restore`,
+      { method: "POST" }
+    )
+  },
+
+  /**
+   * Checks whether an employee has active referential integrity dependencies (department lead, active sales transactions).
+   * Endpoint: GET /api/employees/:empno/check-references
+   */
+  checkReferences: (
+    empno: string
+  ): Promise<{ hasActiveReferences: boolean; referenceCount: number; reason?: string; message?: string }> => {
+    return apiFetch<{ hasActiveReferences: boolean; referenceCount: number; reason?: string; message?: string }>(
+      `/api/employees/${encodeURIComponent(empno)}/check-references`
+    )
+  },
 }
 
 
