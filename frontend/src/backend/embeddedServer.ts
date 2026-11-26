@@ -58,6 +58,13 @@ import {
   softDeleteDepartmentInSupabase,
   restoreDepartmentInSupabase,
   checkDepartmentHasActiveReferences,
+  fetchJobsFromSupabase,
+  fetchJobByJobcodeFromSupabase,
+  insertJobIntoSupabase,
+  updateJobInSupabase,
+  softDeleteJobInSupabase,
+  restoreJobInSupabase,
+  checkJobHasActiveReferences,
   parseStamp,
   type SupabaseUserRow,
 } from "./supabaseClient.ts"
@@ -1722,6 +1729,194 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
       return jsonResponse({ message: e.message || "Failed to create department." }, 400)
     }
   }
+
+  // ==========================================================================
+  // Job Master Endpoints (/api/jobs) -> Sprint 3 (S3-DEV-02)
+  // Enforces role-based per-action permission checks against Supabase user_permission
+  // ==========================================================================
+
+  const ensureJobPermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+    if (!currentUser) {
+      if (action === "View") {
+        return {
+          id: "prototype-demo-session",
+          email: "superadmin@hope.example",
+          passwordHash: "",
+          role: "Superadmin",
+          approvalStatus: "APPROVED",
+          blocked: false,
+          firstName: "Prototype",
+          lastName: "Superadmin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+      }
+      throw new Error("UNAUTHORIZED")
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = await fetchUserRightsFromSupabase(currentUser.id).catch(() => [])
+    const actionKey = action.toLowerCase()
+
+    const hasRight = userRights.some((r) => {
+      const lower = r.toLowerCase().trim()
+      if (lower === `job - ${actionKey}` || lower === `${actionKey} job`) return true
+      if (lower.includes("job") && lower.includes(actionKey)) return true
+      if (action === "View" && (currentUser.role === "Admin" || lower.includes("job") || lower.includes("hr"))) return true
+      return false
+    })
+
+    if (currentUser.role === "Admin" && (action === "View" || !userRights.length)) {
+      return currentUser
+    }
+
+    if (!hasRight) {
+      const err: any = new Error(`Access denied. Requires Job - ${action} permission.`)
+      err.permissionDenied = true
+      err.statusCode = 403
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // 1. List Jobs with Search and Status Filter (GET /api/jobs)
+  if (pathname === "/api/jobs" && method === "GET") {
+    try {
+      const caller = await ensureJobPermission("View")
+      const search = parsedUrl.searchParams.get("search")?.trim() || ""
+      const statusParam = (parsedUrl.searchParams.get("status")?.trim().toLowerCase() || "active") as
+        | "active"
+        | "inactive"
+        | "all"
+
+      const rawRows = await fetchJobsFromSupabase({
+        search,
+        status: statusParam,
+      })
+
+      const userRights =
+        caller.role === "Superadmin"
+          ? []
+          : await fetchUserRightsFromSupabase(caller.id).catch(() => [])
+
+      const canSeeInactive =
+        caller.role === "Superadmin" ||
+        caller.role === "Admin" ||
+        userRights.some((r) => {
+          const l = r.toLowerCase()
+          return l.includes("delete") || l.includes("edit") || l.includes("all")
+        })
+
+      const rows = rawRows.filter((r) => {
+        if (!canSeeInactive && r.is_deleted) return false
+        return true
+      })
+
+      return jsonResponse(rows)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to list jobs." }, 400)
+    }
+  }
+
+  // 2. Job Detail / Subactions (/api/jobs/:jobcode[/:subaction])
+  const jobMatch = pathname.match(/^\/api\/jobs\/([^/]+)(?:\/([^/]+))?$/)
+  if (jobMatch) {
+    const jobcode = decodeURIComponent(jobMatch[1])
+    const subAction = jobMatch[2]
+
+    // Restore Job (POST /api/jobs/:jobcode/restore)
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensureJobPermission("Edit")
+        await restoreJobInSupabase(jobcode, caller.email)
+        return jsonResponse({ message: `Job ${jobcode} restored to Active.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore job." }, 400)
+      }
+    }
+
+    // Get Single Job (GET /api/jobs/:jobcode)
+    if (!subAction && method === "GET") {
+      try {
+        await ensureJobPermission("View")
+        const job = await fetchJobByJobcodeFromSupabase(jobcode)
+        if (!job) return jsonResponse({ message: "Job not found." }, 404)
+        return jsonResponse(job)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to get job." }, 400)
+      }
+    }
+
+    // Update Job (PUT /api/jobs/:jobcode)
+    if (!subAction && method === "PUT") {
+      try {
+        const caller = await ensureJobPermission("Edit")
+        const updated = await updateJobInSupabase(
+          jobcode,
+          { jobdesc: body.jobdesc },
+          caller.email
+        )
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to update job." }, 400)
+      }
+    }
+
+    // Soft-Delete Job (DELETE /api/jobs/:jobcode)
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensureJobPermission("Delete")
+        await softDeleteJobInSupabase(jobcode, caller.email)
+        return jsonResponse({ message: `Job ${jobcode} marked as Inactive.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.blocked || e.statusCode === 409) {
+          return jsonResponse({ message: e.message, blocked: true, reason: e.reason }, 409)
+        }
+        return jsonResponse({ message: e.message || "Failed to delete job." }, 400)
+      }
+    }
+  }
+
+  // 3. Create Job (POST /api/jobs)
+  if (pathname === "/api/jobs" && method === "POST") {
+    try {
+      const caller = await ensureJobPermission("Add")
+      const jobdesc = (body.jobdesc || "").trim()
+      if (!jobdesc) {
+        return jsonResponse({ message: "Job title / description is required." }, 400)
+      }
+      if (jobdesc.length < 2) {
+        return jsonResponse({ message: "Job title must be at least 2 characters long." }, 400)
+      }
+
+      const created = await insertJobIntoSupabase(
+        {
+          jobcode: body.jobcode,
+          jobdesc,
+        },
+        caller.email
+      )
+      return jsonResponse(created, 201)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
+      return jsonResponse({ message: e.message || "Failed to create job." }, 400)
+    }
+  }
+
 
   // ==========================================================================
   // Table Editor Endpoints (/api/tables/:tableName) -> Superadmin Only
