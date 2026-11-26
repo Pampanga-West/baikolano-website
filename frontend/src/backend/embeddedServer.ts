@@ -40,6 +40,12 @@ import {
   updateCustomerInSupabase,
   softDeleteCustomerInSupabase,
   restoreCustomerInSupabase,
+  fetchProductsFromSupabase,
+  fetchProductByProdcodeFromSupabase,
+  insertProductIntoSupabase,
+  updateProductInSupabase,
+  softDeleteProductInSupabase,
+  restoreProductInSupabase,
   parseStamp,
   type SupabaseUserRow,
 } from "./supabaseClient.ts"
@@ -1153,6 +1159,236 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
       if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
       if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
       return jsonResponse({ message: e.message || "Failed to create customer." }, 400)
+    }
+  }
+
+  // ==========================================================================
+  // Product Master Endpoints (/api/products) -> Sprint 2 (S2-DEV-04)
+  // Enforces role-based per-action permission checks against Supabase user_permission
+  // ==========================================================================
+
+  const ensureProductPermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+    if (!currentUser) {
+      // In prototype / standalone preview mode, allow read-only viewing of product master data
+      if (action === "View") {
+        return {
+          id: "prototype-demo-session",
+          email: "superadmin@hope.example",
+          passwordHash: "",
+          role: "Superadmin",
+          approvalStatus: "APPROVED",
+          blocked: false,
+          firstName: "Prototype",
+          lastName: "Superadmin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+      }
+      throw new Error("UNAUTHORIZED")
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = await fetchUserRightsFromSupabase(currentUser.id).catch(() => [])
+    const actionKey = action.toLowerCase()
+
+    const hasRight = userRights.some((r) => {
+      const lower = r.toLowerCase().trim()
+      if (lower === `product - ${actionKey}` || lower === `${actionKey} product`) return true
+      if (lower.includes("product") && lower.includes(actionKey)) return true
+      if (action === "View" && (currentUser.role === "Admin" || lower.includes("product"))) return true
+      return false
+    })
+
+    if (currentUser.role === "Admin" && (action === "View" || !userRights.length)) {
+      return currentUser
+    }
+
+    if (!hasRight) {
+      const err: any = new Error(`Access denied. Requires Product - ${action} permission.`)
+      err.permissionDenied = true
+      err.statusCode = 403
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // 1. List Products with Search and Filter (GET /api/products)
+  if (pathname === "/api/products" && method === "GET") {
+    try {
+      const caller = await ensureProductPermission("View")
+      const search = parsedUrl.searchParams.get("search")?.trim() || ""
+      const statusParam = (parsedUrl.searchParams.get("status")?.trim().toLowerCase() || "active") as
+        | "active"
+        | "inactive"
+        | "all"
+      const unit = parsedUrl.searchParams.get("unit")?.trim() || ""
+
+      const rawRows = await fetchProductsFromSupabase({
+        search,
+        status: statusParam,
+        unit,
+      })
+
+      const userRights =
+        caller.role === "Superadmin"
+          ? []
+          : await fetchUserRightsFromSupabase(caller.id).catch(() => [])
+
+      const canSeeInactive =
+        caller.role === "Superadmin" ||
+        caller.role === "Admin" ||
+        userRights.some((r) => {
+          const lower = r.toLowerCase().trim()
+          return (
+            lower.includes("product") &&
+            (lower.includes("edit") || lower.includes("delete") || lower.includes("view"))
+          )
+        })
+
+      const dtoList = rawRows
+        .filter((r) => {
+          // Regular users without product rights can never see Inactive/deleted rows
+          if (!canSeeInactive && Boolean(r.is_deleted)) return false
+          return true
+        })
+        .map((r) => {
+          const isDeleted = Boolean(r.is_deleted)
+          const [action, stampUser, stampDate] = parseStamp(r.stamp, isDeleted)
+          return {
+            prodcode: String(r.prodcode ?? ""),
+            description: String(r.description ?? ""),
+            unit: String(r.unit ?? ""),
+            price: String(r.price ?? "—"),
+            numericPrice: r.numericPrice ?? null,
+            is_deleted: isDeleted,
+            status: isDeleted ? "Inactive" : "Active",
+            stamp: String(r.stamp ?? ""),
+            stampAction: action,
+            stampUser: stampUser,
+            stampDate: stampDate,
+          }
+        })
+
+      return jsonResponse(dtoList)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied || e.message === "FORBIDDEN") {
+        return jsonResponse({ message: e.message || "Access denied. Requires Product - View permission." }, 403)
+      }
+      return jsonResponse({ message: e.message || "Failed to fetch products." }, 500)
+    }
+  }
+
+  // 2. Product Detail & Sub-actions (/api/products/:prodcode)
+  const productMatch = pathname.match(/^\/api\/products\/([^/]+)(?:\/(restore))?$/)
+  if (productMatch) {
+    const prodcode = decodeURIComponent(productMatch[1])
+    const subAction = productMatch[2] // 'restore' or undefined
+
+    // Restore Product (POST /api/products/:prodcode/restore)
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensureProductPermission("Edit")
+        await restoreProductInSupabase(prodcode, caller.email)
+        return jsonResponse({ message: `Product ${prodcode} restored successfully.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore product." }, 400)
+      }
+    }
+
+    // Get Single Product (GET /api/products/:prodcode)
+    if (!subAction && method === "GET") {
+      try {
+        await ensureProductPermission("View")
+        const row = await fetchProductByProdcodeFromSupabase(prodcode)
+        if (!row) {
+          return jsonResponse({ message: `Product ${prodcode} not found.` }, 404)
+        }
+        const isDeleted = Boolean(row.is_deleted)
+        const [action, stampUser, stampDate] = parseStamp(row.stamp, isDeleted)
+        return jsonResponse({
+          prodcode: String(row.prodcode ?? ""),
+          description: String(row.description ?? ""),
+          unit: String(row.unit ?? ""),
+          price: String(row.price ?? "—"),
+          numericPrice: row.numericPrice ?? null,
+          is_deleted: isDeleted,
+          status: isDeleted ? "Inactive" : "Active",
+          stamp: String(row.stamp ?? ""),
+          stampAction: action,
+          stampUser: stampUser,
+          stampDate: stampDate,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to retrieve product." }, 500)
+      }
+    }
+
+    // Update Product (PUT /api/products/:prodcode)
+    if (!subAction && (method === "PUT" || method === "PATCH")) {
+      try {
+        const caller = await ensureProductPermission("Edit")
+        const updated = await updateProductInSupabase(
+          prodcode,
+          {
+            description: body.description,
+            unit: body.unit,
+          },
+          caller.email
+        )
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to update product." }, 400)
+      }
+    }
+
+    // Soft Delete Product (DELETE /api/products/:prodcode)
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensureProductPermission("Delete")
+        await softDeleteProductInSupabase(prodcode, caller.email)
+        return jsonResponse({ message: `Product ${prodcode} marked as Inactive.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.blocked || e.statusCode === 409) {
+          return jsonResponse({ message: e.message, blocked: true }, 409)
+        }
+        return jsonResponse({ message: e.message || "Failed to delete product." }, 400)
+      }
+    }
+  }
+
+  // 3. Create Product (POST /api/products)
+  if (pathname === "/api/products" && method === "POST") {
+    try {
+      const caller = await ensureProductPermission("Add")
+      const description = (body.description || "").trim()
+      if (!description) {
+        return jsonResponse({ message: "Product description is required." }, 400)
+      }
+
+      const created = await insertProductIntoSupabase(
+        {
+          prodcode: body.prodcode,
+          description,
+          unit: body.unit,
+        },
+        caller.email
+      )
+      return jsonResponse(created, 201)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to create product." }, 400)
     }
   }
 
