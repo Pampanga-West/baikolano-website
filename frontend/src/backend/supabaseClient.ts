@@ -799,6 +799,23 @@ export async function checkCustomerHasActiveSales(
   }
 }
 
+export async function checkProductHasActiveSalesLines(
+  prodcode: string
+): Promise<{ hasActiveSales: boolean; salesdetailCount: number }> {
+  try {
+    const rows = await postgrestFetch<Record<string, any>[]>(
+      `/salesdetail?prodcode=eq.${encodeURIComponent(prodcode)}&select=transno,is_deleted&limit=50`
+    )
+    const active = rows.filter((r) => !r.is_deleted)
+    return {
+      hasActiveSales: active.length > 0,
+      salesdetailCount: active.length,
+    }
+  } catch {
+    return { hasActiveSales: false, salesdetailCount: 0 }
+  }
+}
+
 export async function insertCustomerIntoSupabase(
   payload: {
     custno?: string
