@@ -412,27 +412,43 @@ function JobHistory({
         </div>
       ) : (
         <div className="career-timeline">
-          {history.map((row, index) => (
-            <article key={`${row.empno}-${row.effdate}-${row.job}`}>
-              <div className="timeline-rail">
-                <span>{index + 1}</span>
-              </div>
-              <div className="timeline-date">
-                {row.effdate}
-                <small>
-                  {index === 0 ? "Latest assignment" : "Career progression"}
-                </small>
-              </div>
-              <div className="timeline-role">
-                <b>{row.job}</b>
-                <span>{row.department}</span>
-              </div>
-              <div className="timeline-salary">
-                <small>Annual salary</small>
-                <b>{row.salary}</b>
-              </div>
-            </article>
-          ))}
+          {history.length ? (
+            history.map((row, index) => {
+              const isLatest = index === 0
+              return (
+                <article
+                  key={`${row.empno}-${row.effdate}-${row.job}`}
+                  className={`timeline-item ${isLatest ? "is-latest" : ""}`}
+                >
+                  <div className="timeline-rail" aria-hidden="true">
+                    <span className="timeline-node">{index + 1}</span>
+                  </div>
+                  <div className={`timeline-card ${isLatest ? "is-latest" : ""}`}>
+                    <div className="timeline-card-head">
+                      <span className="timeline-date">{row.effdate}</span>
+                      <span className={`timeline-badge ${isLatest ? "latest" : ""}`}>
+                        {isLatest ? "Latest assignment" : "Career progression"}
+                      </span>
+                    </div>
+                    <div className="timeline-card-body">
+                      <div className="timeline-role">
+                        <b>{row.job}</b>
+                        <span>{row.department}</span>
+                      </div>
+                      <div className="timeline-salary">
+                        <small>Annual salary</small>
+                        <b>{row.salary}</b>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              )
+            })
+          ) : (
+            <div className="timeline-empty">
+              No job history entries found for {employee[0]}.
+            </div>
+          )}
         </div>
       )}
       {form && (
