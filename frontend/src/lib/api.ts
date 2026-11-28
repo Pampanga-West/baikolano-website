@@ -30,6 +30,9 @@ import {
   type EmployeeQueryParams,
   type CreateEmployeePayload,
   type UpdateEmployeePayload,
+  type JobHistoryRecord,
+  type CreateJobHistoryPayload,
+  type UpdateJobHistoryPayload,
 } from "./types"
 
 // Automatically install global in-browser mock server interceptor
@@ -1010,6 +1013,86 @@ export const employeeApi = {
   ): Promise<{ hasActiveReferences: boolean; referenceCount: number; reason?: string; message?: string }> => {
     return apiFetch<{ hasActiveReferences: boolean; referenceCount: number; reason?: string; message?: string }>(
       `/api/employees/${encodeURIComponent(empno)}/check-references`
+    )
+  },
+}
+
+// ============================================================================
+// Sprint 3 Job History Management APIs (S3-DEV-06)
+// Supports career promotions, transfers, effective date uniqueness & salary tracking
+// ============================================================================
+
+export const jobHistoryApi = {
+  /**
+   * Fetches job history milestones for an employee.
+   * Endpoint: GET /api/employees/:empno/history
+   */
+  listHistory: (empno: string): Promise<JobHistoryRecord[]> => {
+    return apiFetch<JobHistoryRecord[]>(`/api/employees/${encodeURIComponent(empno)}/history`)
+  },
+
+  /**
+   * Records a new promotion or transfer milestone for an employee.
+   * Server-side check: enforces unique effective date per employee & positive salary.
+   * Endpoint: POST /api/employees/:empno/history
+   */
+  addHistory: (
+    empno: string,
+    data: CreateJobHistoryPayload
+  ): Promise<JobHistoryRecord> => {
+    return apiFetch<JobHistoryRecord>(`/api/employees/${encodeURIComponent(empno)}/history`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Updates an existing job history milestone (job, department, salary).
+   * Endpoint: PUT /api/employees/:empno/history/:effdate
+   */
+  updateHistory: (
+    empno: string,
+    effdate: string,
+    data: UpdateJobHistoryPayload
+  ): Promise<JobHistoryRecord> => {
+    return apiFetch<JobHistoryRecord>(
+      `/api/employees/${encodeURIComponent(empno)}/history/${encodeURIComponent(effdate)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }
+    )
+  },
+
+  /**
+   * Soft-deletes (archives) a job history milestone.
+   * Endpoint: DELETE /api/employees/:empno/history/:effdate
+   */
+  deleteHistory: (
+    empno: string,
+    effdate: string
+  ): Promise<{ message: string; empno: string; effdate: string; stamp: string }> => {
+    return apiFetch<{ message: string; empno: string; effdate: string; stamp: string }>(
+      `/api/employees/${encodeURIComponent(empno)}/history/${encodeURIComponent(effdate)}`,
+      {
+        method: "DELETE",
+      }
+    )
+  },
+
+  /**
+   * Restores a soft-deleted job history milestone to active status.
+   * Endpoint: POST /api/employees/:empno/history/:effdate/restore
+   */
+  restoreHistory: (
+    empno: string,
+    effdate: string
+  ): Promise<{ message: string; empno: string; effdate: string; stamp: string }> => {
+    return apiFetch<{ message: string; empno: string; effdate: string; stamp: string }>(
+      `/api/employees/${encodeURIComponent(empno)}/history/${encodeURIComponent(effdate)}/restore`,
+      {
+        method: "POST",
+      }
     )
   },
 }
