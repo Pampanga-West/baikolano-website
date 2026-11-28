@@ -65,6 +65,8 @@ import {
   softDeleteJobInSupabase,
   restoreJobInSupabase,
   checkJobHasActiveReferences,
+  fetchEmployeesFromSupabase,
+  fetchEmployeeByEmpnoFromSupabase,
   parseStamp,
   type SupabaseUserRow,
 } from "./supabaseClient.ts"
@@ -1916,6 +1918,125 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
       return jsonResponse({ message: e.message || "Failed to create job." }, 400)
     }
   }
+
+  // ==========================================================================
+  // Employee Directory Endpoints (/api/employees) -> Sprint 3 (S3-DEV-03)
+  // Enforces role-based per-action permission checks against Supabase user_permission
+  // ==========================================================================
+
+  const ensureEmployeePermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+    if (!currentUser) {
+      if (action === "View") {
+        return {
+          id: "prototype-demo-session",
+          email: "superadmin@hope.example",
+          passwordHash: "",
+          role: "Superadmin",
+          approvalStatus: "APPROVED",
+          blocked: false,
+          firstName: "Prototype",
+          lastName: "Superadmin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+      }
+      throw new Error("UNAUTHORIZED")
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = await fetchUserRightsFromSupabase(currentUser.id).catch(() => [])
+    const actionKey = action.toLowerCase()
+
+    const hasRight = userRights.some((r) => {
+      const lower = r.toLowerCase().trim()
+      if (lower === `employee - ${actionKey}` || lower === `${actionKey} employee`) return true
+      if (lower.includes("employee") && lower.includes(actionKey)) return true
+      if (action === "View" && (
+        currentUser.role === "Admin" ||
+        lower.includes("employee") ||
+        lower.includes("hr") ||
+        lower === "active employees" ||
+        lower === "all employees"
+      )) return true
+      return false
+    })
+
+    if (currentUser.role === "Admin" && (action === "View" || !userRights.length)) {
+      return currentUser
+    }
+
+    if (!hasRight) {
+      const err: any = new Error(`Access denied. Requires Employee - ${action} permission.`)
+      err.permissionDenied = true
+      err.statusCode = 403
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // 1. List Employees with Search, Department, Job, and Status Filter (GET /api/employees)
+  if (pathname === "/api/employees" && method === "GET") {
+    try {
+      const caller = await ensureEmployeePermission("View")
+      const search = parsedUrl.searchParams.get("search")?.trim() || ""
+      const statusParam = (parsedUrl.searchParams.get("status")?.trim().toLowerCase() || "active") as
+        | "active"
+        | "inactive"
+        | "all"
+      const department = parsedUrl.searchParams.get("department")?.trim() || ""
+      const job = parsedUrl.searchParams.get("job")?.trim() || ""
+
+      const rawRows = await fetchEmployeesFromSupabase({
+        search,
+        status: statusParam,
+        department,
+        job,
+      })
+
+      const userRights =
+        caller.role === "Superadmin"
+          ? []
+          : await fetchUserRightsFromSupabase(caller.id).catch(() => [])
+
+      const canSeeInactive =
+        caller.role === "Superadmin" ||
+        caller.role === "Admin" ||
+        userRights.some((r) => {
+          const l = r.toLowerCase()
+          return l.includes("delete") || l.includes("all employees") || l.includes("edit")
+        })
+
+      const rows = rawRows.filter((r) => {
+        if (!canSeeInactive && r.status !== "Active") return false
+        return true
+      })
+
+      return jsonResponse(rows)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to list employees." }, 400)
+    }
+  }
+
+  // 2. Get Single Employee (GET /api/employees/:empno)
+  const empMatch = pathname.match(/^\/api\/employees\/([^/]+)$/)
+  if (empMatch && method === "GET") {
+    try {
+      await ensureEmployeePermission("View")
+      const empno = decodeURIComponent(empMatch[1])
+      const emp = await fetchEmployeeByEmpnoFromSupabase(empno)
+      if (!emp) return jsonResponse({ message: `Employee ${empno} not found.` }, 404)
+      return jsonResponse(emp)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to get employee." }, 400)
+    }
+  }
+
 
 
   // ==========================================================================

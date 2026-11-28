@@ -231,4 +231,32 @@ export interface UpdateJobPayload {
   jobdesc: string
 }
 
+// Sprint 3 Employee Types (S3-DEV-03)
+export interface Employee {
+  empno: string
+  lastname: string
+  firstname: string
+  gender: "M" | "F" | string
+  birthdate: string
+  hiredate: string
+  sepdate?: string | null
+  currentJobCode?: string | null
+  currentJob?: string | null
+  currentDeptCode?: string | null
+  currentDept?: string | null
+  is_deleted: boolean
+  status: "Active" | "Inactive" | "Separated"
+  stamp?: string
+  stampAction?: string
+  stampUser?: string
+  stampDate?: string
+}
+
+export interface EmployeeQueryParams {
+  search?: string
+  status?: "active" | "inactive" | "all"
+  department?: string
+  job?: string
+}
+
 

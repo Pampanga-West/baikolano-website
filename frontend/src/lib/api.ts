@@ -26,6 +26,8 @@ import {
   type JobQueryParams,
   type CreateJobPayload,
   type UpdateJobPayload,
+  type Employee,
+  type EmployeeQueryParams,
 } from "./types"
 
 // Automatically install global in-browser mock server interceptor
@@ -911,6 +913,37 @@ export const jobApi = {
     )
   },
 }
+
+// ============================================================================
+// Employee Directory APIs (Sprint 3 — S3-DEV-03)
+// ============================================================================
+
+export const employeeApi = {
+  /**
+   * Fetches the employee directory with optional search, department, job, and status filtering.
+   * Endpoint: GET /api/employees
+   */
+  listEmployees: (
+    params: EmployeeQueryParams = {}
+  ): Promise<Employee[]> => {
+    const q = new URLSearchParams()
+    if (params.search) q.set("search", params.search)
+    if (params.status) q.set("status", params.status)
+    if (params.department) q.set("department", params.department)
+    if (params.job) q.set("job", params.job)
+    const queryString = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<Employee[]>(`/api/employees${queryString}`)
+  },
+
+  /**
+   * Fetches a single employee by employee number.
+   * Endpoint: GET /api/employees/:empno
+   */
+  getEmployee: (empno: string): Promise<Employee> => {
+    return apiFetch<Employee>(`/api/employees/${encodeURIComponent(empno)}`)
+  },
+}
+
 
 
 // ============================================================================

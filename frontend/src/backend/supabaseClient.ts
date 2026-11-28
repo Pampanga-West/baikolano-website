@@ -2402,3 +2402,156 @@ export async function restoreJobInSupabase(
   }).catch(() => {})
 }
 
+// ---------------------------------------------------------------------------
+// Sprint 3: Employee Directory, Search and Filter (S3-DEV-03)
+// ---------------------------------------------------------------------------
+
+export async function fetchEmployeesFromSupabase(params?: {
+  status?: "all" | "active" | "inactive"
+  search?: string
+  department?: string
+  job?: string
+}): Promise<Record<string, any>[]> {
+  const status = params?.status || "all"
+  const search = params?.search || ""
+  const deptFilter = params?.department || ""
+  const jobFilter = params?.job || ""
+
+  // Fetch employees and auxiliary reference tables in parallel
+  const [empRows, histRows, deptRows, jobRows] = await Promise.all([
+    postgrestFetch<Record<string, any>[]>("/employee?select=*&order=empno.asc").catch(() => []),
+    postgrestFetch<Record<string, any>[]>("/jobhistory?select=*&order=effdate.desc").catch(() => []),
+    postgrestFetch<Record<string, any>[]>("/department?select=*").catch(() => []),
+    postgrestFetch<Record<string, any>[]>("/job?select=*").catch(() => []),
+  ])
+
+  if (!empRows || empRows.length === 0) {
+    return []
+  }
+
+  // Build name resolution maps
+  const deptMap = new Map<string, string>()
+  for (const d of deptRows) {
+    if (d.deptcode) deptMap.set(String(d.deptcode), String(d.deptname || d.deptcode))
+  }
+
+  const jobMap = new Map<string, string>()
+  for (const j of jobRows) {
+    if (j.jobcode) jobMap.set(String(j.jobcode), String(j.jobdesc || j.jobcode))
+  }
+
+  // Find latest active jobhistory entry per employee
+  const latestHistMap = new Map<string, Record<string, any>>()
+  for (const h of histRows) {
+    const empno = String(h.empno || "")
+    if (!empno) continue
+    if (!latestHistMap.has(empno) && !h.is_deleted) {
+      latestHistMap.set(empno, h)
+    }
+  }
+
+  const today = new Date().toISOString().split("T")[0]
+
+  return empRows
+    .map((r) => {
+      const isDeleted = Boolean(r.is_deleted)
+      const sepdate = r.sepdate ? String(r.sepdate) : null
+      const isSeparated = !isDeleted && Boolean(sepdate && sepdate <= today)
+
+      let computedStatus: "Active" | "Inactive" | "Separated" = "Active"
+      if (isDeleted) {
+        computedStatus = "Inactive"
+      } else if (isSeparated) {
+        computedStatus = "Separated"
+      }
+
+      const latestHist = latestHistMap.get(String(r.empno || ""))
+      const currentJobCode = latestHist?.jobcode ? String(latestHist.jobcode) : null
+      const currentJob = currentJobCode ? (jobMap.get(currentJobCode) || currentJobCode) : null
+
+      const currentDeptCode = latestHist?.deptcode ? String(latestHist.deptcode) : null
+      const currentDept = currentDeptCode ? (deptMap.get(currentDeptCode) || currentDeptCode) : null
+
+      const [action, user, date] = parseStamp(r.stamp, isDeleted)
+
+      return {
+        empno: String(r.empno ?? ""),
+        lastname: String(r.lastname ?? ""),
+        firstname: String(r.firstname ?? ""),
+        gender: String(r.gender ?? "—"),
+        birthdate: r.birthdate ? String(r.birthdate) : "—",
+        hiredate: r.hiredate ? String(r.hiredate) : "—",
+        sepdate: sepdate || "—",
+        currentJobCode,
+        currentJob: currentJob || "—",
+        currentDeptCode,
+        currentDept: currentDept || "—",
+        is_deleted: isDeleted,
+        status: computedStatus,
+        stamp: String(r.stamp ?? ""),
+        stampAction: action,
+        stampUser: user,
+        stampDate: date,
+      }
+    })
+    .filter((emp) => {
+      // 1. Status Filter
+      if (status === "active" && emp.status !== "Active") return false
+      if (status === "inactive" && emp.status === "Active") return false
+
+      // 2. Department Filter
+      if (deptFilter && deptFilter.trim() !== "" && deptFilter !== "all") {
+        const d = deptFilter.trim().toLowerCase()
+        const empDeptCode = (emp.currentDeptCode || "").toLowerCase()
+        const empDeptName = (emp.currentDept || "").toLowerCase()
+        if (empDeptCode !== d && !empDeptName.includes(d)) return false
+      }
+
+      // 3. Job Filter
+      if (jobFilter && jobFilter.trim() !== "" && jobFilter !== "all") {
+        const j = jobFilter.trim().toLowerCase()
+        const empJobCode = (emp.currentJobCode || "").toLowerCase()
+        const empJobName = (emp.currentJob || "").toLowerCase()
+        if (empJobCode !== j && !empJobName.includes(j)) return false
+      }
+
+      // 4. Search Filter
+      if (search && search.trim()) {
+        const q = search.trim().toLowerCase()
+        const fullName1 = `${emp.firstname} ${emp.lastname}`.toLowerCase()
+        const fullName2 = `${emp.lastname}, ${emp.firstname}`.toLowerCase()
+        const empno = emp.empno.toLowerCase()
+        const dept = (emp.currentDept || "").toLowerCase()
+        const job = (emp.currentJob || "").toLowerCase()
+        const gender = emp.gender.toLowerCase()
+        const birth = emp.birthdate.toLowerCase()
+        const hire = emp.hiredate.toLowerCase()
+        const sep = (emp.sepdate || "").toLowerCase()
+
+        const matches =
+          empno.includes(q) ||
+          fullName1.includes(q) ||
+          fullName2.includes(q) ||
+          dept.includes(q) ||
+          job.includes(q) ||
+          gender === q ||
+          birth.includes(q) ||
+          hire.includes(q) ||
+          sep.includes(q)
+
+        if (!matches) return false
+      }
+
+      return true
+    })
+}
+
+export async function fetchEmployeeByEmpnoFromSupabase(
+  empno: string
+): Promise<Record<string, any> | null> {
+  const code = String(empno).trim()
+  const rows = await fetchEmployeesFromSupabase({ status: "all", search: code })
+  return rows.find((r) => r.empno.toLowerCase() === code.toLowerCase()) || null
+}
+
+
