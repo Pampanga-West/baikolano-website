@@ -131,4 +131,49 @@ export interface UpdateCustomerPayload {
   payterm?: string
 }
 
+// Sprint 2 Product Catalog Types (S2-DEV-04)
+export interface Product {
+  prodcode: string
+  description: string
+  unit: string
+  price: string
+  numericPrice?: number | null
+  is_deleted: boolean
+  status: "Active" | "Inactive"
+  stamp?: string
+  stampAction?: string
+  stampUser?: string
+  stampDate?: string
+}
+
+export interface ProductQueryParams {
+  search?: string
+  status?: "active" | "inactive" | "all"
+  unit?: string
+}
+
+export interface CreateProductPayload {
+  prodcode?: string
+  description: string
+  unit: string
+}
+
+export interface UpdateProductPayload {
+  description?: string
+  unit?: string
+}
+
+export interface PriceHistoryRecord {
+  prodcode: string
+  effdate: string
+  unitprice: number
+  price: string
+  is_deleted: boolean
+  status: "Active" | "Inactive"
+  stamp?: string
+  stampAction?: string
+  stampUser?: string
+  stampDate?: string
+}
+
 

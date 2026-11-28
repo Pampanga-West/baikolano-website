@@ -997,3 +997,334 @@ export async function restoreCustomerInSupabase(
   }).catch(() => {})
 }
 
+// ----------------------------------------------------------------------------
+// Sprint 2 Product Catalog Operations (S2-DEV-04)
+// ----------------------------------------------------------------------------
+
+export interface ProductFilterParams {
+  search?: string
+  status?: "active" | "inactive" | "all"
+  unit?: string
+}
+
+export async function fetchProductsFromSupabase(
+  params: ProductFilterParams = {}
+): Promise<Record<string, any>[]> {
+  const queryParams = new URLSearchParams()
+  queryParams.set("select", "*")
+  queryParams.set("order", "prodcode.asc")
+
+  // Fetch products and price history in parallel
+  const [prodRows, priceRows] = await Promise.all([
+    postgrestFetch<Record<string, any>[]>(`/product?${queryParams.toString()}&limit=1000`),
+    postgrestFetch<Record<string, any>[]>(`/pricehist?select=*&order=effdate.desc&limit=2000`).catch(() => []),
+  ])
+
+  // Derive latest active price per product
+  const latestPriceMap = new Map<string, { num: number; formatted: string }>()
+  for (const pr of priceRows) {
+    if (pr.is_deleted) continue
+    const code = String(pr.prodcode ?? "").trim()
+    if (!latestPriceMap.has(code) && pr.unitprice !== undefined && pr.unitprice !== null) {
+      const num = Number(pr.unitprice)
+      latestPriceMap.set(code, {
+        num,
+        formatted: formatMoney(num),
+      })
+    }
+  }
+
+  const { search, status = "active", unit } = params
+
+  return prodRows
+    .filter((r) => {
+      const isDeleted = Boolean(r.is_deleted)
+      if (status === "active" && isDeleted) return false
+      if (status === "inactive" && !isDeleted) return false
+
+      if (unit && unit !== "all") {
+        const u = String(r.unit || "").trim().toLowerCase()
+        if (u !== unit.toLowerCase()) return false
+      }
+
+      if (search && search.trim()) {
+        const q = search.trim().toLowerCase()
+        const code = String(r.prodcode || "").toLowerCase()
+        const desc = String(r.description || "").toLowerCase()
+        const u = String(r.unit || "").toLowerCase()
+        const priceInfo = latestPriceMap.get(String(r.prodcode || "").trim())
+        const priceStr = priceInfo ? priceInfo.formatted.toLowerCase() : ""
+        const searchTarget = `${code} ${desc} ${u} ${priceStr}`
+        if (!searchTarget.includes(q)) return false
+      }
+
+      return true
+    })
+    .map((r) => {
+      const code = String(r.prodcode ?? "")
+      const priceInfo = latestPriceMap.get(code.trim())
+      return {
+        ...r,
+        price: priceInfo ? priceInfo.formatted : "—",
+        numericPrice: priceInfo ? priceInfo.num : null,
+      }
+    })
+}
+
+export async function fetchProductByProdcodeFromSupabase(
+  prodcode: string
+): Promise<Record<string, any> | null> {
+  const [prodRows, priceRows] = await Promise.all([
+    postgrestFetch<Record<string, any>[]>(`/product?prodcode=eq.${encodeURIComponent(prodcode)}&limit=1`),
+    postgrestFetch<Record<string, any>[]>(
+      `/pricehist?prodcode=eq.${encodeURIComponent(prodcode)}&order=effdate.desc&limit=10`
+    ).catch(() => []),
+  ])
+
+  const row = prodRows[0]
+  if (!row) return null
+
+  let latestPrice = "—"
+  let numericPrice: number | null = null
+  for (const pr of priceRows) {
+    if (!pr.is_deleted && pr.unitprice !== undefined && pr.unitprice !== null) {
+      numericPrice = Number(pr.unitprice)
+      latestPrice = formatMoney(numericPrice)
+      break
+    }
+  }
+
+  return {
+    ...row,
+    price: latestPrice,
+    numericPrice,
+  }
+}
+
+export async function checkProductHasActiveSalesLines(
+  prodcode: string
+): Promise<{ hasActiveSales: boolean; salesCount: number; hasActivePrices: boolean; priceCount: number }> {
+  try {
+    const [salesLines, prices] = await Promise.all([
+      postgrestFetch<Record<string, any>[]>(
+        `/salesdetail?prodcode=eq.${encodeURIComponent(prodcode)}&select=transno,is_deleted&limit=50`
+      ).catch(() => []),
+      postgrestFetch<Record<string, any>[]>(
+        `/pricehist?prodcode=eq.${encodeURIComponent(prodcode)}&select=effdate,is_deleted&limit=50`
+      ).catch(() => []),
+    ])
+
+    const activeSales = salesLines.filter((r) => !r.is_deleted)
+    const activePrices = prices.filter((r) => !r.is_deleted)
+
+    return {
+      hasActiveSales: activeSales.length > 0,
+      salesCount: activeSales.length,
+      hasActivePrices: activePrices.length > 0,
+      priceCount: activePrices.length,
+    }
+  } catch {
+    return { hasActiveSales: false, salesCount: 0, hasActivePrices: false, priceCount: 0 }
+  }
+}
+
+export async function insertProductIntoSupabase(
+  payload: {
+    prodcode?: string
+    description: string
+    unit?: string
+  },
+  actionBy: string
+): Promise<Record<string, any>> {
+  let prodcode = payload.prodcode?.trim().toUpperCase()
+  if (!prodcode) {
+    const existing = await postgrestFetch<Record<string, any>[]>(
+      "/product?select=prodcode&order=prodcode.desc&limit=1"
+    )
+    if (existing.length && existing[0].prodcode) {
+      const last = existing[0].prodcode
+      const match = last.match(/([A-Z]+)(\d+)/i)
+      if (match) {
+        const prefix = match[1].toUpperCase()
+        const nextNum = parseInt(match[2], 10) + 1
+        prodcode = `${prefix}${String(nextNum).padStart(4, "0")}`
+      } else {
+        prodcode = `P${Date.now().toString().slice(-4)}`
+      }
+    } else {
+      prodcode = "P0001"
+    }
+  } else {
+    const already = await fetchProductByProdcodeFromSupabase(prodcode)
+    if (already) {
+      throw new Error(`Product code '${prodcode}' is already taken.`)
+    }
+  }
+
+  const now = new Date()
+  const dateStr = now.toISOString().replace("T", " ").slice(0, 19)
+  const stamp = `CREATED ${actionBy} ${dateStr}`
+
+  const record = {
+    prodcode,
+    description: payload.description.trim(),
+    unit: payload.unit?.trim() || "pcs",
+    is_deleted: false,
+    stamp,
+  }
+
+  const res = await postgrestFetch<Record<string, any>[]>("/product", {
+    method: "POST",
+    headers: {
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(record),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "product",
+    action: "ADD",
+    record_key: prodcode,
+    new_values: record,
+    action_by: actionBy,
+  }).catch(() => {})
+
+  return res[0] || record
+}
+
+export async function updateProductInSupabase(
+  prodcode: string,
+  updates: {
+    description?: string
+    unit?: string
+  },
+  actionBy: string
+): Promise<Record<string, any>> {
+  const existing = await fetchProductByProdcodeFromSupabase(prodcode)
+  if (!existing) {
+    throw new Error(`Product ${prodcode} does not exist.`)
+  }
+
+  if (updates.description !== undefined && !updates.description.trim()) {
+    throw new Error("Product description cannot be empty.")
+  }
+
+  const now = new Date()
+  const dateStr = now.toISOString().replace("T", " ").slice(0, 19)
+  const stamp = `EDITED ${actionBy} ${dateStr}`
+
+  const patch: Record<string, any> = {
+    ...updates,
+    stamp,
+  }
+
+  const res = await postgrestFetch<Record<string, any>[]>(
+    `/product?prodcode=eq.${encodeURIComponent(prodcode)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(patch),
+    }
+  )
+
+  await insertAuditLogIntoSupabase({
+    table_name: "product",
+    action: "EDIT",
+    record_key: prodcode,
+    old_values: existing,
+    new_values: patch,
+    action_by: actionBy,
+  }).catch(() => {})
+
+  return res[0] || { ...existing, ...patch }
+}
+
+export async function softDeleteProductInSupabase(
+  prodcode: string,
+  actionBy: string
+): Promise<void> {
+  const existing = await fetchProductByProdcodeFromSupabase(prodcode)
+  if (!existing) {
+    throw new Error(`Product ${prodcode} does not exist.`)
+  }
+
+  const { hasActiveSales, salesCount, hasActivePrices, priceCount } =
+    await checkProductHasActiveSalesLines(prodcode)
+
+  if (hasActiveSales || hasActivePrices) {
+    const reasons: string[] = []
+    if (hasActiveSales) reasons.push(`${salesCount} active sales order line(s)`)
+    if (hasActivePrices) reasons.push(`${priceCount} active price schedule(s)`)
+
+    await insertAuditLogIntoSupabase({
+      table_name: "product",
+      action: "DELETE_BLOCKED",
+      record_key: prodcode,
+      old_values: existing,
+      new_values: { reason: "Active child records", details: reasons.join(", ") },
+      action_by: actionBy,
+    }).catch(() => {})
+
+    const err: any = new Error(
+      `Active child records reference this item. Active references (${reasons.join(", ")}) exist for product ${prodcode}. Remove or supersede those records first.`
+    )
+    err.blocked = true
+    err.statusCode = 409
+    throw err
+  }
+
+  const now = new Date()
+  const dateStr = now.toISOString().replace("T", " ").slice(0, 19)
+  const stamp = `DELETED ${actionBy} ${dateStr}`
+
+  await postgrestFetch(`/product?prodcode=eq.${encodeURIComponent(prodcode)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      is_deleted: true,
+      stamp,
+    }),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "product",
+    action: "DELETE",
+    record_key: prodcode,
+    old_values: existing,
+    new_values: { is_deleted: true, stamp },
+    action_by: actionBy,
+  }).catch(() => {})
+}
+
+export async function restoreProductInSupabase(
+  prodcode: string,
+  actionBy: string
+): Promise<void> {
+  const existing = await fetchProductByProdcodeFromSupabase(prodcode)
+  if (!existing) {
+    throw new Error(`Product ${prodcode} does not exist.`)
+  }
+
+  const now = new Date()
+  const dateStr = now.toISOString().replace("T", " ").slice(0, 19)
+  const stamp = `RESTORED ${actionBy} ${dateStr}`
+
+  await postgrestFetch(`/product?prodcode=eq.${encodeURIComponent(prodcode)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      is_deleted: false,
+      stamp,
+    }),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "product",
+    action: "RESTORE",
+    record_key: prodcode,
+    old_values: existing,
+    new_values: { is_deleted: false, stamp },
+    action_by: actionBy,
+  }).catch(() => {})
+}
+

@@ -13,6 +13,10 @@ import {
   type CustomerQueryParams,
   type CreateCustomerPayload,
   type UpdateCustomerPayload,
+  type Product,
+  type ProductQueryParams,
+  type CreateProductPayload,
+  type UpdateProductPayload,
 } from "./types"
 
 // Automatically install global in-browser mock server interceptor
@@ -548,6 +552,91 @@ export const customerApi = {
   restoreCustomer: (custno: string): Promise<{ message: string }> => {
     return apiFetch<{ message: string }>(
       `/api/customers/${encodeURIComponent(custno)}/restore`,
+      {
+        method: "POST",
+      }
+    )
+  },
+}
+
+// ============================================================================
+// Product Master APIs (Sprint 2 - S2-DEV-04)
+// ============================================================================
+
+export const productApi = {
+  /**
+   * Fetches products with optional search query, status ('active' | 'inactive' | 'all'), and unit filter.
+   * Endpoint: GET /api/products?search=&status=&unit=
+   */
+  listProducts: (params?: ProductQueryParams): Promise<Product[]> => {
+    const query = new URLSearchParams()
+    if (params?.search) query.set("search", params.search)
+    if (params?.status) query.set("status", params.status)
+    if (params?.unit) query.set("unit", params.unit)
+    const queryString = query.toString() ? `?${query.toString()}` : ""
+    return apiFetch<Product[]>(`/api/products${queryString}`)
+  },
+
+  /**
+   * Retrieves a single product by prodcode.
+   * Endpoint: GET /api/products/:prodcode
+   */
+  getProduct: (prodcode: string): Promise<Product> => {
+    return apiFetch<Product>(`/api/products/${encodeURIComponent(prodcode)}`)
+  },
+
+  /**
+   * Creates a new product record.
+   * Server-side permission check: requires Product - Add (or Admin/Superadmin).
+   * Endpoint: POST /api/products
+   */
+  createProduct: (data: CreateProductPayload): Promise<Product> => {
+    return apiFetch<Product>("/api/products", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Updates an existing product description or unit.
+   * Server-side permission check: requires Product - Edit (or Admin/Superadmin).
+   * Endpoint: PUT /api/products/:prodcode
+   */
+  updateProduct: (
+    prodcode: string,
+    data: UpdateProductPayload
+  ): Promise<Product> => {
+    return apiFetch<Product>(`/api/products/${encodeURIComponent(prodcode)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Soft deletes a product record (flags is_deleted = true).
+   * Checks referential integrity against sales orders and active prices.
+   * Server-side permission check: requires Product - Delete (or Admin/Superadmin).
+   * Endpoint: DELETE /api/products/:prodcode
+   */
+  deleteProduct: (
+    prodcode: string
+  ): Promise<{ message: string; blocked?: boolean }> => {
+    return apiFetch<{ message: string; blocked?: boolean }>(
+      `/api/products/${encodeURIComponent(prodcode)}`,
+      {
+        method: "DELETE",
+      }
+    )
+  },
+
+  /**
+   * Restores a soft-deleted product record (flags is_deleted = false).
+   * Server-side permission check: requires Product - Edit (or Admin/Superadmin).
+   * Endpoint: POST /api/products/:prodcode/restore
+   */
+  restoreProduct: (prodcode: string): Promise<{ message: string }> => {
+    return apiFetch<{ message: string }>(
+      `/api/products/${encodeURIComponent(prodcode)}/restore`,
       {
         method: "POST",
       }
