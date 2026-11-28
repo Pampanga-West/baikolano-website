@@ -435,13 +435,17 @@ export default function ReportsPage({
       return match ? match.price : list[0].price
     }
 
-    const activeSales = rawTables.sales.filter((s) => {
-      if (s.is_deleted) return false
-      const d = String(s.salesdate ?? "").slice(0, 10)
-      if (fromDate && d < fromDate) return false
-      if (toDate && d > toDate) return false
-      return true
-    })
+    const isInvalidDateRange = Boolean(fromDate && toDate && fromDate > toDate)
+
+    const activeSales = isInvalidDateRange
+      ? []
+      : rawTables.sales.filter((s) => {
+          if (s.is_deleted) return false
+          const d = String(s.salesdate ?? "").slice(0, 10)
+          if (fromDate && d < fromDate) return false
+          if (toDate && d > toDate) return false
+          return true
+        })
 
     const activeSaleMap = new Map<string, Record<string, any>>()
     for (const s of activeSales) {
@@ -734,7 +738,7 @@ export default function ReportsPage({
             <span>Hope, Inc. ERP · generated {todayStr}</span>
             <div className="report-title">{report.title}</div>
             <p>{report.subtitle}</p>
-            {(search || (report.key === "history" && selectedEmp !== "ALL") || (dated && (fromDate || toDate))) && (
+            {(search || (report.key === "history" && selectedEmp !== "ALL") || (dated && (fromDate || toDate || topN))) && (
               <div
                 style={{
                   marginTop: "6px",
@@ -744,11 +748,12 @@ export default function ReportsPage({
                 }}
               >
                 {report.key === "history" && selectedEmp !== "ALL" && (
-                  <span>Employee: {selectedEmpLabel} </span>
+                  <span>Employee: {selectedEmpLabel} · </span>
                 )}
                 {dated && fromDate && <span>From: {fromDate} </span>}
                 {dated && toDate && <span>To: {toDate} </span>}
-                {search && <span>Search: &quot;{search}&quot;</span>}
+                {dated && <span>· Top {topN} </span>}
+                {search && <span>· Search: &quot;{search}&quot;</span>}
               </div>
             )}
           </div>
@@ -762,6 +767,26 @@ export default function ReportsPage({
             </Button>
           </div>
         </div>
+        {isInvalidDateRange && (
+          <div
+            style={{
+              background: "#fef2f2",
+              color: "#b91c1c",
+              border: "1px solid #f87171",
+              borderRadius: "8px",
+              padding: "10px 14px",
+              margin: "14px 24px",
+              fontSize: "12px",
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <Icon name="info" size={16} />
+            <span>From Date ({fromDate}) cannot be later than To Date ({toDate}). Please adjust the dates.</span>
+          </div>
+        )}
         <div className="report-filters">
           <label style={{ flex: 1, minWidth: "200px" }}>
             <span>Search Report</span>
@@ -796,6 +821,8 @@ export default function ReportsPage({
                   value={topN}
                   onChange={(e) => setTopN(e.target.value)}
                 >
+                  <option value="3">3</option>
+                  <option value="5">5</option>
                   <option value="10">10</option>
                   <option value="25">25</option>
                   <option value="50">50</option>
@@ -879,7 +906,21 @@ export default function ReportsPage({
             </table>
           </div>
         ) : (
-          <EmptyState query={search} onClear={() => setSearch("")} />
+          <EmptyState
+            title={isInvalidDateRange ? "Invalid Date Range" : undefined}
+            message={
+              isInvalidDateRange
+                ? `From Date (${fromDate}) cannot be later than To Date (${toDate}). Please adjust your date range filters.`
+                : undefined
+            }
+            query={search}
+            onClear={() => {
+              setSearch("")
+              setFromDate("")
+              setToDate("")
+              setSelectedEmp("ALL")
+            }}
+          />
         )}
         <div className="report-foot">
           <span>

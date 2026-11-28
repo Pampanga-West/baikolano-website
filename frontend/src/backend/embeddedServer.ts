@@ -102,6 +102,9 @@ import {
   fetchActiveEmployeesReportFromSupabase,
   fetchAllEmployeesReportFromSupabase,
   fetchEmployeeJobHistoryReportFromSupabase,
+  fetchTopCustomersReportFromSupabase,
+  fetchTopProductsReportFromSupabase,
+  fetchTopSalesReportFromSupabase,
   formatMoney,
   parseStamp,
   type SupabaseUserRow,
@@ -3372,7 +3375,67 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
     }
   }
 
-  // 6. Generic Report Endpoint (GET /api/reports/:reportKey)
+  // 6. Top Customers Report (GET /api/reports/top-customers or /api/reports/customers)
+  if (
+    (pathname === "/api/reports/top-customers" || pathname === "/api/reports/customers") &&
+    method === "GET"
+  ) {
+    try {
+      await ensureReportPermission("customers")
+      const fromDate = parsedUrl.searchParams.get("fromDate") || undefined
+      const toDate = parsedUrl.searchParams.get("toDate") || undefined
+      const topN = parsedUrl.searchParams.get("topN") || undefined
+      const report = await fetchTopCustomersReportFromSupabase({ fromDate, toDate, topN })
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 400 || e.message?.includes("cannot be later than")) return jsonResponse({ message: e.message }, 400)
+      return jsonResponse({ message: e.message || "Failed to generate Top Customers report." }, 500)
+    }
+  }
+
+  // 7. Top Products Report (GET /api/reports/top-products or /api/reports/products)
+  if (
+    (pathname === "/api/reports/top-products" || pathname === "/api/reports/products") &&
+    method === "GET"
+  ) {
+    try {
+      await ensureReportPermission("products")
+      const fromDate = parsedUrl.searchParams.get("fromDate") || undefined
+      const toDate = parsedUrl.searchParams.get("toDate") || undefined
+      const topN = parsedUrl.searchParams.get("topN") || undefined
+      const report = await fetchTopProductsReportFromSupabase({ fromDate, toDate, topN })
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 400 || e.message?.includes("cannot be later than")) return jsonResponse({ message: e.message }, 400)
+      return jsonResponse({ message: e.message || "Failed to generate Top Products report." }, 500)
+    }
+  }
+
+  // 8. Top Sales Report (GET /api/reports/top-sales or /api/reports/sales)
+  if (
+    (pathname === "/api/reports/top-sales" || pathname === "/api/reports/sales") &&
+    method === "GET"
+  ) {
+    try {
+      await ensureReportPermission("sales")
+      const fromDate = parsedUrl.searchParams.get("fromDate") || undefined
+      const toDate = parsedUrl.searchParams.get("toDate") || undefined
+      const topN = parsedUrl.searchParams.get("topN") || undefined
+      const report = await fetchTopSalesReportFromSupabase({ fromDate, toDate, topN })
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 400 || e.message?.includes("cannot be later than")) return jsonResponse({ message: e.message }, 400)
+      return jsonResponse({ message: e.message || "Failed to generate Top Sales report." }, 500)
+    }
+  }
+
+  // 9. Generic Report Endpoint (GET /api/reports/:reportKey)
   const reportParamMatch = pathname.match(/^\/api\/reports\/([^/]+)$/)
   if (reportParamMatch && method === "GET") {
     const rawKey = decodeURIComponent(reportParamMatch[1]).toLowerCase()
@@ -3400,11 +3463,33 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
         const report = await fetchEmployeeJobHistoryReportFromSupabase(empnoParam)
         return jsonResponse(report)
       }
+      if (rawKey === "customers" || rawKey === "top-customers") {
+        const fromDate = parsedUrl.searchParams.get("fromDate") || undefined
+        const toDate = parsedUrl.searchParams.get("toDate") || undefined
+        const topN = parsedUrl.searchParams.get("topN") || undefined
+        const report = await fetchTopCustomersReportFromSupabase({ fromDate, toDate, topN })
+        return jsonResponse(report)
+      }
+      if (rawKey === "products" || rawKey === "top-products") {
+        const fromDate = parsedUrl.searchParams.get("fromDate") || undefined
+        const toDate = parsedUrl.searchParams.get("toDate") || undefined
+        const topN = parsedUrl.searchParams.get("topN") || undefined
+        const report = await fetchTopProductsReportFromSupabase({ fromDate, toDate, topN })
+        return jsonResponse(report)
+      }
+      if (rawKey === "sales" || rawKey === "top-sales") {
+        const fromDate = parsedUrl.searchParams.get("fromDate") || undefined
+        const toDate = parsedUrl.searchParams.get("toDate") || undefined
+        const topN = parsedUrl.searchParams.get("topN") || undefined
+        const report = await fetchTopSalesReportFromSupabase({ fromDate, toDate, topN })
+        return jsonResponse(report)
+      }
 
       return jsonResponse({ message: `Report '${rawKey}' generated.` }, 200)
     } catch (e: any) {
       if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
       if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 400 || e.message?.includes("cannot be later than")) return jsonResponse({ message: e.message }, 400)
       return jsonResponse({ message: e.message || `Failed to generate report '${rawKey}'.` }, 500)
     }
   }

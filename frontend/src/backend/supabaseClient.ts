@@ -5093,6 +5093,431 @@ export async function fetchEmployeeJobHistoryReportFromSupabase(
   }
 }
 
+export async function fetchTopCustomersReportFromSupabase(params?: {
+  fromDate?: string
+  toDate?: string
+  topN?: number | string
+}): Promise<{
+  key: "customers"
+  title: string
+  subtitle: string
+  headers: string[]
+  rows: string[][]
+  items: {
+    rank: number
+    custno: string
+    custname: string
+    totalSales: string
+    totalSalesNum: number
+  }[]
+  totalRows: number
+  generatedAt: string
+  filtersApplied: { fromDate?: string; toDate?: string; topN: number }
+}> {
+  const fromDate = params?.fromDate?.trim() || ""
+  const toDate = params?.toDate?.trim() || ""
+  const limitN = Number(params?.topN) || 25
+
+  if (fromDate && toDate && fromDate > toDate) {
+    const err: any = new Error("From Date cannot be later than To Date.")
+    err.statusCode = 400
+    throw err
+  }
+
+  const [sales, salesdetail, prices, customers] = await Promise.all([
+    postgrestFetch<Record<string, any>[]>(
+      "/sales?is_deleted=eq.false&order=salesdate.asc&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/salesdetail?is_deleted=eq.false&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/pricehist?is_deleted=eq.false&order=effdate.desc&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/customer?is_deleted=eq.false&select=*"
+    ).catch(() => []),
+  ])
+
+  const custNameMap = new Map<string, string>()
+  for (const c of customers || []) {
+    custNameMap.set(String(c.custno ?? "").trim(), String(c.custname ?? "—").trim())
+  }
+
+  const priceByProd = new Map<string, { effdate: string; price: number }[]>()
+  for (const pr of prices || []) {
+    const code = String(pr.prodcode ?? "").trim()
+    const list = priceByProd.get(code) ?? []
+    list.push({
+      effdate: String(pr.effdate ?? "").slice(0, 10),
+      price: Number(pr.unitprice) || 0,
+    })
+    priceByProd.set(code, list)
+  }
+
+  const resolvePrice = (prodcode: string, salesdate?: string) => {
+    const list = priceByProd.get(prodcode) ?? []
+    if (!list.length) return 0
+    const targetDate = salesdate ? salesdate.slice(0, 10) : new Date().toISOString().slice(0, 10)
+    const match = list.find((p) => p.effdate <= targetDate)
+    return match ? match.price : list[0].price
+  }
+
+  const activeSales = (sales || []).filter((s) => {
+    if (s.is_deleted) return false
+    const d = String(s.salesdate ?? "").slice(0, 10)
+    if (fromDate && d < fromDate) return false
+    if (toDate && d > toDate) return false
+    return true
+  })
+
+  const activeSaleMap = new Map<string, Record<string, any>>()
+  for (const s of activeSales) {
+    activeSaleMap.set(String(s.transno ?? "").trim(), s)
+  }
+
+  const saleTotalByTrans = new Map<string, number>()
+  for (const d of salesdetail || []) {
+    if (d.is_deleted) continue
+    const tNo = String(d.transno ?? "").trim()
+    const sale = activeSaleMap.get(tNo)
+    if (!sale) continue
+    const pCode = String(d.prodcode ?? "").trim()
+    const qty = Number(d.quantity) || 0
+    const uPrice = resolvePrice(pCode, String(sale.salesdate ?? ""))
+    const lineTotal = qty * uPrice
+    saleTotalByTrans.set(tNo, (saleTotalByTrans.get(tNo) ?? 0) + lineTotal)
+  }
+
+  const custSales = new Map<string, number>()
+  for (const s of activeSales) {
+    const cNo = String(s.custno ?? "").trim()
+    const tNo = String(s.transno ?? "").trim()
+    custSales.set(cNo, (custSales.get(cNo) ?? 0) + (saleTotalByTrans.get(tNo) ?? 0))
+  }
+
+  const items = Array.from(custSales.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limitN)
+    .map(([cNo, total], idx) => ({
+      rank: idx + 1,
+      custno: cNo,
+      custname: custNameMap.get(cNo) || cNo,
+      totalSales: formatMoney(total),
+      totalSalesNum: total,
+    }))
+
+  return {
+    key: "customers",
+    title: "Top Customers by Sales",
+    subtitle: "Ranked by active sale total in the selected period.",
+    headers: ["Rank", "Cust No", "Customer Name", "Total Sales"],
+    rows: items.map((i) => [String(i.rank), i.custno, i.custname, i.totalSales]),
+    items,
+    totalRows: items.length,
+    generatedAt: new Date().toISOString(),
+    filtersApplied: { fromDate: fromDate || undefined, toDate: toDate || undefined, topN: limitN },
+  }
+}
+
+export async function fetchTopProductsReportFromSupabase(params?: {
+  fromDate?: string
+  toDate?: string
+  topN?: number | string
+}): Promise<{
+  key: "products"
+  title: string
+  subtitle: string
+  headers: string[]
+  rows: string[][]
+  items: {
+    rank: number
+    prodcode: string
+    description: string
+    qtySold: number
+    salesAmount: string
+    salesAmountNum: number
+  }[]
+  totals: {
+    totalQty: number
+    totalAmount: string
+    totalAmountNum: number
+  }
+  totalRows: number
+  generatedAt: string
+  filtersApplied: { fromDate?: string; toDate?: string; topN: number }
+}> {
+  const fromDate = params?.fromDate?.trim() || ""
+  const toDate = params?.toDate?.trim() || ""
+  const limitN = Number(params?.topN) || 25
+
+  if (fromDate && toDate && fromDate > toDate) {
+    const err: any = new Error("From Date cannot be later than To Date.")
+    err.statusCode = 400
+    throw err
+  }
+
+  const [sales, salesdetail, prices, products] = await Promise.all([
+    postgrestFetch<Record<string, any>[]>(
+      "/sales?is_deleted=eq.false&order=salesdate.asc&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/salesdetail?is_deleted=eq.false&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/pricehist?is_deleted=eq.false&order=effdate.desc&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/product?is_deleted=eq.false&select=*"
+    ).catch(() => []),
+  ])
+
+  const prodDescMap = new Map<string, string>()
+  for (const p of products || []) {
+    prodDescMap.set(String(p.prodcode ?? "").trim(), String(p.description ?? "—").trim())
+  }
+
+  const priceByProd = new Map<string, { effdate: string; price: number }[]>()
+  for (const pr of prices || []) {
+    const code = String(pr.prodcode ?? "").trim()
+    const list = priceByProd.get(code) ?? []
+    list.push({
+      effdate: String(pr.effdate ?? "").slice(0, 10),
+      price: Number(pr.unitprice) || 0,
+    })
+    priceByProd.set(code, list)
+  }
+
+  const resolvePrice = (prodcode: string, salesdate?: string) => {
+    const list = priceByProd.get(prodcode) ?? []
+    if (!list.length) return 0
+    const targetDate = salesdate ? salesdate.slice(0, 10) : new Date().toISOString().slice(0, 10)
+    const match = list.find((p) => p.effdate <= targetDate)
+    return match ? match.price : list[0].price
+  }
+
+  const activeSales = (sales || []).filter((s) => {
+    if (s.is_deleted) return false
+    const d = String(s.salesdate ?? "").slice(0, 10)
+    if (fromDate && d < fromDate) return false
+    if (toDate && d > toDate) return false
+    return true
+  })
+
+  const activeSaleMap = new Map<string, Record<string, any>>()
+  for (const s of activeSales) {
+    activeSaleMap.set(String(s.transno ?? "").trim(), s)
+  }
+
+  const prodAgg = new Map<string, { qty: number; amount: number }>()
+  for (const d of salesdetail || []) {
+    if (d.is_deleted) continue
+    const tNo = String(d.transno ?? "").trim()
+    const sale = activeSaleMap.get(tNo)
+    if (!sale) continue
+    const pCode = String(d.prodcode ?? "").trim()
+    const qty = Number(d.quantity) || 0
+    const uPrice = resolvePrice(pCode, String(sale.salesdate ?? ""))
+    const lineTotal = qty * uPrice
+
+    const prev = prodAgg.get(pCode) ?? { qty: 0, amount: 0 }
+    prodAgg.set(pCode, {
+      qty: prev.qty + qty,
+      amount: prev.amount + lineTotal,
+    })
+  }
+
+  const items = Array.from(prodAgg.entries())
+    .sort((a, b) => b[1].amount - a[1].amount)
+    .slice(0, limitN)
+    .map(([pCode, agg], idx) => ({
+      rank: idx + 1,
+      prodcode: pCode,
+      description: prodDescMap.get(pCode) || pCode,
+      qtySold: agg.qty,
+      salesAmount: formatMoney(agg.amount),
+      salesAmountNum: agg.amount,
+    }))
+
+  const totalQty = items.reduce((sum, i) => sum + i.qtySold, 0)
+  const totalAmountNum = items.reduce((sum, i) => sum + i.salesAmountNum, 0)
+
+  return {
+    key: "products",
+    title: "Top Products by Sales Amount",
+    subtitle: "Quantity and sales contribution by active product.",
+    headers: ["Rank", "Prod Code", "Description", "Qty Sold", "Sales Amount"],
+    rows: items.map((i) => [
+      String(i.rank),
+      i.prodcode,
+      i.description,
+      String(i.qtySold),
+      i.salesAmount,
+    ]),
+    totals: {
+      totalQty,
+      totalAmount: formatMoney(totalAmountNum),
+      totalAmountNum,
+    },
+    items,
+    totalRows: items.length,
+    generatedAt: new Date().toISOString(),
+    filtersApplied: { fromDate: fromDate || undefined, toDate: toDate || undefined, topN: limitN },
+  }
+}
+
+export async function fetchTopSalesReportFromSupabase(params?: {
+  fromDate?: string
+  toDate?: string
+  topN?: number | string
+}): Promise<{
+  key: "sales"
+  title: string
+  subtitle: string
+  headers: string[]
+  rows: string[][]
+  items: {
+    rank: number
+    transno: string
+    salesdate: string
+    customer: string
+    employee: string
+    total: string
+    totalNum: number
+  }[]
+  totalRows: number
+  generatedAt: string
+  filtersApplied: { fromDate?: string; toDate?: string; topN: number }
+}> {
+  const fromDate = params?.fromDate?.trim() || ""
+  const toDate = params?.toDate?.trim() || ""
+  const limitN = Number(params?.topN) || 25
+
+  if (fromDate && toDate && fromDate > toDate) {
+    const err: any = new Error("From Date cannot be later than To Date.")
+    err.statusCode = 400
+    throw err
+  }
+
+  const [sales, salesdetail, prices, customers, employees] = await Promise.all([
+    postgrestFetch<Record<string, any>[]>(
+      "/sales?is_deleted=eq.false&order=salesdate.asc&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/salesdetail?is_deleted=eq.false&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/pricehist?is_deleted=eq.false&order=effdate.desc&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/customer?is_deleted=eq.false&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/employee?is_deleted=eq.false&select=*"
+    ).catch(() => []),
+  ])
+
+  const custNameMap = new Map<string, string>()
+  for (const c of customers || []) {
+    custNameMap.set(String(c.custno ?? "").trim(), String(c.custname ?? "—").trim())
+  }
+
+  const empNameMap = new Map<string, string>()
+  for (const e of employees || []) {
+    empNameMap.set(
+      String(e.empno ?? "").trim(),
+      `${e.firstname ?? ""} ${e.lastname ?? ""}`.trim()
+    )
+  }
+
+  const priceByProd = new Map<string, { effdate: string; price: number }[]>()
+  for (const pr of prices || []) {
+    const code = String(pr.prodcode ?? "").trim()
+    const list = priceByProd.get(code) ?? []
+    list.push({
+      effdate: String(pr.effdate ?? "").slice(0, 10),
+      price: Number(pr.unitprice) || 0,
+    })
+    priceByProd.set(code, list)
+  }
+
+  const resolvePrice = (prodcode: string, salesdate?: string) => {
+    const list = priceByProd.get(prodcode) ?? []
+    if (!list.length) return 0
+    const targetDate = salesdate ? salesdate.slice(0, 10) : new Date().toISOString().slice(0, 10)
+    const match = list.find((p) => p.effdate <= targetDate)
+    return match ? match.price : list[0].price
+  }
+
+  const activeSales = (sales || []).filter((s) => {
+    if (s.is_deleted) return false
+    const d = String(s.salesdate ?? "").slice(0, 10)
+    if (fromDate && d < fromDate) return false
+    if (toDate && d > toDate) return false
+    return true
+  })
+
+  const activeSaleMap = new Map<string, Record<string, any>>()
+  for (const s of activeSales) {
+    activeSaleMap.set(String(s.transno ?? "").trim(), s)
+  }
+
+  const saleTotalByTrans = new Map<string, number>()
+  for (const d of salesdetail || []) {
+    if (d.is_deleted) continue
+    const tNo = String(d.transno ?? "").trim()
+    const sale = activeSaleMap.get(tNo)
+    if (!sale) continue
+    const pCode = String(d.prodcode ?? "").trim()
+    const qty = Number(d.quantity) || 0
+    const uPrice = resolvePrice(pCode, String(sale.salesdate ?? ""))
+    const lineTotal = qty * uPrice
+    saleTotalByTrans.set(tNo, (saleTotalByTrans.get(tNo) ?? 0) + lineTotal)
+  }
+
+  const items = activeSales
+    .map((s) => {
+      const tNo = String(s.transno ?? "").trim()
+      const cNo = String(s.custno ?? "").trim()
+      const eNo = String(s.empno ?? "").trim()
+      const total = saleTotalByTrans.get(tNo) ?? 0
+      return {
+        transno: tNo,
+        salesdate: String(s.salesdate ?? "—").slice(0, 10),
+        customer: `${cNo} — ${custNameMap.get(cNo) || cNo}`,
+        employee: `${eNo} — ${empNameMap.get(eNo) || eNo}`,
+        total: formatMoney(total),
+        totalNum: total,
+      }
+    })
+    .sort((a, b) => b.totalNum - a.totalNum)
+    .slice(0, limitN)
+    .map((item, idx) => ({
+      rank: idx + 1,
+      ...item,
+    }))
+
+  return {
+    key: "sales",
+    title: "Top Sales",
+    subtitle: "Highest-value active transactions in the selected period.",
+    headers: ["Rank", "Trans No", "Date", "Customer", "Employee", "Total"],
+    rows: items.map((i) => [
+      String(i.rank),
+      i.transno,
+      i.salesdate,
+      i.customer,
+      i.employee,
+      i.total,
+    ]),
+    items,
+    totalRows: items.length,
+    generatedAt: new Date().toISOString(),
+    filtersApplied: { fromDate: fromDate || undefined, toDate: toDate || undefined, topN: limitN },
+  }
+}
+
+
 
 
 
