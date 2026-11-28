@@ -11,6 +11,7 @@ import { departmentApi, employeeApi, jobApi, rightsApi } from "../lib/api"
 import { useAuth } from "../contexts/AuthContext"
 import DepartmentModal from "../components/DepartmentModal"
 import JobModal from "../components/JobModal"
+import EmployeeModal from "../components/EmployeeModal"
 import Badge from "../components/Badge"
 import BlockedDeleteModal from "../components/BlockedDeleteModal"
 import Button from "../components/Button"
@@ -139,78 +140,7 @@ const fallbackJobHistory: JobHistoryEntry[] = [
   },
 ]
 
-function EmployeeForm({
-  editing,
-  close,
-}: {
-  editing?: boolean
-  close: () => void
-}) {
-  const [separation, setSeparation] = useState(editing ? "" : "2019-01-01")
-  const invalid = Boolean(separation && separation < "2020-03-01")
-  return (
-    <ModalShell
-      title={editing ? "Edit Employee" : "Add Employee"}
-      subtitle="Personal dates and employment dates are validated independently."
-      close={close}
-      footer={
-        <>
-          <Button variant="secondary" onClick={close}>
-            Cancel
-          </Button>
-          <Button onClick={close} disabled={invalid}>
-            {editing ? "Save Changes" : "Add Employee"}
-          </Button>
-        </>
-      }
-    >
-      <div className="record-form record-form-three">
-        <label>
-          <span>Emp No</span>
-          <input defaultValue={editing ? "E-001" : "E-005"} />
-        </label>
-        <label>
-          <span>Last Name</span>
-          <input defaultValue={editing ? "Santos" : ""} />
-        </label>
-        <label>
-          <span>First Name</span>
-          <input defaultValue={editing ? "Maria" : ""} />
-        </label>
-        <label>
-          <span>Gender</span>
-          <select defaultValue="F">
-            <option>F</option>
-            <option>M</option>
-            <option>Prefer not to say</option>
-          </select>
-        </label>
-        <label>
-          <span>Birth Date</span>
-          <input type="date" defaultValue="1990-05-12" />
-        </label>
-        <label>
-          <span>Hire Date</span>
-          <input type="date" defaultValue="2020-03-01" />
-        </label>
-        <label>
-          <span>Separation Date</span>
-          <input
-            className={invalid ? "input-error" : ""}
-            type="date"
-            value={separation}
-            onChange={(event) => setSeparation(event.target.value)}
-          />
-          {invalid && (
-            <small className="validation-error">
-              Separation Date cannot be earlier than Hire Date.
-            </small>
-          )}
-        </label>
-      </div>
-    </ModalShell>
-  )
-}
+
 
 function HistoryForm({
   editing,
@@ -718,7 +648,7 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
     useState<JobHistoryEntry[]>(fallbackJobHistory)
   const [filter, setFilter] = useState("active")
   const [search, setSearch] = useState("")
-  const [employeeForm, setEmployeeForm] = useState<"new" | "edit" | null>(null)
+  const [employeeForm, setEmployeeForm] = useState<any | "new" | null>(null)
   const [historyEmployee, setHistoryEmployee] = useState<string[] | null>(null)
   const [historyRight, setHistoryRight] = useState(true)
   const [deletingEmployee, setDeletingEmployee] = useState<string[] | null>(null)
@@ -809,6 +739,18 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
     const maxNum = nums.length ? Math.max(...nums) : 0
     return `J-${String(maxNum + 1).padStart(3, "0")}`
   }, [lookups.jobs])
+
+  const suggestedEmpno = useMemo(() => {
+    const existing = employees.map((e) => e[0])
+    const nums = existing
+      .map((code) => {
+        const m = code.match(/E-(\d+)/i)
+        return m ? parseInt(m[1], 10) : 0
+      })
+      .filter((n) => !isNaN(n))
+    const maxNum = nums.length ? Math.max(...nums) : 0
+    return `E-${String(maxNum + 1).padStart(3, "0")}`
+  }, [employees])
 
   const handleSoftDeleteJobClick = async (code: string, name: string) => {
     try {
@@ -1472,7 +1414,20 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
                                   )}
                                   {canEditEmployee && (
                                     <button
-                                      onClick={() => setEmployeeForm("edit")}
+                                      onClick={() =>
+                                        setEmployeeForm({
+                                          empno: row[0],
+                                          lastname: row[1],
+                                          firstname: row[2],
+                                          gender: row[3],
+                                          birthdate: row[4],
+                                          hiredate: row[5],
+                                          sepdate: row[6] === "—" ? "" : row[6],
+                                          status: row[7],
+                                          currentDept: row[11],
+                                          currentJob: row[12],
+                                        })
+                                      }
                                     >
                                       Edit
                                     </button>
@@ -1547,9 +1502,17 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
         />
       )}
       {employeeForm && (
-        <EmployeeForm
-          editing={employeeForm === "edit"}
+        <EmployeeModal
+          employee={employeeForm === "new" ? undefined : employeeForm}
+          suggestedEmpno={suggestedEmpno}
+          existingEmpnos={employees.map((e) => e[0])}
+          currentUser={user}
           close={() => setEmployeeForm(null)}
+          onSaved={(msg) => {
+            if (msg) setSuccess(msg)
+            setEmployeeForm(null)
+            loadData()
+          }}
         />
       )}
       {historyEmployee && (

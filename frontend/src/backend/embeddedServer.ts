@@ -67,6 +67,8 @@ import {
   checkJobHasActiveReferences,
   fetchEmployeesFromSupabase,
   fetchEmployeeByEmpnoFromSupabase,
+  insertEmployeeIntoSupabase,
+  updateEmployeeInSupabase,
   parseStamp,
   type SupabaseUserRow,
 } from "./supabaseClient.ts"
@@ -2021,19 +2023,49 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
     }
   }
 
-  // 2. Get Single Employee (GET /api/employees/:empno)
+  // 2. Get / Update Single Employee (/api/employees/:empno)
   const empMatch = pathname.match(/^\/api\/employees\/([^/]+)$/)
-  if (empMatch && method === "GET") {
+  if (empMatch) {
+    const empno = decodeURIComponent(empMatch[1])
+
+    if (method === "GET") {
+      try {
+        await ensureEmployeePermission("View")
+        const emp = await fetchEmployeeByEmpnoFromSupabase(empno)
+        if (!emp) return jsonResponse({ message: `Employee ${empno} not found.` }, 404)
+        return jsonResponse(emp)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to get employee." }, 400)
+      }
+    }
+
+    if (method === "PUT") {
+      try {
+        const caller = await ensureEmployeePermission("Edit")
+        const updated = await updateEmployeeInSupabase(empno, body, caller.email)
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+        return jsonResponse({ message: e.message || "Failed to update employee." }, 400)
+      }
+    }
+  }
+
+  // 3. Create Employee (POST /api/employees)
+  if (pathname === "/api/employees" && method === "POST") {
     try {
-      await ensureEmployeePermission("View")
-      const empno = decodeURIComponent(empMatch[1])
-      const emp = await fetchEmployeeByEmpnoFromSupabase(empno)
-      if (!emp) return jsonResponse({ message: `Employee ${empno} not found.` }, 404)
-      return jsonResponse(emp)
+      const caller = await ensureEmployeePermission("Add")
+      const created = await insertEmployeeIntoSupabase(body, caller.email)
+      return jsonResponse(created, 201)
     } catch (e: any) {
       if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
       if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
-      return jsonResponse({ message: e.message || "Failed to get employee." }, 400)
+      if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
+      return jsonResponse({ message: e.message || "Failed to create employee." }, 400)
     }
   }
 
