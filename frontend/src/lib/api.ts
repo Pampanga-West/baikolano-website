@@ -13,6 +13,41 @@ import {
   type CustomerQueryParams,
   type CreateCustomerPayload,
   type UpdateCustomerPayload,
+  type Product,
+  type ProductQueryParams,
+  type CreateProductPayload,
+  type UpdateProductPayload,
+  type PriceHistoryRecord,
+  type Department,
+  type DepartmentQueryParams,
+  type CreateDepartmentPayload,
+  type UpdateDepartmentPayload,
+  type Job,
+  type JobQueryParams,
+  type CreateJobPayload,
+  type UpdateJobPayload,
+  type Employee,
+  type EmployeeQueryParams,
+  type CreateEmployeePayload,
+  type UpdateEmployeePayload,
+  type JobHistoryRecord,
+  type CreateJobHistoryPayload,
+  type UpdateJobHistoryPayload,
+  type SaleHeader,
+  type CreateSalePayload,
+  type SalesQueryParams,
+  type SaleLineItem,
+  type CreateSaleLinePayload,
+  type UpdateSaleLinePayload,
+  type SaleProductOption,
+  type PaymentRecord,
+  type RecordPaymentPayload,
+  type CustomerBalanceSummary,
+  type TransactionBalanceSummary,
+  type CustomerDetailedBalance,
+  type ReportKey,
+  type ReportResult,
+  type SalesReportQueryParams,
 } from "./types"
 
 // Automatically install global in-browser mock server interceptor
@@ -24,7 +59,7 @@ installEmbeddedFetchInterceptor()
  * Can be overridden via VITE_API_URL environment variable.
  */
 export const API_BASE_URL =
-  import.meta.env.VITE_API_URL !== undefined
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL !== undefined
     ? import.meta.env.VITE_API_URL
     : "http://localhost:8080"
 
@@ -34,7 +69,9 @@ export const API_BASE_URL =
  * Can be toggled to false via VITE_USE_REAL_BACKEND=true if testing against Spring Boot.
  */
 export const USE_EMBEDDED_BACKEND =
-  import.meta.env.VITE_USE_REAL_BACKEND !== "true"
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_USE_REAL_BACKEND === "true"
+    ? false
+    : true
 
 let cachedCsrfToken: string | null = null
 
@@ -556,6 +593,531 @@ export const customerApi = {
 }
 
 // ============================================================================
+// Product Master APIs (Sprint 2 - S2-DEV-04)
+// ============================================================================
+
+export const productApi = {
+  /**
+   * Fetches products with optional search query, status ('active' | 'inactive' | 'all'), and unit filter.
+   * Endpoint: GET /api/products?search=&status=&unit=
+   */
+  listProducts: (params?: ProductQueryParams): Promise<Product[]> => {
+    const query = new URLSearchParams()
+    if (params?.search) query.set("search", params.search)
+    if (params?.status) query.set("status", params.status)
+    if (params?.unit) query.set("unit", params.unit)
+    const queryString = query.toString() ? `?${query.toString()}` : ""
+    return apiFetch<Product[]>(`/api/products${queryString}`)
+  },
+
+  /**
+   * Retrieves a single product by prodcode.
+   * Endpoint: GET /api/products/:prodcode
+   */
+  getProduct: (prodcode: string): Promise<Product> => {
+    return apiFetch<Product>(`/api/products/${encodeURIComponent(prodcode)}`)
+  },
+
+  /**
+   * Creates a new product record.
+   * Server-side permission check: requires Product - Add (or Admin/Superadmin).
+   * Endpoint: POST /api/products
+   */
+  createProduct: (data: CreateProductPayload): Promise<Product> => {
+    return apiFetch<Product>("/api/products", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Updates an existing product description or unit.
+   * Server-side permission check: requires Product - Edit (or Admin/Superadmin).
+   * Endpoint: PUT /api/products/:prodcode
+   */
+  updateProduct: (
+    prodcode: string,
+    data: UpdateProductPayload
+  ): Promise<Product> => {
+    return apiFetch<Product>(`/api/products/${encodeURIComponent(prodcode)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Soft deletes a product record (flags is_deleted = true).
+   * Checks referential integrity against sales orders and active prices.
+   * Server-side permission check: requires Product - Delete (or Admin/Superadmin).
+   * Endpoint: DELETE /api/products/:prodcode
+   */
+  deleteProduct: (
+    prodcode: string
+  ): Promise<{ message: string; blocked?: boolean }> => {
+    return apiFetch<{ message: string; blocked?: boolean }>(
+      `/api/products/${encodeURIComponent(prodcode)}`,
+      {
+        method: "DELETE",
+      }
+    )
+  },
+
+  /**
+   * Restores a soft-deleted product record (flags is_deleted = false).
+   * Server-side permission check: requires Product - Edit (or Admin/Superadmin).
+   * Endpoint: POST /api/products/:prodcode/restore
+   */
+  restoreProduct: (prodcode: string): Promise<{ message: string }> => {
+    return apiFetch<{ message: string }>(
+      `/api/products/${encodeURIComponent(prodcode)}/restore`,
+      {
+        method: "POST",
+      }
+    )
+  },
+
+  /**
+   * Fetches full price schedule history for a specific product.
+   * Endpoint: GET /api/products/:prodcode/prices
+   */
+  listPriceHistory: (prodcode: string): Promise<PriceHistoryRecord[]> => {
+    return apiFetch<PriceHistoryRecord[]>(
+      `/api/products/${encodeURIComponent(prodcode)}/prices`
+    )
+  },
+
+  /**
+   * Adds a new price schedule rate with an effective date for a product.
+   * Endpoint: POST /api/products/:prodcode/prices
+   */
+  createPriceSchedule: (
+    prodcode: string,
+    data: { effdate: string; unitprice: number }
+  ): Promise<PriceHistoryRecord> => {
+    return apiFetch<PriceHistoryRecord>(
+      `/api/products/${encodeURIComponent(prodcode)}/prices`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    )
+  },
+
+  /**
+   * Updates an existing price schedule rate and/or effective date.
+   * Endpoint: PUT /api/products/:prodcode/prices/:effdate
+   */
+  updatePriceSchedule: (
+    prodcode: string,
+    originalEffDate: string,
+    data: { effdate: string; unitprice: number }
+  ): Promise<PriceHistoryRecord> => {
+    return apiFetch<PriceHistoryRecord>(
+      `/api/products/${encodeURIComponent(prodcode)}/prices/${encodeURIComponent(originalEffDate)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }
+    )
+  },
+
+  /**
+   * Soft deletes / supersedes a price schedule for a product.
+   * Endpoint: DELETE /api/products/:prodcode/prices/:effdate
+   */
+  deletePriceSchedule: (
+    prodcode: string,
+    effdate: string
+  ): Promise<{ message: string }> => {
+    return apiFetch<{ message: string }>(
+      `/api/products/${encodeURIComponent(prodcode)}/prices/${encodeURIComponent(effdate)}`,
+      {
+        method: "DELETE",
+      }
+    )
+  },
+
+  /**
+   * Restores a soft-deleted / superseded price schedule.
+   * Endpoint: POST /api/products/:prodcode/prices/:effdate/restore
+   */
+  restorePriceSchedule: (
+    prodcode: string,
+    effdate: string
+  ): Promise<{ message: string }> => {
+    return apiFetch<{ message: string }>(
+      `/api/products/${encodeURIComponent(prodcode)}/prices/${encodeURIComponent(effdate)}/restore`,
+      {
+        method: "POST",
+      }
+    )
+  },
+}
+
+// ============================================================================
+// Department Master Data APIs (Sprint 3 — S3-DEV-01)
+// ============================================================================
+
+export const departmentApi = {
+  /**
+   * Fetches the department directory with optional search and status filtering.
+   * Endpoint: GET /api/departments
+   */
+  listDepartments: (
+    params: DepartmentQueryParams = {}
+  ): Promise<Department[]> => {
+    const q = new URLSearchParams()
+    if (params.search) q.set("search", params.search)
+    if (params.status) q.set("status", params.status)
+    const queryString = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<Department[]>(`/api/departments${queryString}`)
+  },
+
+  /**
+   * Fetches a single department by code.
+   * Endpoint: GET /api/departments/:deptcode
+   */
+  getDepartment: (deptcode: string): Promise<Department> => {
+    return apiFetch<Department>(`/api/departments/${encodeURIComponent(deptcode)}`)
+  },
+
+  /**
+   * Creates a new department record.
+   * Server-side permission check: requires Department - Add (or Admin/Superadmin).
+   * Endpoint: POST /api/departments
+   */
+  createDepartment: (
+    data: CreateDepartmentPayload
+  ): Promise<Department> => {
+    return apiFetch<Department>("/api/departments", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Updates an existing department name.
+   * Server-side permission check: requires Department - Edit (or Admin/Superadmin).
+   * Endpoint: PUT /api/departments/:deptcode
+   */
+  updateDepartment: (
+    deptcode: string,
+    data: UpdateDepartmentPayload
+  ): Promise<Department> => {
+    return apiFetch<Department>(
+      `/api/departments/${encodeURIComponent(deptcode)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }
+    )
+  },
+
+  /**
+   * Soft-deletes a department record (sets is_deleted = true).
+   * Validates child employee references; returns 409 if active employees reference it.
+   * Server-side permission check: requires Department - Delete (or Admin/Superadmin).
+   * Endpoint: DELETE /api/departments/:deptcode
+   */
+  deleteDepartment: (
+    deptcode: string
+  ): Promise<{ message: string; blocked?: boolean; reason?: string }> => {
+    return apiFetch<{ message: string; blocked?: boolean; reason?: string }>(
+      `/api/departments/${encodeURIComponent(deptcode)}`,
+      {
+        method: "DELETE",
+      }
+    )
+  },
+
+  /**
+   * Restores a soft-deleted department record (sets is_deleted = false).
+   * Server-side permission check: requires Department - Edit (or Admin/Superadmin).
+   * Endpoint: POST /api/departments/:deptcode/restore
+   */
+  restoreDepartment: (deptcode: string): Promise<{ message: string }> => {
+    return apiFetch<{ message: string }>(
+      `/api/departments/${encodeURIComponent(deptcode)}/restore`,
+      {
+        method: "POST",
+      }
+    )
+  },
+}
+
+// ============================================================================
+// Job Master Data APIs (Sprint 3 — S3-DEV-02)
+// ============================================================================
+
+export const jobApi = {
+  /**
+   * Fetches the job directory with optional search and status filtering.
+   * Endpoint: GET /api/jobs
+   */
+  listJobs: (
+    params: JobQueryParams = {}
+  ): Promise<Job[]> => {
+    const q = new URLSearchParams()
+    if (params.search) q.set("search", params.search)
+    if (params.status) q.set("status", params.status)
+    const queryString = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<Job[]>(`/api/jobs${queryString}`)
+  },
+
+  /**
+   * Fetches a single job by code.
+   * Endpoint: GET /api/jobs/:jobcode
+   */
+  getJob: (jobcode: string): Promise<Job> => {
+    return apiFetch<Job>(`/api/jobs/${encodeURIComponent(jobcode)}`)
+  },
+
+  /**
+   * Creates a new job record.
+   * Server-side permission check: requires Job - Add (or Admin/Superadmin).
+   * Endpoint: POST /api/jobs
+   */
+  createJob: (
+    data: CreateJobPayload
+  ): Promise<Job> => {
+    return apiFetch<Job>("/api/jobs", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Updates an existing job title / description.
+   * Server-side permission check: requires Job - Edit (or Admin/Superadmin).
+   * Endpoint: PUT /api/jobs/:jobcode
+   */
+  updateJob: (
+    jobcode: string,
+    data: UpdateJobPayload
+  ): Promise<Job> => {
+    return apiFetch<Job>(
+      `/api/jobs/${encodeURIComponent(jobcode)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }
+    )
+  },
+
+  /**
+   * Soft-deletes a job record (sets is_deleted = true).
+   * Validates child employee references; returns 409 if active employees reference it.
+   * Server-side permission check: requires Job - Delete (or Admin/Superadmin).
+   * Endpoint: DELETE /api/jobs/:jobcode
+   */
+  deleteJob: (
+    jobcode: string
+  ): Promise<{ message: string; blocked?: boolean; reason?: string }> => {
+    return apiFetch<{ message: string; blocked?: boolean; reason?: string }>(
+      `/api/jobs/${encodeURIComponent(jobcode)}`,
+      {
+        method: "DELETE",
+      }
+    )
+  },
+
+  /**
+   * Restores a soft-deleted job record (sets is_deleted = false).
+   * Server-side permission check: requires Job - Edit (or Admin/Superadmin).
+   * Endpoint: POST /api/jobs/:jobcode/restore
+   */
+  restoreJob: (jobcode: string): Promise<{ message: string }> => {
+    return apiFetch<{ message: string }>(
+      `/api/jobs/${encodeURIComponent(jobcode)}/restore`,
+      {
+        method: "POST",
+      }
+    )
+  },
+}
+
+// ============================================================================
+// Employee Directory APIs (Sprint 3 — S3-DEV-03)
+// ============================================================================
+
+export const employeeApi = {
+  /**
+   * Fetches the employee directory with optional search, department, job, and status filtering.
+   * Endpoint: GET /api/employees
+   */
+  listEmployees: (
+    params: EmployeeQueryParams = {}
+  ): Promise<Employee[]> => {
+    const q = new URLSearchParams()
+    if (params.search) q.set("search", params.search)
+    if (params.status) q.set("status", params.status)
+    if (params.department) q.set("department", params.department)
+    if (params.job) q.set("job", params.job)
+    const queryString = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<Employee[]>(`/api/employees${queryString}`)
+  },
+
+  /**
+   * Fetches a single employee by employee number.
+   * Endpoint: GET /api/employees/:empno
+   */
+  getEmployee: (empno: string): Promise<Employee> => {
+    return apiFetch<Employee>(`/api/employees/${encodeURIComponent(empno)}`)
+  },
+
+  /**
+   * Creates a new employee personnel record.
+   * Server-side permission check: requires Employee - Add (or Admin/Superadmin).
+   * Endpoint: POST /api/employees
+   */
+  createEmployee: (data: CreateEmployeePayload): Promise<Employee> => {
+    return apiFetch<Employee>("/api/employees", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Updates an existing employee profile information and/or separation date.
+   * Server-side permission check: requires Employee - Edit (or Admin/Superadmin).
+   * Endpoint: PUT /api/employees/:empno
+   */
+  updateEmployee: (
+    empno: string,
+    data: UpdateEmployeePayload
+  ): Promise<Employee> => {
+    return apiFetch<Employee>(`/api/employees/${encodeURIComponent(empno)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Deactivates (soft-deletes) an employee profile and sets separation date to today.
+   * Server-side referential integrity check: blocks deactivation if employee is assigned as department lead or referenced in active sales transactions.
+   * Server-side permission check: requires Employee - Delete (or Admin/Superadmin).
+   * Endpoint: DELETE /api/employees/:empno
+   */
+  deleteEmployee: (
+    empno: string
+  ): Promise<{ message: string; empno: string; sepdate: string; stamp: string; blocked?: boolean; reason?: string }> => {
+    return apiFetch<{ message: string; empno: string; sepdate: string; stamp: string; blocked?: boolean; reason?: string }>(
+      `/api/employees/${encodeURIComponent(empno)}`,
+      { method: "DELETE" }
+    )
+  },
+
+  /**
+   * Restores a previously deactivated (soft-deleted) employee to Active status, clearing the separation date.
+   * Server-side permission check: requires Employee - Edit / Delete (or Admin/Superadmin).
+   * Endpoint: POST /api/employees/:empno/restore
+   */
+  restoreEmployee: (
+    empno: string
+  ): Promise<{ message: string; empno: string; sepdate: null; stamp: string }> => {
+    return apiFetch<{ message: string; empno: string; sepdate: null; stamp: string }>(
+      `/api/employees/${encodeURIComponent(empno)}/restore`,
+      { method: "POST" }
+    )
+  },
+
+  /**
+   * Checks whether an employee has active referential integrity dependencies (department lead, active sales transactions).
+   * Endpoint: GET /api/employees/:empno/check-references
+   */
+  checkReferences: (
+    empno: string
+  ): Promise<{ hasActiveReferences: boolean; referenceCount: number; reason?: string; message?: string }> => {
+    return apiFetch<{ hasActiveReferences: boolean; referenceCount: number; reason?: string; message?: string }>(
+      `/api/employees/${encodeURIComponent(empno)}/check-references`
+    )
+  },
+}
+
+// ============================================================================
+// Sprint 3 Job History Management APIs (S3-DEV-06)
+// Supports career promotions, transfers, effective date uniqueness & salary tracking
+// ============================================================================
+
+export const jobHistoryApi = {
+  /**
+   * Fetches job history milestones for an employee.
+   * Endpoint: GET /api/employees/:empno/history
+   */
+  listHistory: (empno: string): Promise<JobHistoryRecord[]> => {
+    return apiFetch<JobHistoryRecord[]>(`/api/employees/${encodeURIComponent(empno)}/history`)
+  },
+
+  /**
+   * Records a new promotion or transfer milestone for an employee.
+   * Server-side check: enforces unique effective date per employee & positive salary.
+   * Endpoint: POST /api/employees/:empno/history
+   */
+  addHistory: (
+    empno: string,
+    data: CreateJobHistoryPayload
+  ): Promise<JobHistoryRecord> => {
+    return apiFetch<JobHistoryRecord>(`/api/employees/${encodeURIComponent(empno)}/history`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Updates an existing job history milestone (job, department, salary).
+   * Endpoint: PUT /api/employees/:empno/history/:effdate
+   */
+  updateHistory: (
+    empno: string,
+    effdate: string,
+    data: UpdateJobHistoryPayload
+  ): Promise<JobHistoryRecord> => {
+    return apiFetch<JobHistoryRecord>(
+      `/api/employees/${encodeURIComponent(empno)}/history/${encodeURIComponent(effdate)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }
+    )
+  },
+
+  /**
+   * Soft-deletes (archives) a job history milestone.
+   * Endpoint: DELETE /api/employees/:empno/history/:effdate
+   */
+  deleteHistory: (
+    empno: string,
+    effdate: string
+  ): Promise<{ message: string; empno: string; effdate: string; stamp: string }> => {
+    return apiFetch<{ message: string; empno: string; effdate: string; stamp: string }>(
+      `/api/employees/${encodeURIComponent(empno)}/history/${encodeURIComponent(effdate)}`,
+      {
+        method: "DELETE",
+      }
+    )
+  },
+
+  /**
+   * Restores a soft-deleted job history milestone to active status.
+   * Endpoint: POST /api/employees/:empno/history/:effdate/restore
+   */
+  restoreHistory: (
+    empno: string,
+    effdate: string
+  ): Promise<{ message: string; empno: string; effdate: string; stamp: string }> => {
+    return apiFetch<{ message: string; empno: string; effdate: string; stamp: string }>(
+      `/api/employees/${encodeURIComponent(empno)}/history/${encodeURIComponent(effdate)}/restore`,
+      {
+        method: "POST",
+      }
+    )
+  },
+}
+
+
+
+
+// ============================================================================
 // Table Editor APIs (Superadmin Only — All Public Tables Except app_user)
 // ============================================================================
 
@@ -594,5 +1156,295 @@ export const tableEditorApi = {
       method: "DELETE",
       body: JSON.stringify(primaryKeyValues),
     })
+  },
+}
+
+// ============================================================================
+// Sprint 4: Sales APIs (S4-DEV-01)
+// ============================================================================
+
+export interface SalesOptionsResponse {
+  customers: { custno: string; custname: string; label: string }[]
+  salespersons: { empno: string; firstname: string; lastname: string; label: string }[]
+  suggestedTransno: string
+}
+
+export const salesApi = {
+  listSales: (params?: SalesQueryParams): Promise<SaleHeader[]> => {
+    const q = new URLSearchParams()
+    if (params?.search) q.set("search", params.search)
+    if (params?.status) q.set("status", params.status)
+    if (params?.customer) q.set("customer", params.customer)
+    if (params?.salesperson) q.set("salesperson", params.salesperson)
+    const query = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<SaleHeader[]>(`/api/sales${query}`)
+  },
+
+  getSale: (transno: string): Promise<SaleHeader> => {
+    return apiFetch<SaleHeader>(`/api/sales/${encodeURIComponent(transno)}`)
+  },
+
+  getOptions: (): Promise<SalesOptionsResponse> => {
+    return apiFetch<SalesOptionsResponse>("/api/sales/lookups/options")
+  },
+
+  createSale: (payload: CreateSalePayload): Promise<SaleHeader> => {
+    return apiFetch<SaleHeader>("/api/sales", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
+  },
+
+  restoreSale: (transno: string): Promise<{ message: string; transno: string; stamp: string }> => {
+    return apiFetch<{ message: string; transno: string; stamp: string }>(
+      `/api/sales/${encodeURIComponent(transno)}/restore`,
+      { method: "POST" }
+    )
+  },
+
+  softDeleteSale: (
+    transno: string
+  ): Promise<{ message: string; transno: string; stamp: string }> => {
+    return apiFetch<{ message: string; transno: string; stamp: string }>(
+      `/api/sales/${encodeURIComponent(transno)}`,
+      { method: "DELETE" }
+    )
+  },
+
+  checkSaleReferences: (
+    transno: string
+  ): Promise<{
+    hasActiveReferences: boolean
+    hasActivePayments: boolean
+    hasActiveDetails: boolean
+    paymentCount: number
+    detailCount: number
+    receipts: string[]
+    lineItems: string[]
+    message?: string
+    reason?: string
+  }> => {
+    return apiFetch(`/api/sales/${encodeURIComponent(transno)}/check-references`)
+  },
+
+  // Sale Details (S4-DEV-02)
+  listDetails: (transno: string, status?: "active" | "inactive" | "all"): Promise<SaleLineItem[]> => {
+    const q = status ? `?status=${encodeURIComponent(status)}` : ""
+    return apiFetch<SaleLineItem[]>(`/api/sales/${encodeURIComponent(transno)}/details${q}`)
+  },
+
+  getProductOptions: (salesdate?: string): Promise<SaleProductOption[]> => {
+    const q = salesdate ? `?salesdate=${encodeURIComponent(salesdate)}` : ""
+    return apiFetch<SaleProductOption[]>(`/api/sales/lookups/products${q}`)
+  },
+
+  resolveUnitPrice: (
+    transno: string,
+    prodcode: string
+  ): Promise<{ transno: string; prodcode: string; salesdate: string; unitPrice: number; formattedUnitPrice: string }> => {
+    return apiFetch<{ transno: string; prodcode: string; salesdate: string; unitPrice: number; formattedUnitPrice: string }>(
+      `/api/sales/${encodeURIComponent(transno)}/details/price-lookup?prodcode=${encodeURIComponent(prodcode)}`
+    )
+  },
+
+  addDetail: (transno: string, payload: CreateSaleLinePayload): Promise<SaleLineItem> => {
+    return apiFetch<SaleLineItem>(`/api/sales/${encodeURIComponent(transno)}/details`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
+  },
+
+  updateDetail: (
+    transno: string,
+    prodcode: string,
+    payload: UpdateSaleLinePayload
+  ): Promise<SaleLineItem> => {
+    return apiFetch<SaleLineItem>(
+      `/api/sales/${encodeURIComponent(transno)}/details/${encodeURIComponent(prodcode)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }
+    )
+  },
+
+  deleteDetail: (
+    transno: string,
+    prodcode: string
+  ): Promise<{ message: string; transno: string; prodcode: string; stamp: string }> => {
+    return apiFetch<{ message: string; transno: string; prodcode: string; stamp: string }>(
+      `/api/sales/${encodeURIComponent(transno)}/details/${encodeURIComponent(prodcode)}`,
+      { method: "DELETE" }
+    )
+  },
+
+  restoreDetail: (
+    transno: string,
+    prodcode: string
+  ): Promise<{ message: string; transno: string; prodcode: string; stamp: string }> => {
+    return apiFetch<{ message: string; transno: string; prodcode: string; stamp: string }>(
+      `/api/sales/${encodeURIComponent(transno)}/details/${encodeURIComponent(prodcode)}/restore`,
+      { method: "POST" }
+    )
+  },
+
+  getNextOrno: (): Promise<{ nextOrno: string }> => {
+    return apiFetch<{ nextOrno: string }>("/api/sales/payments/next-orno")
+  },
+
+  getPayments: (transno: string, status?: string): Promise<PaymentRecord[]> => {
+    const q = status ? `?status=${encodeURIComponent(status)}` : ""
+    return apiFetch<PaymentRecord[]>(`/api/sales/${encodeURIComponent(transno)}/payments${q}`)
+  },
+
+  recordPayment: (transno: string, payload: RecordPaymentPayload): Promise<PaymentRecord> => {
+    return apiFetch<PaymentRecord>(`/api/sales/${encodeURIComponent(transno)}/payments`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
+  },
+
+  deletePayment: (orno: string): Promise<{ message: string; orno: string; stamp: string }> => {
+    return apiFetch<{ message: string; orno: string; stamp: string }>(
+      `/api/sales/payments/${encodeURIComponent(orno)}`,
+      { method: "DELETE" }
+    )
+  },
+
+  restorePayment: (orno: string): Promise<{ message: string; orno: string; stamp: string }> => {
+    return apiFetch<{ message: string; orno: string; stamp: string }>(
+      `/api/sales/payments/${encodeURIComponent(orno)}/restore`,
+      { method: "POST" }
+    )
+  },
+
+  getCustomerBalances: (params?: { search?: string; status?: string }): Promise<CustomerBalanceSummary[]> => {
+    const q = new URLSearchParams()
+    if (params?.search) q.set("search", params.search)
+    if (params?.status) q.set("status", params.status)
+    const qs = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<CustomerBalanceSummary[]>(`/api/sales/customer-balances${qs}`)
+  },
+
+  getTransactionBalance: (transno: string): Promise<TransactionBalanceSummary> => {
+    return apiFetch<TransactionBalanceSummary>(`/api/sales/${encodeURIComponent(transno)}/balance`)
+  },
+
+  getSingleCustomerBalance: (custno: string): Promise<CustomerDetailedBalance> => {
+    return apiFetch<CustomerDetailedBalance>(`/api/customers/${encodeURIComponent(custno)}/balance`)
+  },
+}
+
+// ============================================================================
+// Sprint 4: Reports Module APIs (S4-DEV-04)
+// ============================================================================
+
+export const reportsApi = {
+  getAvailableReports: (): Promise<{ reports: ReportKey[]; count: number }> => {
+    return apiFetch<{ reports: ReportKey[]; count: number }>("/api/reports/available")
+  },
+
+  getProductMasterReport: (): Promise<ReportResult> => {
+    return apiFetch<ReportResult>("/api/reports/product-master")
+  },
+
+  getActiveEmployeesReport: (): Promise<ReportResult> => {
+    return apiFetch<ReportResult>("/api/reports/active-employees")
+  },
+
+  getAllEmployeesReport: (): Promise<ReportResult> => {
+    return apiFetch<ReportResult>("/api/reports/all-employees")
+  },
+
+  getJobHistoryReport: (empno?: string): Promise<ReportResult> => {
+    const q = empno && empno !== "ALL" ? `?empno=${encodeURIComponent(empno)}` : ""
+    return apiFetch<ReportResult>(`/api/reports/employee-job-history${q}`)
+  },
+
+  getTopCustomersReport: (params?: SalesReportQueryParams): Promise<ReportResult> => {
+    const q = new URLSearchParams()
+    if (params?.fromDate) q.set("fromDate", params.fromDate)
+    if (params?.toDate) q.set("toDate", params.toDate)
+    if (params?.topN) q.set("topN", String(params.topN))
+    const qs = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<ReportResult>(`/api/reports/top-customers${qs}`)
+  },
+
+  getTopProductsReport: (params?: SalesReportQueryParams): Promise<ReportResult> => {
+    const q = new URLSearchParams()
+    if (params?.fromDate) q.set("fromDate", params.fromDate)
+    if (params?.toDate) q.set("toDate", params.toDate)
+    if (params?.topN) q.set("topN", String(params.topN))
+    const qs = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<ReportResult>(`/api/reports/top-products${qs}`)
+  },
+
+  getTopSalesReport: (params?: SalesReportQueryParams): Promise<ReportResult> => {
+    const q = new URLSearchParams()
+    if (params?.fromDate) q.set("fromDate", params.fromDate)
+    if (params?.toDate) q.set("toDate", params.toDate)
+    if (params?.topN) q.set("topN", String(params.topN))
+    const qs = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<ReportResult>(`/api/reports/top-sales${qs}`)
+  },
+
+  getReport: (key: ReportKey, params?: Record<string, string>): Promise<ReportResult> => {
+    const query = new URLSearchParams(params)
+    const qs = query.toString() ? `?${query.toString()}` : ""
+    return apiFetch<ReportResult>(`/api/reports/${encodeURIComponent(key)}${qs}`)
+  },
+}
+
+// ============================================================================
+// Sprint 4: Audit Log Viewer API (Superadmin Only)
+// ============================================================================
+
+export interface AuditLogItem {
+  audit_id: number
+  table_name: string
+  action: string
+  record_key: string
+  old_values: Record<string, any> | null
+  new_values: Record<string, any> | null
+  action_by: string
+  action_at: string
+}
+
+export interface AuditLogResponse {
+  logs: AuditLogItem[]
+  total: number
+  tables: string[]
+  actions: string[]
+  users: string[]
+}
+
+export interface AuditLogFilterParams {
+  table?: string
+  action?: string
+  user?: string
+  from?: string
+  to?: string
+  search?: string
+  limit?: number
+}
+
+export const auditApi = {
+  list: (params: AuditLogFilterParams = {}): Promise<AuditLogResponse> => {
+    const q = new URLSearchParams()
+    if (params.table && params.table !== "ALL" && params.table !== "All modules") {
+      q.set("table", params.table)
+    }
+    if (params.action && params.action !== "ALL" && params.action !== "All actions") {
+      q.set("action", params.action)
+    }
+    if (params.user && params.user !== "ALL" && params.user !== "All users") {
+      q.set("user", params.user)
+    }
+    if (params.from) q.set("from", params.from)
+    if (params.to) q.set("to", params.to)
+    if (params.search) q.set("search", params.search)
+    if (params.limit) q.set("limit", String(params.limit))
+    const query = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<AuditLogResponse>(`/api/audit-log${query}`)
   },
 }
