@@ -98,6 +98,10 @@ import {
   softDeletePaymentInSupabase,
   restorePaymentInSupabase,
   fetchCustomerBalancesFromSupabase,
+  fetchProductMasterReportFromSupabase,
+  fetchActiveEmployeesReportFromSupabase,
+  fetchAllEmployeesReportFromSupabase,
+  fetchEmployeeJobHistoryReportFromSupabase,
   formatMoney,
   parseStamp,
   type SupabaseUserRow,
@@ -2834,6 +2838,99 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
     return currentUser
   }
 
+  const ensureReportPermission = async (reportKey: string): Promise<DbUser> => {
+    if (!currentUser) {
+      return {
+        id: "prototype-demo-session",
+        email: "superadmin@hope.example",
+        passwordHash: "",
+        role: "Superadmin",
+        approvalStatus: "APPROVED",
+        blocked: false,
+        firstName: "Prototype",
+        lastName: "Superadmin",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = testRights || (await fetchUserRightsFromSupabase(currentUser.id).catch(() => []))
+    const effectiveRights = userRights
+
+    // If Admin and no specific rights restriction configured, grant full access
+    if (currentUser.role === "Admin" && !effectiveRights.length) {
+      return currentUser
+    }
+
+    const hasRight = (name: string) => {
+      const n = name.toLowerCase().trim()
+      return effectiveRights.some((r) => {
+        const rl = r.toLowerCase().trim()
+        return (
+          rl === n ||
+          rl === `report - ${n}` ||
+          rl === `${n} report` ||
+          (rl.includes("report") && rl.includes(n)) ||
+          rl.includes(n)
+        )
+      })
+    }
+
+    let permitted = false
+    let requiredRightLabel = ""
+
+    switch (reportKey.toLowerCase().trim()) {
+      case "product-master":
+      case "product-master-list":
+        permitted = hasRight("product master") || hasRight("product master list") || hasRight("product")
+        requiredRightLabel = "Report - Product Master List"
+        break
+      case "active-employees":
+        permitted = hasRight("active employees") || hasRight("active employee")
+        requiredRightLabel = "Report - Active Employees"
+        break
+      case "all-employees":
+        permitted = hasRight("all employees") || hasRight("all employee")
+        requiredRightLabel = "Report - All Employees"
+        break
+      case "history":
+      case "employee-job-history":
+      case "job-history":
+        permitted = hasRight("employee job history") || hasRight("job history") || hasRight("view job history")
+        requiredRightLabel = "Report - Employee Job History"
+        break
+      case "customers":
+      case "top-customers":
+        permitted = hasRight("top customers") || hasRight("customer")
+        requiredRightLabel = "Report - Top Customers"
+        break
+      case "products":
+      case "top-products":
+        permitted = hasRight("top products") || hasRight("product")
+        requiredRightLabel = "Report - Top Products"
+        break
+      case "sales":
+      case "top-sales":
+        permitted = hasRight("top sales") || hasRight("sale")
+        requiredRightLabel = "Report - Top Sales"
+        break
+      default:
+        permitted = false
+        requiredRightLabel = `Report - ${reportKey}`
+    }
+
+    if (!permitted) {
+      const err: any = new Error(`Access denied: ${requiredRightLabel} right required.`)
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    return currentUser
+  }
+
   // 1. Lookups: Products for Sale Line Items (/api/sales/lookups/products)
   if (pathname === "/api/sales/lookups/products" && method === "GET") {
     try {
@@ -3150,6 +3247,165 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
       if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
       if (e.message === "FORBIDDEN") return jsonResponse({ message: "Access denied." }, 403)
       return jsonResponse({ message: e.message || "Table Editor operation failed." }, 400)
+    }
+  }
+
+  // ==========================================================================
+  // Sprint 4: Reports Module Endpoints (S4-DEV-04)
+  // ==========================================================================
+
+  // 1. Available Reports for Current User (GET /api/reports/available)
+  if (pathname === "/api/reports/available" && method === "GET") {
+    try {
+      if (!currentUser) {
+        return jsonResponse({
+          reports: [
+            "product-master",
+            "active-employees",
+            "all-employees",
+            "history",
+            "customers",
+            "products",
+            "sales",
+          ],
+          count: 7,
+        })
+      }
+      if (currentUser.role === "Superadmin") {
+        return jsonResponse({
+          reports: [
+            "product-master",
+            "active-employees",
+            "all-employees",
+            "history",
+            "customers",
+            "products",
+            "sales",
+          ],
+          count: 7,
+        })
+      }
+
+      const allKeys = [
+        "product-master",
+        "active-employees",
+        "all-employees",
+        "history",
+        "customers",
+        "products",
+        "sales",
+      ]
+      const accessible: string[] = []
+      for (const k of allKeys) {
+        try {
+          await ensureReportPermission(k)
+          accessible.push(k)
+        } catch {
+          // not permitted
+        }
+      }
+      return jsonResponse({ reports: accessible, count: accessible.length })
+    } catch (e: any) {
+      return jsonResponse({ message: e.message || "Failed to fetch accessible reports." }, 500)
+    }
+  }
+
+  // 2. Product Master List Report (GET /api/reports/product-master)
+  if (
+    (pathname === "/api/reports/product-master" ||
+      pathname === "/api/reports/product-master-list") &&
+    method === "GET"
+  ) {
+    try {
+      await ensureReportPermission("product-master")
+      const report = await fetchProductMasterReportFromSupabase()
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to generate Product Master report." }, 500)
+    }
+  }
+
+  // 3. Active Employees Report (GET /api/reports/active-employees)
+  if (pathname === "/api/reports/active-employees" && method === "GET") {
+    try {
+      await ensureReportPermission("active-employees")
+      const report = await fetchActiveEmployeesReportFromSupabase()
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to generate Active Employees report." }, 500)
+    }
+  }
+
+  // 4. All Employees Report (GET /api/reports/all-employees)
+  if (pathname === "/api/reports/all-employees" && method === "GET") {
+    try {
+      await ensureReportPermission("all-employees")
+      const report = await fetchAllEmployeesReportFromSupabase()
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to generate All Employees report." }, 500)
+    }
+  }
+
+  // 5. Employee Job History Report (GET /api/reports/employee-job-history, /api/reports/job-history, /api/reports/history)
+  if (
+    (pathname === "/api/reports/employee-job-history" ||
+      pathname === "/api/reports/job-history" ||
+      pathname === "/api/reports/history") &&
+    method === "GET"
+  ) {
+    try {
+      await ensureReportPermission("history")
+      const empnoParam = parsedUrl.searchParams.get("empno") || undefined
+      const report = await fetchEmployeeJobHistoryReportFromSupabase(empnoParam)
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to generate Employee Job History report." }, 500)
+    }
+  }
+
+  // 6. Generic Report Endpoint (GET /api/reports/:reportKey)
+  const reportParamMatch = pathname.match(/^\/api\/reports\/([^/]+)$/)
+  if (reportParamMatch && method === "GET") {
+    const rawKey = decodeURIComponent(reportParamMatch[1]).toLowerCase()
+    try {
+      await ensureReportPermission(rawKey)
+
+      if (rawKey === "product-master" || rawKey === "product-master-list") {
+        const report = await fetchProductMasterReportFromSupabase()
+        return jsonResponse(report)
+      }
+      if (rawKey === "active-employees") {
+        const report = await fetchActiveEmployeesReportFromSupabase()
+        return jsonResponse(report)
+      }
+      if (rawKey === "all-employees") {
+        const report = await fetchAllEmployeesReportFromSupabase()
+        return jsonResponse(report)
+      }
+      if (
+        rawKey === "history" ||
+        rawKey === "employee-job-history" ||
+        rawKey === "job-history"
+      ) {
+        const empnoParam = parsedUrl.searchParams.get("empno") || undefined
+        const report = await fetchEmployeeJobHistoryReportFromSupabase(empnoParam)
+        return jsonResponse(report)
+      }
+
+      return jsonResponse({ message: `Report '${rawKey}' generated.` }, 200)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || `Failed to generate report '${rawKey}'.` }, 500)
     }
   }
 

@@ -428,7 +428,73 @@ export interface CustomerBalanceSummary {
   open: number
 }
 
+// ============================================================================
+// Sprint 4: Reports Module Types (S4-DEV-04)
+// ============================================================================
 
+export type ReportKey =
+  | "customers"
+  | "product-master"
+  | "products"
+  | "active-employees"
+  | "all-employees"
+  | "history"
+  | "sales"
 
+export interface ReportDefinition {
+  key: ReportKey
+  short: string
+  title: string
+  subtitle: string
+  right: string
+}
 
+export interface ReportResult {
+  key: ReportKey
+  title: string
+  subtitle: string
+  headers: string[]
+  rows: (string | number)[][]
+  totalRows: number
+  generatedAt: string
+  filtersApplied?: Record<string, any>
+}
+
+export interface ProductMasterReportItem {
+  prodcode: string
+  description: string
+  unit: string
+  currentPrice: string
+  currentPriceNum: number
+}
+
+export interface ActiveEmployeeReportItem {
+  empno: string
+  lastname: string
+  firstname: string
+  gender: string
+  birthdate: string
+  hiredate: string
+}
+
+export interface AllEmployeeReportItem {
+  empno: string
+  lastname: string
+  firstname: string
+  gender: string
+  birthdate: string
+  hiredate: string
+  sepdate: string
+  status: "Active" | "Inactive"
+}
+
+export interface JobHistoryReportItem {
+  empno: string
+  employee: string
+  effdate: string
+  job: string
+  department: string
+  salary: string
+  salaryNum: number
+}
 
