@@ -396,6 +396,38 @@ export interface SaleProductOption {
   currentPrice?: number
 }
 
+// Sprint 4 Payment Records Types (S4-DEV-03)
+export interface PaymentRecord {
+  orno: string
+  transno: string
+  paydate: string
+  amount: string
+  amountNum: number
+  is_deleted?: boolean
+  status: "Active" | "Inactive"
+  stamp?: string
+  stampAction?: string
+  stampUser?: string
+  stampDate?: string
+  action?: string
+  user?: string
+  date?: string
+}
+
+export interface RecordPaymentPayload {
+  transno?: string
+  orno?: string
+  paydate: string
+  amount: number
+}
+
+export interface CustomerBalanceSummary {
+  customer: string
+  billed: number
+  paid: number
+  open: number
+}
+
 
 
 

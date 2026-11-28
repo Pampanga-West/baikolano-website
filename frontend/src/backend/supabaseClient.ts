@@ -4408,6 +4408,402 @@ export async function restoreSaleDetailInSupabase(
   }
 }
 
+// ============================================================================
+// Sprint 4: Payment Records (S4-DEV-03)
+// ============================================================================
+
+export interface PaymentRecord {
+  orno: string
+  transno: string
+  paydate: string
+  amount: string
+  amountNum: number
+  is_deleted?: boolean
+  status: "Active" | "Inactive"
+  stamp?: string
+  stampAction?: string
+  stampUser?: string
+  stampDate?: string
+  action?: string
+  user?: string
+  date?: string
+}
+
+export interface RecordPaymentPayload {
+  transno?: string
+  orno?: string
+  paydate: string
+  amount: number
+}
+
+export interface CustomerBalanceSummary {
+  customer: string
+  billed: number
+  paid: number
+  open: number
+}
+
+export async function generateNextOrno(): Promise<string> {
+  try {
+    const rows = await postgrestFetch<Record<string, any>[]>("/payment?select=orno")
+    if (!rows || !rows.length) {
+      return "OR-1001"
+    }
+    const numbers: number[] = []
+    for (const r of rows) {
+      const ornoStr = String(r.orno || "").trim().toUpperCase()
+      const m = ornoStr.match(/^OR-?0*(\d+)$/)
+      if (m) {
+        numbers.push(parseInt(m[1], 10))
+      }
+    }
+    const highNumbers = numbers.filter((n) => n >= 1000)
+    if (highNumbers.length) {
+      const maxVal = Math.max(...highNumbers)
+      return `OR-${maxVal + 1}`
+    }
+    return "OR-1001"
+  } catch {
+    return "OR-1001"
+  }
+}
+
+export async function fetchPaymentsForSaleFromSupabase(
+  transno: string
+): Promise<PaymentRecord[]> {
+  const tCode = String(transno || "").trim().toUpperCase()
+  const rows = await postgrestFetch<Record<string, any>[]>(
+    `/payment?transno=eq.${encodeURIComponent(tCode)}&order=paydate.desc,orno.desc`
+  ).catch(() => [])
+
+  return (rows || []).map((p) => {
+    const isDeleted = Boolean(p.is_deleted)
+    const [action, payUser, date] = parseStamp(p.stamp, isDeleted)
+    const amt = Number(p.amount) || 0
+    return {
+      orno: String(p.orno ?? "").trim(),
+      transno: tCode,
+      paydate: String(p.paydate ?? ""),
+      amount: formatMoney(amt),
+      amountNum: amt,
+      is_deleted: isDeleted,
+      status: isDeleted ? "Inactive" : "Active",
+      stamp: p.stamp,
+      stampAction: action,
+      stampUser: payUser,
+      stampDate: date,
+      action,
+      user: payUser,
+      date,
+    }
+  })
+}
+
+export async function insertPaymentIntoSupabase(
+  transno: string,
+  payload: RecordPaymentPayload,
+  actionBy: string
+): Promise<PaymentRecord> {
+  const tCode = String(transno || payload.transno || "").trim().toUpperCase()
+  if (!tCode) {
+    const err: any = new Error("Transaction number is required.")
+    err.statusCode = 400
+    throw err
+  }
+
+  // Ensure parent sale exists and is not deleted
+  const parentSales = await postgrestFetch<Record<string, any>[]>(
+    `/sales?transno=eq.${encodeURIComponent(tCode)}&limit=1`
+  ).catch(() => [])
+  if (!parentSales.length || parentSales[0].is_deleted) {
+    const err: any = new Error(`Sales transaction ${tCode} not found or is inactive.`)
+    err.statusCode = 404
+    throw err
+  }
+
+  // Generate or sanitize orno
+  let orno = String(payload.orno || "").trim().toUpperCase()
+  if (!orno) {
+    orno = await generateNextOrno()
+  }
+
+  // Validate orno uniqueness among active receipts
+  const existingReceipts = await postgrestFetch<Record<string, any>[]>(
+    `/payment?orno=eq.${encodeURIComponent(orno)}&limit=1`
+  ).catch(() => [])
+  if (existingReceipts.length) {
+    if (!existingReceipts[0].is_deleted) {
+      const err: any = new Error(`Official Receipt No. ${orno} already exists.`)
+      err.statusCode = 409
+      throw err
+    }
+  }
+
+  // Validate paydate
+  const paydate = String(payload.paydate || "").trim()
+  if (!paydate) {
+    const err: any = new Error("Payment date is required.")
+    err.statusCode = 400
+    throw err
+  }
+
+  // Validate amount
+  const amount = Number(payload.amount)
+  if (isNaN(amount) || amount <= 0) {
+    const err: any = new Error("Payment amount must be greater than 0.")
+    err.statusCode = 400
+    throw err
+  }
+
+  // Calculate invoice total & existing payments to prevent overpayment
+  const [lineRows, existingPayRows] = await Promise.all([
+    fetchSaleDetailsFromSupabase(tCode),
+    fetchPaymentsForSaleFromSupabase(tCode),
+  ])
+  const saleTotal = lineRows
+    .filter((l) => !l.is_deleted)
+    .reduce((sum, l) => sum + l.lineTotalNum, 0)
+  const totalPaid = existingPayRows
+    .filter((p) => !p.is_deleted)
+    .reduce((sum, p) => sum + p.amountNum, 0)
+  const remaining = Math.max(0, saleTotal - totalPaid)
+
+  if (saleTotal > 0 && amount > remaining + 0.001) {
+    const err: any = new Error(
+      `Payment amount (${formatMoney(amount)}) exceeds remaining balance of ${formatMoney(remaining)}.`
+    )
+    err.statusCode = 400
+    throw err
+  }
+
+  const dateStr = formatStampDateTime(new Date())
+  const stamp = `CREATED ${actionBy} ${dateStr}`
+
+  // Check if existed as soft-deleted
+  if (existingReceipts.length && existingReceipts[0].is_deleted) {
+    const patch = {
+      transno: tCode,
+      paydate,
+      amount,
+      is_deleted: false,
+      stamp: `RESTORED ${actionBy} ${dateStr}`,
+    }
+    await postgrestFetch(`/payment?orno=eq.${encodeURIComponent(orno)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    })
+    await insertAuditLogIntoSupabase({
+      table_name: "payment",
+      action: "RESTORE",
+      record_key: orno,
+      new_values: patch,
+      action_by: actionBy,
+    }).catch(() => {})
+  } else {
+    const newRecord = {
+      orno,
+      transno: tCode,
+      paydate,
+      amount,
+      is_deleted: false,
+      stamp,
+    }
+    await postgrestFetch("/payment", {
+      method: "POST",
+      body: JSON.stringify(newRecord),
+    })
+    await insertAuditLogIntoSupabase({
+      table_name: "payment",
+      action: "ADD",
+      record_key: orno,
+      new_values: newRecord,
+      action_by: actionBy,
+    }).catch(() => {})
+  }
+
+  return {
+    orno,
+    transno: tCode,
+    paydate,
+    amount: formatMoney(amount),
+    amountNum: amount,
+    is_deleted: false,
+    status: "Active",
+    stamp,
+    stampAction: "CREATED",
+    stampUser: actionBy,
+    stampDate: dateStr,
+    action: "CREATED",
+    user: actionBy,
+    date: dateStr,
+  }
+}
+
+export async function softDeletePaymentInSupabase(
+  orno: string,
+  actionBy: string
+): Promise<{
+  orno: string
+  transno?: string
+  is_deleted: boolean
+  status: "Inactive"
+  stamp: string
+  stampAction: string
+  stampUser: string
+  stampDate: string
+}> {
+  const oCode = String(orno || "").trim().toUpperCase()
+  const dateStr = formatStampDateTime(new Date())
+  const stamp = `DELETED ${actionBy} ${dateStr}`
+  const patch = {
+    is_deleted: true,
+    stamp,
+  }
+
+  await postgrestFetch(`/payment?orno=eq.${encodeURIComponent(oCode)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "payment",
+    action: "DELETE",
+    record_key: oCode,
+    new_values: patch,
+    action_by: actionBy,
+  }).catch(() => {})
+
+  return {
+    orno: oCode,
+    is_deleted: true,
+    status: "Inactive",
+    stamp,
+    stampAction: "DELETED",
+    stampUser: actionBy,
+    stampDate: dateStr,
+  }
+}
+
+export async function restorePaymentInSupabase(
+  orno: string,
+  actionBy: string
+): Promise<{
+  orno: string
+  transno?: string
+  is_deleted: boolean
+  status: "Active"
+  stamp: string
+  stampAction: string
+  stampUser: string
+  stampDate: string
+}> {
+  const oCode = String(orno || "").trim().toUpperCase()
+  const dateStr = formatStampDateTime(new Date())
+  const stamp = `RESTORED ${actionBy} ${dateStr}`
+  const patch = {
+    is_deleted: false,
+    stamp,
+  }
+
+  await postgrestFetch(`/payment?orno=eq.${encodeURIComponent(oCode)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "payment",
+    action: "RESTORE",
+    record_key: oCode,
+    new_values: patch,
+    action_by: actionBy,
+  }).catch(() => {})
+
+  return {
+    orno: oCode,
+    is_deleted: false,
+    status: "Active",
+    stamp,
+    stampAction: "RESTORED",
+    stampUser: actionBy,
+    stampDate: dateStr,
+  }
+}
+
+export async function fetchCustomerBalancesFromSupabase(): Promise<CustomerBalanceSummary[]> {
+  const [salesRows, detailRows, payRows, custRows, priceRows] = await Promise.all([
+    postgrestFetch<Record<string, any>[]>("/sales?is_deleted=eq.false").catch(() => []),
+    postgrestFetch<Record<string, any>[]>("/salesdetail?is_deleted=eq.false").catch(() => []),
+    postgrestFetch<Record<string, any>[]>("/payment?is_deleted=eq.false").catch(() => []),
+    postgrestFetch<Record<string, any>[]>("/customer").catch(() => []),
+    postgrestFetch<Record<string, any>[]>("/pricehist?is_deleted=eq.false&order=effdate.desc").catch(() => []),
+  ])
+
+  const custMap = new Map<string, string>()
+  for (const c of custRows || []) {
+    const cNo = String(c.custno ?? "").trim().toUpperCase()
+    if (cNo) custMap.set(cNo, `${cNo} — ${c.custname ?? ""}`)
+  }
+
+  const priceByProd = new Map<string, { effdate: string; price: number }[]>()
+  for (const pr of priceRows || []) {
+    const code = String(pr.prodcode ?? "").trim().toUpperCase()
+    const list = priceByProd.get(code) ?? []
+    list.push({ effdate: String(pr.effdate ?? ""), price: Number(pr.unitprice) || 0 })
+    priceByProd.set(code, list)
+  }
+
+  const salesMap = new Map<string, { salesdate: string; custno: string }>()
+  for (const s of salesRows || []) {
+    const tNo = String(s.transno ?? "").trim().toUpperCase()
+    salesMap.set(tNo, {
+      salesdate: String(s.salesdate ?? ""),
+      custno: String(s.custno ?? "").trim().toUpperCase(),
+    })
+  }
+
+  const resolveUnitPrice = (prodcode: string, salesdate: string) => {
+    const list = priceByProd.get(prodcode.toUpperCase()) ?? []
+    if (!list.length) return 0
+    const match = list.find((p) => !salesdate || p.effdate <= salesdate)
+    return match ? match.price : list[0].price
+  }
+
+  const billedByCust = new Map<string, number>()
+  for (const d of detailRows || []) {
+    const tNo = String(d.transno ?? "").trim().toUpperCase()
+    const sInfo = salesMap.get(tNo)
+    if (!sInfo) continue
+    const pCode = String(d.prodcode ?? "").trim()
+    const qty = Number(d.quantity) || 0
+    const uPrice = resolveUnitPrice(pCode, sInfo.salesdate)
+    const lineTotal = qty * uPrice
+    const custLabel = custMap.get(sInfo.custno) || sInfo.custno
+    billedByCust.set(custLabel, (billedByCust.get(custLabel) ?? 0) + lineTotal)
+  }
+
+  const paidByCust = new Map<string, number>()
+  for (const p of payRows || []) {
+    const tNo = String(p.transno ?? "").trim().toUpperCase()
+    const sInfo = salesMap.get(tNo)
+    if (!sInfo) continue
+    const amt = Number(p.amount) || 0
+    const custLabel = custMap.get(sInfo.custno) || sInfo.custno
+    paidByCust.set(custLabel, (paidByCust.get(custLabel) ?? 0) + amt)
+  }
+
+  const allCusts = new Set([...billedByCust.keys(), ...paidByCust.keys()])
+  return Array.from(allCusts).map((customer) => {
+    const billed = billedByCust.get(customer) ?? 0
+    const paid = paidByCust.get(customer) ?? 0
+    return {
+      customer,
+      billed,
+      paid,
+      open: Math.max(0, billed - paid),
+    }
+  })
+}
+
 
 
 

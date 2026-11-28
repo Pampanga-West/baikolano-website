@@ -92,6 +92,12 @@ import {
   updateSaleDetailInSupabase,
   softDeleteSaleDetailInSupabase,
   restoreSaleDetailInSupabase,
+  generateNextOrno,
+  fetchPaymentsForSaleFromSupabase,
+  insertPaymentIntoSupabase,
+  softDeletePaymentInSupabase,
+  restorePaymentInSupabase,
+  fetchCustomerBalancesFromSupabase,
   formatMoney,
   parseStamp,
   type SupabaseUserRow,
@@ -2719,6 +2725,115 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
     return currentUser
   }
 
+  const ensurePaymentPermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+    if (!currentUser) {
+      return {
+        id: "prototype-demo-session",
+        email: "superadmin@hope.example",
+        passwordHash: "",
+        role: "Superadmin",
+        approvalStatus: "APPROVED",
+        blocked: false,
+        firstName: "Prototype",
+        lastName: "Superadmin",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = testRights || (await fetchUserRightsFromSupabase(currentUser.id).catch(() => []))
+    const effectiveRights = userRights
+
+    const hasRight = (name: string) => {
+      const n = name.toLowerCase().trim()
+      return effectiveRights.some((r) => {
+        const rl = r.toLowerCase().trim()
+        return (
+          rl === n ||
+          rl === `payment - ${n}` ||
+          rl === `${n} payment` ||
+          rl === `receipt - ${n}` ||
+          rl === `${n} receipt` ||
+          rl === `sale - ${n}` ||
+          rl === `sales - ${n}` ||
+          rl === `${n} sale` ||
+          rl === `${n} sales` ||
+          (rl.includes("sale") && rl.includes(n)) ||
+          (rl.includes("payment") && rl.includes(n))
+        )
+      })
+    }
+
+    if (action === "View") {
+      if (
+        (currentUser.role === "Admin" && !effectiveRights.length) ||
+        hasRight("view") ||
+        hasRight("view sales") ||
+        hasRight("view sale") ||
+        effectiveRights.length === 0
+      ) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: View Sales/Payment right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Add") {
+      if (
+        (currentUser.role === "Admin" && !effectiveRights.length) ||
+        hasRight("add") ||
+        hasRight("add payment") ||
+        hasRight("record payment") ||
+        hasRight("edit sale") ||
+        hasRight("add sale")
+      ) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Record Payment right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Edit") {
+      if (
+        (currentUser.role === "Admin" && !effectiveRights.length) ||
+        hasRight("edit") ||
+        hasRight("edit payment") ||
+        hasRight("edit sale")
+      ) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Edit Payment right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Delete") {
+      if (
+        (currentUser.role === "Admin" && !effectiveRights.length) ||
+        hasRight("delete") ||
+        hasRight("delete payment") ||
+        hasRight("void payment") ||
+        hasRight("delete sale") ||
+        hasRight("edit sale")
+      ) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Void/Delete Payment right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    return currentUser
+  }
+
   // 1. Lookups: Products for Sale Line Items (/api/sales/lookups/products)
   if (pathname === "/api/sales/lookups/products" && method === "GET") {
     try {
@@ -2863,6 +2978,130 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
         if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
         if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
         return jsonResponse({ message: e.message || "Failed to deactivate sale line item." }, 400)
+      }
+    }
+  }
+
+  // ==========================================================================
+  // Sprint 4: Payment Records Endpoints (S4-DEV-03)
+  // ==========================================================================
+
+  // Next Official Receipt Number (GET /api/sales/payments/next-orno)
+  if (pathname === "/api/sales/payments/next-orno" && method === "GET") {
+    try {
+      await ensurePaymentPermission("View")
+      const nextOrno = await generateNextOrno()
+      return jsonResponse({ nextOrno })
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to generate next OR number." }, 500)
+    }
+  }
+
+  // Customer Balances Summary (GET /api/sales/reports/customer-balances)
+  if (pathname === "/api/sales/reports/customer-balances" && method === "GET") {
+    try {
+      await ensurePaymentPermission("View")
+      const balances = await fetchCustomerBalancesFromSupabase()
+      return jsonResponse(balances)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to fetch customer balance summary." }, 500)
+    }
+  }
+
+  // Transaction Payments Collection Endpoints (/api/sales/:transno/payments)
+  const salePaymentsMatch = pathname.match(/^\/api\/sales\/([^/]+)\/payments$/)
+  if (salePaymentsMatch) {
+    const transno = decodeURIComponent(salePaymentsMatch[1])
+
+    // List Payment Receipts (GET /api/sales/:transno/payments)
+    if (method === "GET") {
+      try {
+        const caller = await ensurePaymentPermission("View")
+        const receipts = await fetchPaymentsForSaleFromSupabase(transno)
+
+        const userRights =
+          caller.role === "Superadmin"
+            ? []
+            : (testRights || (await fetchUserRightsFromSupabase(caller.id).catch(() => [])))
+
+        const canSeeInactive =
+          caller.role === "Superadmin" ||
+          caller.role === "Admin" ||
+          userRights.some((r) => {
+            const l = r.toLowerCase()
+            return l.includes("delete") || l.includes("void") || l.includes("edit")
+          })
+
+        const statusParam = parsedUrl.searchParams.get("status")?.toLowerCase()
+        const visibleReceipts = receipts.filter((r) => {
+          if (!canSeeInactive && r.is_deleted) return false
+          if (statusParam === "active" && r.is_deleted) return false
+          if (statusParam === "inactive" && !r.is_deleted) return false
+          return true
+        })
+
+        return jsonResponse(visibleReceipts)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to fetch payment receipts." }, 500)
+      }
+    }
+
+    // Record Payment Receipt (POST /api/sales/:transno/payments)
+    if (method === "POST") {
+      try {
+        const caller = await ensurePaymentPermission("Add")
+        const created = await insertPaymentIntoSupabase(transno, body, caller.email)
+        return jsonResponse(created, 201)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
+        return jsonResponse({ message: e.message || "Failed to record payment." }, e.statusCode || 400)
+      }
+    }
+  }
+
+  // Single Payment Receipt Actions (/api/sales/payments/:orno, /restore)
+  const singlePaymentMatch = pathname.match(/^\/api\/sales\/(?:[^/]+\/)?payments\/([^/]+)(?:\/(restore))?$/)
+  if (singlePaymentMatch) {
+    const orno = decodeURIComponent(singlePaymentMatch[1])
+    const subAction = singlePaymentMatch[2]
+
+    // Restore Payment Receipt (POST /api/sales/payments/:orno/restore)
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensurePaymentPermission("Edit")
+        const result = await restorePaymentInSupabase(orno, caller.email)
+        return jsonResponse({
+          message: `Official Receipt ${orno} restored to active status. Customer open balance adjusted.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore payment receipt." }, 400)
+      }
+    }
+
+    // Void / Soft-Delete Payment Receipt (DELETE /api/sales/payments/:orno)
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensurePaymentPermission("Delete")
+        const result = await softDeletePaymentInSupabase(orno, caller.email)
+        return jsonResponse({
+          message: `Official Receipt ${orno} voided (soft-deleted). Customer open balance adjusted.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to void payment receipt." }, 400)
       }
     }
   }
