@@ -36,6 +36,10 @@ import {
   type SaleHeader,
   type CreateSalePayload,
   type SalesQueryParams,
+  type SaleLineItem,
+  type CreateSaleLinePayload,
+  type UpdateSaleLinePayload,
+  type SaleProductOption,
 } from "./types"
 
 // Automatically install global in-browser mock server interceptor
@@ -1196,6 +1200,67 @@ export const salesApi = {
     return apiFetch<{ message: string; transno: string; stamp: string }>(
       `/api/sales/${encodeURIComponent(transno)}`,
       { method: "DELETE" }
+    )
+  },
+
+  // Sale Details (S4-DEV-02)
+  listDetails: (transno: string, status?: "active" | "inactive" | "all"): Promise<SaleLineItem[]> => {
+    const q = status ? `?status=${encodeURIComponent(status)}` : ""
+    return apiFetch<SaleLineItem[]>(`/api/sales/${encodeURIComponent(transno)}/details${q}`)
+  },
+
+  getProductOptions: (salesdate?: string): Promise<SaleProductOption[]> => {
+    const q = salesdate ? `?salesdate=${encodeURIComponent(salesdate)}` : ""
+    return apiFetch<SaleProductOption[]>(`/api/sales/lookups/products${q}`)
+  },
+
+  resolveUnitPrice: (
+    transno: string,
+    prodcode: string
+  ): Promise<{ transno: string; prodcode: string; salesdate: string; unitPrice: number; formattedUnitPrice: string }> => {
+    return apiFetch<{ transno: string; prodcode: string; salesdate: string; unitPrice: number; formattedUnitPrice: string }>(
+      `/api/sales/${encodeURIComponent(transno)}/details/price-lookup?prodcode=${encodeURIComponent(prodcode)}`
+    )
+  },
+
+  addDetail: (transno: string, payload: CreateSaleLinePayload): Promise<SaleLineItem> => {
+    return apiFetch<SaleLineItem>(`/api/sales/${encodeURIComponent(transno)}/details`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
+  },
+
+  updateDetail: (
+    transno: string,
+    prodcode: string,
+    payload: UpdateSaleLinePayload
+  ): Promise<SaleLineItem> => {
+    return apiFetch<SaleLineItem>(
+      `/api/sales/${encodeURIComponent(transno)}/details/${encodeURIComponent(prodcode)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }
+    )
+  },
+
+  deleteDetail: (
+    transno: string,
+    prodcode: string
+  ): Promise<{ message: string; transno: string; prodcode: string; stamp: string }> => {
+    return apiFetch<{ message: string; transno: string; prodcode: string; stamp: string }>(
+      `/api/sales/${encodeURIComponent(transno)}/details/${encodeURIComponent(prodcode)}`,
+      { method: "DELETE" }
+    )
+  },
+
+  restoreDetail: (
+    transno: string,
+    prodcode: string
+  ): Promise<{ message: string; transno: string; prodcode: string; stamp: string }> => {
+    return apiFetch<{ message: string; transno: string; prodcode: string; stamp: string }>(
+      `/api/sales/${encodeURIComponent(transno)}/details/${encodeURIComponent(prodcode)}/restore`,
+      { method: "POST" }
     )
   },
 }

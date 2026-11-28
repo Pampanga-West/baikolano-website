@@ -85,6 +85,14 @@ import {
   fetchActiveCustomersForDropdown,
   fetchActiveSalespersonsForDropdown,
   generateNextTransno,
+  resolveProductUnitPriceAsOfDate,
+  fetchActiveProductsForSaleDropdown,
+  fetchSaleDetailsFromSupabase,
+  insertSaleDetailIntoSupabase,
+  updateSaleDetailInSupabase,
+  softDeleteSaleDetailInSupabase,
+  restoreSaleDetailInSupabase,
+  formatMoney,
   parseStamp,
   type SupabaseUserRow,
 } from "./supabaseClient.ts"
@@ -2616,6 +2624,245 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
           )
         }
         return jsonResponse({ message: e.message || "Failed to deactivate sales transaction." }, 400)
+      }
+    }
+  }
+
+  // ==========================================================================
+  // Sprint 4: Sale Details Line Items Endpoints (/api/sales/:transno/details)
+  // ==========================================================================
+
+  const ensureSaleDetailPermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+    if (!currentUser) {
+      return {
+        id: "prototype-demo-session",
+        email: "superadmin@hope.example",
+        passwordHash: "",
+        role: "Superadmin",
+        approvalStatus: "APPROVED",
+        blocked: false,
+        firstName: "Prototype",
+        lastName: "Superadmin",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = testRights || (await fetchUserRightsFromSupabase(currentUser.id).catch(() => []))
+    const effectiveRights = userRights
+
+    const hasRight = (name: string) => {
+      const n = name.toLowerCase().trim()
+      return effectiveRights.some((r) => {
+        const rl = r.toLowerCase().trim()
+        return (
+          rl === n ||
+          rl === `sale detail - ${n}` ||
+          rl === `sale details - ${n}` ||
+          rl === `${n} sale detail` ||
+          rl === `${n} sale details` ||
+          rl === `sale - ${n}` ||
+          rl === `sales - ${n}` ||
+          (rl.includes("sale") && rl.includes("detail") && rl.includes(n))
+        )
+      })
+    }
+
+    if (action === "View") {
+      if (
+        currentUser.role === "Admin" ||
+        hasRight("view") ||
+        hasRight("add") ||
+        hasRight("edit") ||
+        hasRight("delete")
+      ) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: View Sale Detail right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Add") {
+      if ((currentUser.role === "Admin" && !effectiveRights.length) || hasRight("add")) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Add Sale Detail right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Edit") {
+      if ((currentUser.role === "Admin" && !effectiveRights.length) || hasRight("edit")) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Edit Sale Detail right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Delete") {
+      if ((currentUser.role === "Admin" && !effectiveRights.length) || hasRight("delete")) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Delete Sale Detail right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // 1. Lookups: Products for Sale Line Items (/api/sales/lookups/products)
+  if (pathname === "/api/sales/lookups/products" && method === "GET") {
+    try {
+      await ensureSaleDetailPermission("View")
+      const salesdate = parsedUrl.searchParams.get("salesdate") || undefined
+      const products = await fetchActiveProductsForSaleDropdown(salesdate)
+      return jsonResponse(products)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to fetch product options." }, 400)
+    }
+  }
+
+  // 2. Single Sale Detail Price-as-of-Date Lookup (/api/sales/:transno/details/price-lookup)
+  const priceLookupMatch = pathname.match(/^\/api\/sales\/([^/]+)\/details\/price-lookup$/)
+  if (priceLookupMatch && method === "GET") {
+    try {
+      await ensureSaleDetailPermission("View")
+      const transno = decodeURIComponent(priceLookupMatch[1])
+      const prodcode = parsedUrl.searchParams.get("prodcode") || ""
+
+      const parentSale = await fetchSaleByTransnoFromSupabase(transno)
+      const salesdate = parentSale?.salesdate || ""
+
+      const unitPrice = await resolveProductUnitPriceAsOfDate(prodcode, salesdate)
+      return jsonResponse({
+        transno,
+        prodcode,
+        salesdate,
+        unitPrice,
+        formattedUnitPrice: formatMoney(unitPrice),
+      })
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to resolve unit price." }, 400)
+    }
+  }
+
+  // 3. Sale Details Collection Endpoints (/api/sales/:transno/details)
+  const saleDetailsMatch = pathname.match(/^\/api\/sales\/([^/]+)\/details$/)
+  if (saleDetailsMatch) {
+    const transno = decodeURIComponent(saleDetailsMatch[1])
+
+    // List Line Items (GET /api/sales/:transno/details)
+    if (method === "GET") {
+      try {
+        const caller = await ensureSaleDetailPermission("View")
+        const lines = await fetchSaleDetailsFromSupabase(transno)
+
+        const userRights =
+          caller.role === "Superadmin"
+            ? []
+            : (testRights || (await fetchUserRightsFromSupabase(caller.id).catch(() => [])))
+
+        const canSeeInactive =
+          caller.role === "Superadmin" ||
+          caller.role === "Admin" ||
+          userRights.some((r) => {
+            const l = r.toLowerCase()
+            return l.includes("delete") || l.includes("edit")
+          })
+
+        const statusParam = parsedUrl.searchParams.get("status")?.toLowerCase()
+        const visibleLines = lines.filter((l) => {
+          if (!canSeeInactive && l.is_deleted) return false
+          if (statusParam === "active" && l.is_deleted) return false
+          if (statusParam === "inactive" && !l.is_deleted) return false
+          return true
+        })
+
+        return jsonResponse(visibleLines)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to fetch sale details." }, 500)
+      }
+    }
+
+    // Add Line Item (POST /api/sales/:transno/details)
+    if (method === "POST") {
+      try {
+        const caller = await ensureSaleDetailPermission("Add")
+        const created = await insertSaleDetailIntoSupabase(transno, body, caller.email)
+        return jsonResponse(created, 201)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
+        return jsonResponse({ message: e.message || "Failed to add sale line item." }, e.statusCode || 400)
+      }
+    }
+  }
+
+  // 4. Single Line Item Endpoints (/api/sales/:transno/details/:prodcode, /restore)
+  const singleDetailMatch = pathname.match(/^\/api\/sales\/([^/]+)\/details\/([^/]+)(?:\/(restore))?$/)
+  if (singleDetailMatch) {
+    const transno = decodeURIComponent(singleDetailMatch[1])
+    const prodcode = decodeURIComponent(singleDetailMatch[2])
+    const subAction = singleDetailMatch[3]
+
+    // Restore Line Item (POST /api/sales/:transno/details/:prodcode/restore)
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensureSaleDetailPermission("Edit")
+        const result = await restoreSaleDetailInSupabase(transno, prodcode, caller.email)
+        return jsonResponse({
+          message: `Line item ${prodcode} restored to active status.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore sale line item." }, 400)
+      }
+    }
+
+    // Update Line Item Quantity (PUT /api/sales/:transno/details/:prodcode)
+    if (!subAction && (method === "PUT" || method === "PATCH")) {
+      try {
+        const caller = await ensureSaleDetailPermission("Edit")
+        const updated = await updateSaleDetailInSupabase(transno, prodcode, body, caller.email)
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to update sale line item." }, e.statusCode || 400)
+      }
+    }
+
+    // Soft-Delete Line Item (DELETE /api/sales/:transno/details/:prodcode)
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensureSaleDetailPermission("Delete")
+        const result = await softDeleteSaleDetailInSupabase(transno, prodcode, caller.email)
+        return jsonResponse({
+          message: `Line item ${prodcode} deactivated (soft-deleted). Record preserved for accounting audit history.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to deactivate sale line item." }, 400)
       }
     }
   }

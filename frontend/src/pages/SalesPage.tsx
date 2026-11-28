@@ -17,7 +17,7 @@ import Icon from "../components/Icon"
 import ModalShell from "../components/ModalShell"
 import SaleModal from "../components/SaleModal"
 import Stamp from "../components/Stamp"
-import type { Role } from "../lib/types"
+import type { Role, SaleLineItem, SaleProductOption } from "../lib/types"
 
 const fallbackSales = [
   [
@@ -66,19 +66,6 @@ const fallbackSales = [
   ],
 ]
 
-type SaleLineItem = {
-  transno: string
-  product: string
-  qty: string
-  unitPrice: string
-  lineTotal: string
-  lineTotalNum: number
-  status: string
-  action: string
-  user: string
-  date: string
-}
-
 type PaymentRecord = {
   orno: string
   transno: string
@@ -94,11 +81,15 @@ type PaymentRecord = {
 const fallbackSaleLines: SaleLineItem[] = [
   {
     transno: "T-001",
+    prodcode: "P-001",
     product: "P-001 — Industrial Widget A",
     qty: "10",
+    quantity: 10,
     unitPrice: "$13.75",
+    unitPriceNum: 13.75,
     lineTotal: "$137.50",
     lineTotalNum: 137.5,
+    is_deleted: false,
     status: "Active",
     action: "CREATED",
     user: "system",
@@ -106,11 +97,15 @@ const fallbackSaleLines: SaleLineItem[] = [
   },
   {
     transno: "T-001",
+    prodcode: "P-002",
     product: "P-002 — Steel Bracket Heavy",
     qty: "2",
+    quantity: 2,
     unitPrice: "$48.50",
+    unitPriceNum: 48.5,
     lineTotal: "$97.00",
     lineTotalNum: 97,
+    is_deleted: false,
     status: "Active",
     action: "CREATED",
     user: "system",
@@ -132,38 +127,213 @@ const fallbackPayments: PaymentRecord[] = [
   },
 ]
 
-function LineForm({ editing, close }: { editing?: boolean, close: () => void }) {
+function LineForm({
+  transno,
+  salesdate,
+  initialLine,
+  productOptions,
+  close,
+  onSaved,
+}: {
+  transno: string
+  salesdate: string
+  initialLine?: SaleLineItem | null
+  productOptions: SaleProductOption[]
+  close: () => void
+  onSaved: (msg: string) => void
+}) {
+  const isEditing = Boolean(initialLine)
+  const defaultProd =
+    initialLine?.prodcode ||
+    (initialLine?.product ? initialLine.product.split(" ")[0] : "") ||
+    productOptions[0]?.prodcode ||
+    "P-001"
+
+  const [selectedProd, setSelectedProd] = useState(defaultProd)
+  const [qty, setQty] = useState(
+    initialLine
+      ? String(initialLine.quantity || initialLine.qty || 1)
+      : "1"
+  )
+  const [unitPrice, setUnitPrice] = useState<number>(
+    initialLine?.unitPriceNum || 0
+  )
+  const [loadingPrice, setLoadingPrice] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isEditing && initialLine?.unitPriceNum !== undefined && (initialLine.prodcode === selectedProd || !selectedProd)) {
+      setUnitPrice(initialLine.unitPriceNum)
+      return
+    }
+
+    const matched = productOptions.find((p) => p.prodcode === selectedProd)
+    if (matched?.currentPrice !== undefined) {
+      setUnitPrice(matched.currentPrice)
+    }
+
+    if (transno && selectedProd) {
+      let active = true
+      setLoadingPrice(true)
+      salesApi
+        .resolveUnitPrice(transno, selectedProd)
+        .then((res) => {
+          if (active && typeof res?.unitPrice === "number") {
+            setUnitPrice(res.unitPrice)
+          }
+        })
+        .catch((err) => {
+          console.warn("Failed to resolve unit price:", err)
+        })
+        .finally(() => {
+          if (active) setLoadingPrice(false)
+        })
+      return () => {
+        active = false
+      }
+    }
+  }, [transno, selectedProd, isEditing, initialLine, productOptions])
+
+  const parsedQty = Number(qty)
+  const isQtyValid = Number.isInteger(parsedQty) && parsedQty > 0
+  const calculatedTotal = (isQtyValid ? parsedQty : 0) * (unitPrice || 0)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+
+    if (!selectedProd) {
+      setError("Please select a product.")
+      return
+    }
+
+    if (!isQtyValid) {
+      setError("Quantity must be a positive integer greater than 0.")
+      return
+    }
+
+    setSaving(true)
+    try {
+      if (isEditing && initialLine) {
+        const prodcode = initialLine.prodcode || selectedProd
+        await salesApi.updateDetail(transno, prodcode, {
+          quantity: parsedQty,
+        })
+        onSaved(`Line item for ${initialLine.product || prodcode} updated successfully.`)
+      } else {
+        await salesApi.addDetail(transno, {
+          prodcode: selectedProd,
+          quantity: parsedQty,
+        })
+        onSaved(`Line item added successfully to transaction ${transno}.`)
+      }
+      close()
+    } catch (err: any) {
+      setError(err.message || "Failed to save sale line item.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <ModalShell
-      title={editing ? "Edit Sale Line" : "Add Sale Line"}
-      subtitle="Unit price is resolved from price history as of 2026-10-01."
+      title={isEditing ? `Edit Sale Line — ${transno}` : `Add Sale Line — ${transno}`}
+      subtitle={`Unit price is resolved from price history as of ${salesdate || "sales date"}.`}
       close={close}
       footer={
         <>
-          <Button variant="secondary" onClick={close}>
+          <Button variant="secondary" onClick={close} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={close}>{editing ? "Save Line" : "Add Line"}</Button>
+          <Button onClick={handleSubmit} disabled={saving || loadingPrice}>
+            {saving ? "Saving..." : isEditing ? "Save Line" : "Add Line"}
+          </Button>
         </>
       }
     >
-      <div className="record-form">
+      <form className="record-form" onSubmit={handleSubmit}>
+        {error && (
+          <div className="alert-banner alert-banner-error form-span">
+            <Icon name="alert-triangle" size={16} />
+            <span>{error}</span>
+          </div>
+        )}
+
         <label className="form-span">
           <span>Product</span>
-          <select>
-            <option>P-001 — Industrial Widget A</option>
-            <option>P-002 — Steel Bracket Heavy</option>
-          </select>
+          {isEditing ? (
+            <input
+              type="text"
+              readOnly
+              value={initialLine?.product || selectedProd}
+              className="read-only-input"
+            />
+          ) : (
+            <select
+              value={selectedProd}
+              onChange={(e) => setSelectedProd(e.target.value)}
+              disabled={saving}
+            >
+              {productOptions.length ? (
+                productOptions.map((opt) => (
+                  <option key={opt.prodcode} value={opt.prodcode}>
+                    {opt.label || `${opt.prodcode} — ${opt.description}`}
+                  </option>
+                ))
+              ) : (
+                <>
+                  <option value="P-001">P-001 — Industrial Widget A</option>
+                  <option value="P-002">P-002 — Steel Bracket Heavy</option>
+                </>
+              )}
+            </select>
+          )}
         </label>
+
         <label>
           <span>Quantity</span>
-          <input type="number" defaultValue={editing ? "10" : "1"} />
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={qty}
+            onChange={(e) => {
+              setQty(e.target.value)
+              if (error) setError(null)
+            }}
+            disabled={saving}
+            required
+          />
         </label>
+
         <label>
           <span>Unit Price</span>
-          <input value="$13.75 · auto-filled" readOnly />
+          <input
+            value={`${formatMoney(unitPrice)} · auto-filled`}
+            readOnly
+            className="read-only-input"
+          />
         </label>
-      </div>
+
+        <div
+          className="form-span"
+          style={{
+            marginTop: "8px",
+            padding: "10px 14px",
+            background: "var(--surface-muted, #f8f9fa)",
+            borderRadius: "6px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>Line Total:</span>
+          <b style={{ fontSize: "1.1rem", color: "var(--primary, #0284c7)" }}>
+            {formatMoney(calculatedTotal)}
+          </b>
+        </div>
+      </form>
     </ModalShell>
   )
 }
@@ -172,32 +342,45 @@ function SaleDetails({
   role,
   sale,
   lines,
+  productOptions,
+  canAddDetail,
+  canEditDetail,
+  canDeleteDetail,
+  canViewInactive,
   onSoftDeleteLine,
   onRestoreLine,
+  onLineSaved,
   close,
 }: {
   role: Role
   sale: string[]
   lines: SaleLineItem[]
-  onSoftDeleteLine: (line: SaleLineItem) => void
-  onRestoreLine: (line: SaleLineItem) => void
+  productOptions: SaleProductOption[]
+  canAddDetail: boolean
+  canEditDetail: boolean
+  canDeleteDetail: boolean
+  canViewInactive: boolean
+  onSoftDeleteLine: (line: SaleLineItem) => Promise<void> | void
+  onRestoreLine: (line: SaleLineItem) => Promise<void> | void
+  onLineSaved: (msg: string) => Promise<void> | void
   close: () => void
 }) {
-  const isAdmin = role !== "User"
-  const [lineForm, setLineForm] = useState<"new" | "edit" | null>(null)
+  const [showLineForm, setShowLineForm] = useState(false)
+  const [editingLine, setEditingLine] = useState<SaleLineItem | null>(null)
   const [statusFilter, setStatusFilter] = useState<"active" | "inactive" | "all">("active")
   const [deletingLine, setDeletingLine] = useState<SaleLineItem | null>(null)
 
   const visibleLines = lines.filter((line) => {
-    if (!isAdmin && line.status === "Inactive") return false
-    if (isAdmin && statusFilter !== "all" && line.status.toLowerCase() !== statusFilter)
+    if (!canViewInactive && line.status === "Inactive") return false
+    if (canViewInactive && statusFilter !== "all" && line.status.toLowerCase() !== statusFilter) {
       return false
+    }
     return true
   })
 
   const activeTotal = lines
     .filter((l) => l.status === "Active")
-    .reduce((sum, l) => sum + l.lineTotalNum, 0)
+    .reduce((sum, l) => sum + (l.lineTotalNum || 0), 0)
 
   return (
     <ModalShell
@@ -214,31 +397,41 @@ function SaleDetails({
         </div>
       }
     >
-      {isAdmin && (
+      {(canViewInactive || canAddDetail) && (
         <div className="nested-toolbar">
-          <div className="filter-tabs">
-            <button
-              className={statusFilter === "active" ? "selected" : ""}
-              onClick={() => setStatusFilter("active")}
+          {canViewInactive ? (
+            <div className="filter-tabs">
+              <button
+                className={statusFilter === "active" ? "selected" : ""}
+                onClick={() => setStatusFilter("active")}
+              >
+                Active
+              </button>
+              <button
+                className={statusFilter === "inactive" ? "selected" : ""}
+                onClick={() => setStatusFilter("inactive")}
+              >
+                Inactive
+              </button>
+              <button
+                className={statusFilter === "all" ? "selected" : ""}
+                onClick={() => setStatusFilter("all")}
+              >
+                All
+              </button>
+            </div>
+          ) : <div />}
+          {canAddDetail && (
+            <Button
+              icon="plus"
+              onClick={() => {
+                setEditingLine(null)
+                setShowLineForm(true)
+              }}
             >
-              Active
-            </button>
-            <button
-              className={statusFilter === "inactive" ? "selected" : ""}
-              onClick={() => setStatusFilter("inactive")}
-            >
-              Inactive
-            </button>
-            <button
-              className={statusFilter === "all" ? "selected" : ""}
-              onClick={() => setStatusFilter("all")}
-            >
-              All
-            </button>
-          </div>
-          <Button icon="plus" onClick={() => setLineForm("new")}>
-            Add Line
-          </Button>
+              Add Line
+            </Button>
+          )}
         </div>
       )}
       <div className="table-scroll">
@@ -249,31 +442,31 @@ function SaleDetails({
               <th>Qty</th>
               <th>Unit Price</th>
               <th>Line Total</th>
-              {isAdmin && (
+              {canViewInactive && (
                 <>
                   <th>Status</th>
                   <th>Stamp</th>
-                  <th>Actions</th>
                 </>
               )}
+              {(canEditDetail || canDeleteDetail) && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
             {visibleLines.length ? (
               visibleLines.map((row, idx) => (
                 <tr
-                  key={`${row.product}-${idx}`}
+                  key={`${row.prodcode || row.product}-${idx}`}
                   className={row.status === "Inactive" ? "inactive-row" : ""}
                 >
                   <td>
-                    <b className="record-name">{row.product}</b>
+                    <b className="record-name">{row.product || row.prodcode}</b>
                   </td>
                   <td>{row.qty}</td>
                   <td>{row.unitPrice}</td>
                   <td>
                     <b className="price-value">{row.lineTotal}</b>
                   </td>
-                  {isAdmin && (
+                  {canViewInactive && (
                     <>
                       <td>
                         <Badge kind={row.status.toLowerCase()}>
@@ -282,43 +475,56 @@ function SaleDetails({
                       </td>
                       <td>
                         <Stamp
-                          action={row.action}
-                          user={row.user}
-                          date={row.date}
+                          action={row.action || "CREATED"}
+                          user={row.user || "system"}
+                          date={row.date || ""}
                         />
                       </td>
-                      <td>
-                        <div className="row-actions">
-                          {row.status === "Inactive" ? (
+                    </>
+                  )}
+                  {(canEditDetail || canDeleteDetail) && (
+                    <td>
+                      <div className="row-actions">
+                        {row.status === "Inactive" ? (
+                          (canEditDetail || canDeleteDetail) && (
                             <button
                               className="success-link"
                               onClick={() => onRestoreLine(row)}
                             >
                               Restore
                             </button>
-                          ) : (
-                            <>
-                              <button onClick={() => setLineForm("edit")}>
+                          )
+                        ) : (
+                          <>
+                            {canEditDetail && (
+                              <button
+                                onClick={() => {
+                                  setEditingLine(row)
+                                  setShowLineForm(true)
+                                }}
+                              >
                                 Edit
                               </button>
+                            )}
+                            {canDeleteDetail && (
                               <button
                                 className="danger-link"
                                 onClick={() => setDeletingLine(row)}
                               >
                                 Delete
                               </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </td>
                   )}
                 </tr>
               ))
             ) : (
               <tr>
                 <td
-                  colSpan={isAdmin ? 7 : 4}
+                  colSpan={(canViewInactive ? 6 : 4) + (canEditDetail || canDeleteDetail ? 1 : 0)}
                   style={{
                     textAlign: "center",
                     color: "var(--muted)",
@@ -332,21 +538,29 @@ function SaleDetails({
           </tbody>
         </table>
       </div>
-      {lineForm && (
+      {showLineForm && (
         <LineForm
-          editing={lineForm === "edit"}
-          close={() => setLineForm(null)}
+          transno={sale[0]}
+          salesdate={sale[1]}
+          initialLine={editingLine}
+          productOptions={productOptions}
+          close={() => {
+            setShowLineForm(false)
+            setEditingLine(null)
+          }}
+          onSaved={onLineSaved}
         />
       )}
       {deletingLine && (
         <ConfirmDeleteModal
           title="Deactivate Line Item?"
-          targetLabel={`${deletingLine.product} (Qty: ${deletingLine.qty})`}
+          targetLabel={`${deletingLine.product || deletingLine.prodcode} (Qty: ${deletingLine.qty})`}
           warningMessage={`Are you sure you want to deactivate this line item from transaction ${sale[0]}? The item will be soft-deleted, marked Inactive, and the invoice amount updated.`}
           actionLabel="Deactivate Line Item"
-          onConfirm={() => {
-            onSoftDeleteLine(deletingLine)
+          onConfirm={async () => {
+            const target = deletingLine
             setDeletingLine(null)
+            await onSoftDeleteLine(target)
           }}
           onClose={() => setDeletingLine(null)}
         />
@@ -653,17 +867,79 @@ export default function SalesPage({ role }: { role: Role }) {
     })
   }
 
-  const canAdd = isSuperadmin || hasRight("add")
-  const canEdit = isSuperadmin || hasRight("edit")
-  const canDelete = isSuperadmin || hasRight("delete")
+  const canAdd =
+    isSuperadmin ||
+    hasRight("add sale") ||
+    hasRight("add sales") ||
+    (hasRight("add") && !rights.some((r) => r.toLowerCase().includes("detail")))
+  const canEdit =
+    isSuperadmin ||
+    hasRight("edit sale") ||
+    hasRight("edit sales") ||
+    (hasRight("edit") && !rights.some((r) => r.toLowerCase().includes("detail")))
+  const canDelete =
+    isSuperadmin ||
+    hasRight("delete sale") ||
+    hasRight("delete sales") ||
+    (hasRight("delete") && !rights.some((r) => r.toLowerCase().includes("detail")))
   const canViewInactive = isSuperadmin || isAdminRole || canEdit || canDelete
   const canFilter = isSuperadmin || isAdminRole || canAdd || canEdit || canDelete || rights.length > 0
   const showAudit = isSuperadmin || isAdminRole || canEdit || canDelete
   const hasActions = canEdit || canDelete
 
+  // Sale Detail Rights (TC-SALE-06)
+  const canViewDetail =
+    isSuperadmin ||
+    isAdminRole ||
+    rights.some((r) => {
+      const l = r.toLowerCase().trim()
+      return (
+        l.includes("view sale detail") ||
+        l.includes("sale detail") ||
+        l === "view sales" ||
+        l === "sales"
+      )
+    }) ||
+    rights.length === 0
+  const canAddDetail =
+    isSuperadmin ||
+    isAdminRole ||
+    rights.some((r) => {
+      const l = r.toLowerCase().trim()
+      return (
+        l === "add sale detail" ||
+        l === "sale detail - add" ||
+        (l.includes("add") && l.includes("detail"))
+      )
+    })
+  const canEditDetail =
+    isSuperadmin ||
+    isAdminRole ||
+    rights.some((r) => {
+      const l = r.toLowerCase().trim()
+      return (
+        l === "edit sale detail" ||
+        l === "sale detail - edit" ||
+        (l.includes("edit") && l.includes("detail"))
+      )
+    })
+  const canDeleteDetail =
+    isSuperadmin ||
+    isAdminRole ||
+    rights.some((r) => {
+      const l = r.toLowerCase().trim()
+      return (
+        l === "delete sale detail" ||
+        l === "sale detail - delete" ||
+        (l.includes("delete") && l.includes("detail"))
+      )
+    })
+  const canViewInactiveDetail = isSuperadmin || isAdminRole || canEditDetail || canDeleteDetail
+
   const [sales, setSales] = useState<string[][]>(fallbackSales)
   const [saleLines, setSaleLines] =
     useState<SaleLineItem[]>(fallbackSaleLines)
+  const [productOptions, setProductOptions] = useState<SaleProductOption[]>([])
   const [paymentRecords, setPaymentRecords] =
     useState<PaymentRecord[]>(fallbackPayments)
   const [filter, setFilter] = useState("active")
@@ -777,38 +1053,26 @@ export default function SalesPage({ role }: { role: Role }) {
     }
   }
 
-  const handleSoftDeleteLine = (line: SaleLineItem) => {
-    const updated = saleLines.map((l) =>
-      l.transno === line.transno && l.product === line.product
-        ? {
-            ...l,
-            status: "Inactive",
-            action: "DELETED",
-            user: user?.email || "system",
-            date: new Date().toISOString(),
-          }
-        : l
-    )
-    setSaleLines(updated)
-    recalculateTransTotal(line.transno, updated)
-    setSuccess(`Line item ${line.product} deactivated (soft-deleted).`)
+  const handleSoftDeleteLine = async (line: SaleLineItem) => {
+    const prodcode = line.prodcode || line.product?.split(" ")[0]?.trim() || ""
+    try {
+      await salesApi.deleteDetail(line.transno, prodcode)
+      setSuccess(`Line item ${line.product || prodcode} deactivated (soft-deleted).`)
+      await loadSalesData()
+    } catch (err: any) {
+      setError(err.message || `Failed to deactivate line item ${line.product || prodcode}.`)
+    }
   }
 
-  const handleRestoreLine = (line: SaleLineItem) => {
-    const updated = saleLines.map((l) =>
-      l.transno === line.transno && l.product === line.product
-        ? {
-            ...l,
-            status: "Active",
-            action: "EDITED",
-            user: user?.email || "system",
-            date: new Date().toISOString(),
-          }
-        : l
-    )
-    setSaleLines(updated)
-    recalculateTransTotal(line.transno, updated)
-    setSuccess(`Line item ${line.product} restored to active.`)
+  const handleRestoreLine = async (line: SaleLineItem) => {
+    const prodcode = line.prodcode || line.product?.split(" ")[0]?.trim() || ""
+    try {
+      await salesApi.restoreDetail(line.transno, prodcode)
+      setSuccess(`Line item ${line.product || prodcode} restored to active status.`)
+      await loadSalesData()
+    } catch (err: any) {
+      setError(err.message || `Failed to restore line item ${line.product || prodcode}.`)
+    }
   }
 
   const handleSoftDeleteReceipt = (receipt: PaymentRecord) => {
@@ -921,6 +1185,20 @@ export default function SalesPage({ role }: { role: Role }) {
         return match ? match.price : list[0].price
       }
 
+      const activeProductOptions: SaleProductOption[] = (prodRows || [])
+        .filter((p) => !p.is_deleted)
+        .map((p) => {
+          const pCode = String(p.prodcode ?? "").trim()
+          const desc = String(p.description ?? "").trim()
+          return {
+            prodcode: pCode,
+            description: desc,
+            unit: String(p.unit ?? "pcs").trim(),
+            label: `${pCode} — ${desc}`,
+          }
+        })
+      setProductOptions(activeProductOptions)
+
       const totalByTrans = new Map<string, number>()
       const mappedLines: SaleLineItem[] = (detailRows || []).map((d) => {
         const isDeleted = Boolean(d.is_deleted)
@@ -938,11 +1216,15 @@ export default function SalesPage({ role }: { role: Role }) {
         }
         return {
           transno: tNo,
+          prodcode: pCode,
           product: prodMap.get(pCode.toUpperCase()) || pCode,
           qty: String(qty),
+          quantity: qty,
           unitPrice: formatMoney(uPrice),
+          unitPriceNum: uPrice,
           lineTotal: formatMoney(lineTotalNum),
           lineTotalNum,
+          is_deleted: isDeleted,
           status: isDeleted ? "Inactive" : "Active",
           action,
           user: lineUser,
@@ -998,6 +1280,11 @@ export default function SalesPage({ role }: { role: Role }) {
         ]
       })
       setSales(mappedSales)
+      setDetailsSale((prev) => {
+        if (!prev) return null
+        const found = mappedSales.find((s) => s[0] === prev[0])
+        return found || prev
+      })
       setLoading(false)
     } catch (err: any) {
       console.warn("[SalesPage] Error loading sales data:", err)
@@ -1174,9 +1461,11 @@ export default function SalesPage({ role }: { role: Role }) {
                           )
                         ) : (
                           <>
-                            <button onClick={() => setDetailsSale(row)}>
-                              Details
-                            </button>
+                            {canViewDetail && (
+                              <button onClick={() => setDetailsSale(row)}>
+                                Details
+                              </button>
+                            )}
                             <button onClick={() => setPaymentsSale(row)}>
                               Payments
                             </button>
@@ -1249,8 +1538,17 @@ export default function SalesPage({ role }: { role: Role }) {
           role={role}
           sale={detailsSale}
           lines={saleLines.filter((l) => l.transno === detailsSale[0])}
+          productOptions={productOptions}
+          canAddDetail={canAddDetail}
+          canEditDetail={canEditDetail}
+          canDeleteDetail={canDeleteDetail}
+          canViewInactive={canViewInactiveDetail}
           onSoftDeleteLine={handleSoftDeleteLine}
           onRestoreLine={handleRestoreLine}
+          onLineSaved={async (msg) => {
+            if (msg) setSuccess(msg)
+            await loadSalesData()
+          }}
           close={() => setDetailsSale(null)}
         />
       )}
