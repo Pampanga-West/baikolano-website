@@ -13,10 +13,10 @@ import Button from "../components/Button"
 import ConfirmDeleteModal from "../components/ConfirmDeleteModal"
 import EmptyState from "../components/EmptyState"
 import EntityControls from "../components/EntityControls"
-import ModalShell from "../components/ModalShell"
 import ProductModal from "../components/ProductModal"
+import PriceHistoryModal from "../components/PriceHistoryModal"
 import Stamp from "../components/Stamp"
-import type { Product, Role } from "../lib/types"
+import type { PriceHistoryRecord, Product, Role } from "../lib/types"
 
 const fallbackProducts: Product[] = [
   {
@@ -86,386 +86,58 @@ const fallbackProducts: Product[] = [
   },
 ]
 
-type PriceHistoryEntry = {
-  prodcode: string
-  effdate: string
-  price: string
-  status: string
-  action: string
-  user: string
-  date: string
-}
-
-const fallbackPriceHistory: PriceHistoryEntry[] = [
+const fallbackPriceHistory: PriceHistoryRecord[] = [
   {
     prodcode: "P-001",
     effdate: "2026-01-01",
+    unitprice: 13.75,
     price: "$13.75",
+    is_deleted: false,
     status: "Active",
-    action: "CREATED",
-    user: "system",
-    date: "2026-01-01 9:00 AM",
+    stampAction: "CREATED",
+    stampUser: "system",
+    stampDate: "2026-01-01 9:00 AM",
   },
   {
     prodcode: "P-002",
     effdate: "2026-01-15",
+    unitprice: 48.5,
     price: "$48.50",
+    is_deleted: false,
     status: "Active",
-    action: "CREATED",
-    user: "system",
-    date: "2026-01-15 10:00 AM",
+    stampAction: "CREATED",
+    stampUser: "system",
+    stampDate: "2026-01-15 10:00 AM",
   },
   {
     prodcode: "P-003",
     effdate: "2026-02-01",
+    unitprice: 28.0,
     price: "$28.00",
+    is_deleted: false,
     status: "Active",
-    action: "CREATED",
-    user: "system",
-    date: "2026-02-01 10:00 AM",
+    stampAction: "CREATED",
+    stampUser: "system",
+    stampDate: "2026-02-01 10:00 AM",
   },
   {
     prodcode: "P-005",
     effdate: "2026-01-20",
+    unitprice: 2.35,
     price: "$2.35",
+    is_deleted: false,
     status: "Active",
-    action: "CREATED",
-    user: "system",
-    date: "2026-01-20 3:30 PM",
+    stampAction: "CREATED",
+    stampUser: "system",
+    stampDate: "2026-01-20 3:30 PM",
   },
 ]
-
-function PriceForm({
-  productCode,
-  entry,
-  close,
-  onSave,
-}: {
-  productCode: string
-  entry?: PriceHistoryEntry | null
-  close: () => void
-  onSave: (data: {
-    prodcode: string
-    effdate: string
-    price: string
-    isEditing?: boolean
-    originalEffDate?: string
-  }) => void
-}) {
-  const isEditing = Boolean(entry)
-  const todayStr = useMemo(() => {
-    const d = new Date()
-    return d.toISOString().split("T")[0]
-  }, [])
-
-  const [effDate, setEffDate] = useState(entry?.effdate ?? todayStr)
-  const [unitPrice, setUnitPrice] = useState(
-    entry?.price ? entry.price.replace(/[^0-9.]/g, "") : ""
-  )
-  const [validationError, setValidationError] = useState<string | null>(null)
-
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault()
-    if (!effDate) {
-      setValidationError("Effective Date is required.")
-      return
-    }
-    const numPrice = parseFloat(unitPrice)
-    if (isNaN(numPrice) || numPrice <= 0) {
-      setValidationError("Please enter a valid unit price greater than 0.")
-      return
-    }
-
-    onSave({
-      prodcode: productCode,
-      effdate: effDate,
-      price: `$${numPrice.toFixed(2)}`,
-      isEditing,
-      originalEffDate: entry?.effdate,
-    })
-    close()
-  }
-
-  return (
-    <ModalShell
-      title={isEditing ? "Edit Price" : "Add Price"}
-      subtitle={isEditing ? "Update effective unit price" : "Set a new effective unit price"}
-      close={close}
-      footer={
-        <div className="modal-footer-duo">
-          <Button
-            className="btn-save-main"
-            onClick={() => handleSubmit()}
-          >
-            Save Price
-          </Button>
-          <Button
-            variant="secondary"
-            className="btn-cancel-main"
-            onClick={close}
-          >
-            Cancel
-          </Button>
-        </div>
-      }
-    >
-      <form onSubmit={handleSubmit} className="modal-form-vertical">
-        {validationError && (
-          <div
-            className="validation-error"
-            style={{
-              fontSize: "12px",
-              padding: "9px 12px",
-              background: "var(--danger-bg)",
-              color: "var(--danger-text)",
-              borderRadius: "6px",
-              fontWeight: 600,
-            }}
-          >
-            {validationError}
-          </div>
-        )}
-        <div className="field-group">
-          <label>Product Code</label>
-          <input
-            className="field-input"
-            value={productCode}
-            readOnly
-            disabled
-          />
-        </div>
-        <div className="field-group">
-          <label>Effective Date</label>
-          <input
-            type="date"
-            className="field-input"
-            value={effDate}
-            onChange={(e) => {
-              setEffDate(e.target.value)
-              setValidationError(null)
-            }}
-            placeholder="dd/mm/yyyy"
-            required
-          />
-        </div>
-        <div className="field-group">
-          <label>Unit Price</label>
-          <div style={{ position: "relative" }}>
-            <span
-              style={{
-                position: "absolute",
-                left: "14px",
-                top: "50%",
-                transform: "translateY(-50%)",
-                color: "var(--muted)",
-                fontWeight: 600,
-              }}
-            >
-              $
-            </span>
-            <input
-              type="number"
-              step="0.01"
-              min="0.01"
-              className="field-input"
-              style={{ paddingLeft: "30px" }}
-              value={unitPrice}
-              onChange={(e) => {
-                setUnitPrice(e.target.value)
-                setValidationError(null)
-              }}
-              placeholder="0.00"
-              required
-            />
-          </div>
-        </div>
-      </form>
-    </ModalShell>
-  )
-}
-
-function PriceHistory({
-  role,
-  product,
-  entries,
-  close,
-  onSoftDeletePrice,
-  onRestorePrice,
-  onSavePrice,
-}: {
-  role: Role
-  product: Product
-  entries: PriceHistoryEntry[]
-  close: () => void
-  onSoftDeletePrice?: (entry: PriceHistoryEntry) => void
-  onRestorePrice?: (entry: PriceHistoryEntry) => void
-  onSavePrice: (data: {
-    prodcode: string
-    effdate: string
-    price: string
-    isEditing?: boolean
-    originalEffDate?: string
-  }) => void
-}) {
-  const isAdmin = role !== "User"
-  const [priceForm, setPriceForm] = useState<"new" | PriceHistoryEntry | null>(null)
-  const [statusFilter, setStatusFilter] = useState<"active" | "inactive" | "all">("active")
-  const [deletingPrice, setDeletingPrice] = useState<PriceHistoryEntry | null>(null)
-
-  const visibleEntries = entries.filter((entry) => {
-    if (!isAdmin && entry.status === "Inactive") return false
-    if (isAdmin && statusFilter !== "all" && entry.status.toLowerCase() !== statusFilter)
-      return false
-    return true
-  })
-
-  return (
-    <ModalShell
-      title={`Price History — ${product.prodcode}`}
-      subtitle={`${product.description} · Unit: ${product.unit}`}
-      close={close}
-      wide
-    >
-      {isAdmin && (
-        <div className="nested-toolbar">
-          <div className="filter-tabs">
-            <button
-              className={statusFilter === "active" ? "selected" : ""}
-              onClick={() => setStatusFilter("active")}
-            >
-              Active
-            </button>
-            <button
-              className={statusFilter === "inactive" ? "selected" : ""}
-              onClick={() => setStatusFilter("inactive")}
-            >
-              Inactive
-            </button>
-            <button
-              className={statusFilter === "all" ? "selected" : ""}
-              onClick={() => setStatusFilter("all")}
-            >
-              All
-            </button>
-          </div>
-          <Button icon="plus" onClick={() => setPriceForm("new")}>
-            Add Price
-          </Button>
-        </div>
-      )}
-      <div className="table-scroll">
-        <table className="entity-table">
-          <thead>
-            <tr>
-              <th>Effective Date</th>
-              <th>Unit Price</th>
-              {isAdmin && (
-                <>
-                  <th>Status</th>
-                  <th>Stamp</th>
-                  <th>Actions</th>
-                </>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {visibleEntries.length ? (
-              visibleEntries.map((entry) => (
-                <tr
-                  key={`${entry.prodcode}-${entry.effdate}`}
-                  className={entry.status === "Inactive" ? "inactive-row" : ""}
-                >
-                  <td className="code-cell">{entry.effdate}</td>
-                  <td>
-                    <b className="price-value">{entry.price}</b>
-                  </td>
-                  {isAdmin && (
-                    <>
-                      <td>
-                        <Badge kind={entry.status.toLowerCase()}>
-                          {entry.status}
-                        </Badge>
-                      </td>
-                      <td>
-                        <Stamp
-                          action={entry.action}
-                          user={entry.user}
-                          date={entry.date}
-                        />
-                      </td>
-                      <td>
-                        <div className="row-actions">
-                          {entry.status === "Inactive" ? (
-                            <button
-                              className="success-link"
-                              onClick={() => onRestorePrice?.(entry)}
-                            >
-                              Restore
-                            </button>
-                          ) : (
-                            <>
-                              <button onClick={() => setPriceForm(entry)}>
-                                Edit
-                              </button>
-                              <button
-                                className="danger-link"
-                                onClick={() => setDeletingPrice(entry)}
-                              >
-                                Delete
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </>
-                  )}
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td
-                  colSpan={isAdmin ? 5 : 2}
-                  style={{ textAlign: "center", color: "var(--muted)", padding: "20px" }}
-                >
-                  {statusFilter === "inactive"
-                    ? `No inactive price schedules for ${product.prodcode}.`
-                    : `No price history entries found for ${product.prodcode}.`}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      {priceForm && (
-        <PriceForm
-          productCode={product.prodcode}
-          entry={priceForm === "new" ? null : priceForm}
-          close={() => setPriceForm(null)}
-          onSave={onSavePrice}
-        />
-      )}
-      {deletingPrice && (
-        <ConfirmDeleteModal
-          record={`price ${deletingPrice.price} effective ${deletingPrice.effdate}`}
-          noun="Price Schedule"
-          close={() => setDeletingPrice(null)}
-          confirm={() => {
-            onSoftDeletePrice?.(deletingPrice)
-            setDeletingPrice(null)
-          }}
-          customWarning="This will mark the price tier as Inactive/Superseded."
-          customExplanation="The rate will no longer be applied to new transactions, but historical records will retain point-in-time calculation integrity."
-        />
-      )}
-    </ModalShell>
-  )
-}
 
 export default function ProductsPage({ role }: { role: Role }) {
   const { user } = useAuth()
   const [rights, setRights] = useState<string[]>([])
   const [products, setProducts] = useState<Product[]>(fallbackProducts)
-  const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>(
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryRecord[]>(
     fallbackPriceHistory
   )
   const [filter, setFilter] = useState<string>("active")
@@ -568,17 +240,21 @@ export default function ProductsPage({ role }: { role: Role }) {
         }
 
         if (priceRows && priceRows.length) {
-          const mappedPrices: PriceHistoryEntry[] = priceRows.map((p) => {
+          const mappedPrices: PriceHistoryRecord[] = priceRows.map((p) => {
             const isDeleted = Boolean(p.is_deleted)
             const [action, u, d] = parseStamp(p.stamp, isDeleted)
+            const num = Number(p.unitprice ?? 0)
             return {
               prodcode: String(p.prodcode ?? ""),
               effdate: String(p.effdate ?? ""),
-              price: formatMoney(p.unitprice),
+              unitprice: num,
+              price: formatMoney(num),
+              is_deleted: isDeleted,
               status: isDeleted ? "Inactive" : "Active",
-              action,
-              user: u,
-              date: d,
+              stamp: p.stamp,
+              stampAction: action,
+              stampUser: u,
+              stampDate: d,
             }
           })
           setPriceHistory(mappedPrices)
@@ -607,64 +283,6 @@ export default function ProductsPage({ role }: { role: Role }) {
     const cleanup = loadProducts()
     return cleanup
   }, [user?.id, isAdmin])
-
-  const handleSavePrice = (data: {
-    prodcode: string
-    effdate: string
-    price: string
-    isEditing?: boolean
-    originalEffDate?: string
-  }) => {
-    const todayStr = new Date().toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    })
-
-    if (data.isEditing && data.originalEffDate) {
-      setPriceHistory((prev) =>
-        prev.map((ph) =>
-          ph.prodcode === data.prodcode && ph.effdate === data.originalEffDate
-            ? {
-                ...ph,
-                effdate: data.effdate,
-                price: data.price,
-                action: "EDITED",
-                user: operatorName,
-                date: todayStr,
-              }
-            : ph
-        )
-      )
-      setSuccess(`Updated effective price for ${data.prodcode} to ${data.price} as of ${data.effdate}.`)
-    } else {
-      const newEntry: PriceHistoryEntry = {
-        prodcode: data.prodcode,
-        effdate: data.effdate,
-        price: data.price,
-        status: "Active",
-        action: "CREATED",
-        user: operatorName,
-        date: todayStr,
-      }
-      setPriceHistory((prev) => [newEntry, ...prev])
-      setSuccess(`Added new price rate for ${data.prodcode}: ${data.price} effective ${data.effdate}.`)
-    }
-
-    // Update parent product current price
-    setProducts((prev) =>
-      prev.map((p) => {
-        if (p.prodcode !== data.prodcode) return p
-        return {
-          ...p,
-          price: data.price,
-          stampAction: "EDITED",
-          stampUser: operatorName,
-          stampDate: todayStr,
-        }
-      })
-    )
-  }
 
   const handleSoftDeleteProduct = async (productRow: Product) => {
     const prodCode = productRow.prodcode
@@ -719,76 +337,6 @@ export default function ProductsPage({ role }: { role: Role }) {
       setError(err.message || `Failed to restore product ${label}.`)
     } finally {
       setRestoringProdcode(null)
-    }
-  }
-
-  const handleSoftDeletePrice = async (entry: PriceHistoryEntry) => {
-    try {
-      await productApi.deletePriceSchedule(entry.prodcode, entry.effdate)
-      setSuccess(`Superseded price rate of ${entry.price} for ${entry.prodcode} as of ${entry.effdate}.`)
-      loadProducts()
-    } catch {
-      const todayStr = new Date().toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      })
-
-      setPriceHistory((prev) =>
-        prev.map((ph) =>
-          ph.prodcode === entry.prodcode && ph.effdate === entry.effdate
-            ? { ...ph, status: "Inactive", action: "SUPERSEDED", user: operatorName, date: todayStr }
-            : ph
-        )
-      )
-
-      // Recalculate derived price on parent product
-      setProducts((prev) =>
-        prev.map((p) => {
-          if (p.prodcode !== entry.prodcode) return p
-          const remainingActive = priceHistory.find(
-            (ph) => ph.prodcode === entry.prodcode && ph.effdate !== entry.effdate && ph.status === "Active"
-          )
-          return {
-            ...p,
-            price: remainingActive?.price ?? "—",
-          }
-        })
-      )
-      setSuccess(`Superseded price rate of ${entry.price} for ${entry.prodcode} as of ${entry.effdate}.`)
-    }
-  }
-
-  const handleRestorePrice = async (entry: PriceHistoryEntry) => {
-    try {
-      await productApi.restorePriceSchedule(entry.prodcode, entry.effdate)
-      setSuccess(`Restored price rate of ${entry.price} for ${entry.prodcode} effective ${entry.effdate}.`)
-      loadProducts()
-    } catch {
-      const todayStr = new Date().toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      })
-
-      setPriceHistory((prev) =>
-        prev.map((ph) =>
-          ph.prodcode === entry.prodcode && ph.effdate === entry.effdate
-            ? { ...ph, status: "Active", action: "EDITED", user: operatorName, date: todayStr }
-            : ph
-        )
-      )
-
-      setProducts((prev) =>
-        prev.map((p) => {
-          if (p.prodcode !== entry.prodcode) return p
-          return {
-            ...p,
-            price: entry.price,
-          }
-        })
-      )
-      setSuccess(`Restored price rate of ${entry.price} for ${entry.prodcode} effective ${entry.effdate}.`)
     }
   }
 
@@ -1024,14 +572,16 @@ export default function ProductsPage({ role }: { role: Role }) {
         />
       )}
       {pricesProduct && (
-        <PriceHistory
+        <PriceHistoryModal
           role={role}
           product={pricesProduct}
-          entries={priceHistory.filter((p) => p.prodcode === pricesProduct.prodcode)}
+          currentUser={user}
+          canManagePrices={canEdit || isSuperadmin || isAdminRole}
+          initialEntries={priceHistory.filter((p) => p.prodcode === pricesProduct.prodcode)}
           close={() => setPricesProduct(null)}
-          onSoftDeletePrice={handleSoftDeletePrice}
-          onRestorePrice={handleRestorePrice}
-          onSavePrice={handleSavePrice}
+          onPriceChanged={() => {
+            loadProducts()
+          }}
         />
       )}
       {deleting && (

@@ -1432,3 +1432,220 @@ export async function restorePriceScheduleInSupabase(
   }).catch(() => {})
 }
 
+export async function fetchPriceHistoryForProductFromSupabase(
+  prodcode: string
+): Promise<Record<string, any>[]> {
+  const rows = await postgrestFetch<Record<string, any>[]>(
+    `/pricehist?prodcode=eq.${encodeURIComponent(prodcode)}&order=effdate.desc`
+  ).catch(() => [])
+
+  return rows.map((r) => {
+    const isDeleted = Boolean(r.is_deleted)
+    const [action, stampUser, stampDate] = parseStamp(r.stamp, isDeleted)
+    const numPrice = Number(r.unitprice ?? 0)
+    return {
+      prodcode: String(r.prodcode ?? prodcode),
+      effdate: String(r.effdate ?? ""),
+      unitprice: numPrice,
+      price: formatMoney(numPrice),
+      is_deleted: isDeleted,
+      status: isDeleted ? "Inactive" : "Active",
+      stamp: String(r.stamp ?? ""),
+      stampAction: action,
+      stampUser: stampUser,
+      stampDate: stampDate,
+    }
+  })
+}
+
+export async function insertPriceScheduleIntoSupabase(
+  payload: {
+    prodcode: string
+    effdate: string
+    unitprice: number
+  },
+  actionBy: string
+): Promise<Record<string, any>> {
+  const prodcode = payload.prodcode.trim().toUpperCase()
+  const effdate = payload.effdate.trim()
+  const unitprice = Number(payload.unitprice)
+
+  if (!effdate) {
+    throw new Error("Effective date is required.")
+  }
+  if (isNaN(unitprice) || unitprice <= 0) {
+    throw new Error("Unit price must be a valid number greater than 0.")
+  }
+
+  // Check if effective date already exists for this SKU
+  const existing = await postgrestFetch<Record<string, any>[]>(
+    `/pricehist?prodcode=eq.${encodeURIComponent(prodcode)}&effdate=eq.${encodeURIComponent(effdate)}&limit=1`
+  ).catch(() => [])
+
+  if (existing.length && !existing[0].is_deleted) {
+    throw new Error(
+      `A price schedule with effective date ${effdate} already exists for product ${prodcode}.`
+    )
+  }
+
+  const now = new Date()
+  const dateStr = now.toISOString().replace("T", " ").slice(0, 19)
+  const stamp = `CREATED ${actionBy} ${dateStr}`
+
+  const record = {
+    prodcode,
+    effdate,
+    unitprice,
+    is_deleted: false,
+    stamp,
+  }
+
+  // If a soft-deleted row existed with this effdate, reactivate it with PATCH
+  if (existing.length && existing[0].is_deleted) {
+    await postgrestFetch(
+      `/pricehist?prodcode=eq.${encodeURIComponent(prodcode)}&effdate=eq.${encodeURIComponent(effdate)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(record),
+      }
+    )
+  } else {
+    await postgrestFetch("/pricehist", {
+      method: "POST",
+      headers: {
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(record),
+    })
+  }
+
+  await insertAuditLogIntoSupabase({
+    table_name: "pricehist",
+    action: "ADD",
+    record_key: `${prodcode}/${effdate}`,
+    new_values: record,
+    action_by: actionBy,
+  }).catch(() => {})
+
+  return {
+    ...record,
+    price: formatMoney(unitprice),
+    status: "Active",
+    stampAction: "CREATED",
+    stampUser: actionBy,
+    stampDate: dateStr,
+  }
+}
+
+export async function updatePriceScheduleInSupabase(
+  prodcode: string,
+  originalEffDate: string,
+  payload: {
+    effdate: string
+    unitprice: number
+  },
+  actionBy: string
+): Promise<Record<string, any>> {
+  const code = prodcode.trim().toUpperCase()
+  const origDate = originalEffDate.trim()
+  const newDate = payload.effdate.trim()
+  const unitprice = Number(payload.unitprice)
+
+  if (!newDate) {
+    throw new Error("Effective date is required.")
+  }
+  if (isNaN(unitprice) || unitprice <= 0) {
+    throw new Error("Unit price must be a valid number greater than 0.")
+  }
+
+  const now = new Date()
+  const dateStr = now.toISOString().replace("T", " ").slice(0, 19)
+  const stamp = `EDITED ${actionBy} ${dateStr}`
+
+  // If effective date is changing, ensure target date is not already occupied
+  if (newDate !== origDate) {
+    const existing = await postgrestFetch<Record<string, any>[]>(
+      `/pricehist?prodcode=eq.${encodeURIComponent(code)}&effdate=eq.${encodeURIComponent(newDate)}&limit=1`
+    ).catch(() => [])
+
+    if (existing.length && !existing[0].is_deleted) {
+      throw new Error(
+        `A price schedule with effective date ${newDate} already exists for product ${code}.`
+      )
+    }
+
+    // Delete old composite primary key row and insert new one
+    await postgrestFetch(
+      `/pricehist?prodcode=eq.${encodeURIComponent(code)}&effdate=eq.${encodeURIComponent(origDate)}`,
+      {
+        method: "DELETE",
+      }
+    ).catch(() => {})
+
+    const newRecord = {
+      prodcode: code,
+      effdate: newDate,
+      unitprice,
+      is_deleted: false,
+      stamp,
+    }
+
+    await postgrestFetch("/pricehist", {
+      method: "POST",
+      body: JSON.stringify(newRecord),
+    })
+
+    await insertAuditLogIntoSupabase({
+      table_name: "pricehist",
+      action: "EDIT",
+      record_key: `${code}/${newDate}`,
+      old_values: { effdate: origDate },
+      new_values: newRecord,
+      action_by: actionBy,
+    }).catch(() => {})
+
+    return {
+      ...newRecord,
+      price: formatMoney(unitprice),
+      status: "Active",
+      stampAction: "EDITED",
+      stampUser: actionBy,
+      stampDate: dateStr,
+    }
+  }
+
+  // Update existing row in place
+  const patch = {
+    unitprice,
+    stamp,
+  }
+
+  await postgrestFetch(
+    `/pricehist?prodcode=eq.${encodeURIComponent(code)}&effdate=eq.${encodeURIComponent(origDate)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }
+  )
+
+  await insertAuditLogIntoSupabase({
+    table_name: "pricehist",
+    action: "EDIT",
+    record_key: `${code}/${origDate}`,
+    new_values: patch,
+    action_by: actionBy,
+  }).catch(() => {})
+
+  return {
+    prodcode: code,
+    effdate: origDate,
+    unitprice,
+    price: formatMoney(unitprice),
+    status: "Active",
+    stamp,
+    stampAction: "EDITED",
+    stampUser: actionBy,
+    stampDate: dateStr,
+  }
+}
+
