@@ -723,6 +723,97 @@ export const productApi = {
 }
 
 // ============================================================================
+// Department Master Data APIs (Sprint 3 — S3-DEV-01)
+// ============================================================================
+
+export const departmentApi = {
+  /**
+   * Fetches the department directory with optional search and status filtering.
+   * Endpoint: GET /api/departments
+   */
+  listDepartments: (
+    params: DepartmentQueryParams = {}
+  ): Promise<Department[]> => {
+    const q = new URLSearchParams()
+    if (params.search) q.set("search", params.search)
+    if (params.status) q.set("status", params.status)
+    const queryString = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<Department[]>(`/api/departments${queryString}`)
+  },
+
+  /**
+   * Fetches a single department by code.
+   * Endpoint: GET /api/departments/:deptcode
+   */
+  getDepartment: (deptcode: string): Promise<Department> => {
+    return apiFetch<Department>(`/api/departments/${encodeURIComponent(deptcode)}`)
+  },
+
+  /**
+   * Creates a new department record.
+   * Server-side permission check: requires Department - Add (or Admin/Superadmin).
+   * Endpoint: POST /api/departments
+   */
+  createDepartment: (
+    data: CreateDepartmentPayload
+  ): Promise<Department> => {
+    return apiFetch<Department>("/api/departments", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Updates an existing department name.
+   * Server-side permission check: requires Department - Edit (or Admin/Superadmin).
+   * Endpoint: PUT /api/departments/:deptcode
+   */
+  updateDepartment: (
+    deptcode: string,
+    data: UpdateDepartmentPayload
+  ): Promise<Department> => {
+    return apiFetch<Department>(
+      `/api/departments/${encodeURIComponent(deptcode)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }
+    )
+  },
+
+  /**
+   * Soft-deletes a department record (sets is_deleted = true).
+   * Validates child employee references; returns 409 if active employees reference it.
+   * Server-side permission check: requires Department - Delete (or Admin/Superadmin).
+   * Endpoint: DELETE /api/departments/:deptcode
+   */
+  deleteDepartment: (
+    deptcode: string
+  ): Promise<{ message: string; blocked?: boolean; reason?: string }> => {
+    return apiFetch<{ message: string; blocked?: boolean; reason?: string }>(
+      `/api/departments/${encodeURIComponent(deptcode)}`,
+      {
+        method: "DELETE",
+      }
+    )
+  },
+
+  /**
+   * Restores a soft-deleted department record (sets is_deleted = false).
+   * Server-side permission check: requires Department - Edit (or Admin/Superadmin).
+   * Endpoint: POST /api/departments/:deptcode/restore
+   */
+  restoreDepartment: (deptcode: string): Promise<{ message: string }> => {
+    return apiFetch<{ message: string }>(
+      `/api/departments/${encodeURIComponent(deptcode)}/restore`,
+      {
+        method: "POST",
+      }
+    )
+  },
+}
+
+// ============================================================================
 // Table Editor APIs (Superadmin Only — All Public Tables Except app_user)
 // ============================================================================
 

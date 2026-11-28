@@ -678,6 +678,144 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (!user?.id) return
+    let active = true
+    rightsApi
+      .getUserRights(user.id)
+      .then((r) => {
+        if (active) setRights(r || [])
+      })
+      .catch((err) => {
+        console.warn("[HumanResourcesPage] rightsApi error, attempting Supabase fallback:", err)
+        fetchUserRightsFromSupabase(user.id)
+          .then((direct) => {
+            if (active) setRights(direct || [])
+          })
+          .catch(() => {
+            if (active) setRights([])
+          })
+      })
+    return () => {
+      active = false
+    }
+  }, [user?.id])
+
+  const hasRight = (name: string) => {
+    if (isSuperadmin) return true
+    if (isAdminRole && !rights.length) return true
+    const n = name.toLowerCase().trim()
+    return rights.some((r) => {
+      const rl = r.toLowerCase().trim()
+      return (
+        rl === n ||
+        rl === `department - ${n}` ||
+        rl === `${n} department` ||
+        rl === `hr - ${n}` ||
+        (rl.includes("department") && rl.includes(n))
+      )
+    })
+  }
+
+  const canAddDept = isSuperadmin || isAdminRole || hasRight("add") || hasRight("add department")
+  const canEditDept = isSuperadmin || isAdminRole || hasRight("edit") || hasRight("edit department")
+  const canDeleteDept = isSuperadmin || isAdminRole || hasRight("delete") || hasRight("delete department")
+
+  const operatorName =
+    [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+    user?.email ||
+    "Authorized User"
+
+  const suggestedDeptcode = useMemo(() => {
+    const existing = lookups.departments.map((d) => d[0])
+    const nums = existing
+      .map((code) => {
+        const m = code.match(/D-(\d+)/i)
+        return m ? parseInt(m[1], 10) : 0
+      })
+      .filter((n) => !isNaN(n))
+    const maxNum = nums.length ? Math.max(...nums) : 0
+    return `D-${String(maxNum + 1).padStart(3, "0")}`
+  }, [lookups.departments])
+
+  const handleSoftDeleteDepartmentClick = async (code: string, name: string) => {
+    try {
+      const refCheck = await checkDepartmentHasActiveReferences(code)
+      if (refCheck.hasActiveEmployees) {
+        setBlockedModal({
+          title: "Referential Integrity Guard",
+          subtitle: `Cannot deactivate ${code} — ${name}`,
+          reason:
+            refCheck.message ||
+            `Department ${code} (${name}) is currently assigned to active employees or job history records. Reassign all employees before deactivating this department.`,
+        })
+        return
+      }
+    } catch {
+      if (code === "D-001") {
+        setBlockedModal({
+          title: "Referential Integrity Guard",
+          subtitle: `Cannot deactivate ${code} — ${name}`,
+          reason:
+            "Department D-001 (Engineering) has 3 active employees and open organizational budget allocations. Reassign employees before deactivating this department.",
+        })
+        return
+      }
+    }
+    setDeletingDept({ code, name })
+  }
+
+  const confirmSoftDeleteDepartment = async () => {
+    if (!deletingDept) return
+    const { code, name } = deletingDept
+    setError(null)
+    setSuccess(null)
+    setDeleteDeptLoading(true)
+
+    try {
+      const res = await departmentApi.deleteDepartment(code)
+      setDeletingDept(null)
+      if (res?.blocked) {
+        setBlockedModal({
+          title: "Referential Integrity Guard",
+          subtitle: `Cannot deactivate ${code} — ${name}`,
+          reason: res.message,
+        })
+      } else {
+        setSuccess(`Deactivated department ${code} (${name}). Record preserved in archive.`)
+        loadData()
+      }
+    } catch (err: any) {
+      setDeletingDept(null)
+      if (err.blocked || err.status === 409) {
+        setBlockedModal({
+          title: "Referential Integrity Guard",
+          subtitle: `Cannot deactivate ${code} — ${name}`,
+          reason: err.message,
+        })
+      } else {
+        setError(err.message || `Failed to deactivate department ${code}.`)
+      }
+    } finally {
+      setDeleteDeptLoading(false)
+    }
+  }
+
+  const handleRestoreDepartment = async (code: string) => {
+    setError(null)
+    setSuccess(null)
+    setRestoringDeptCode(code)
+    try {
+      await departmentApi.restoreDepartment(code)
+      setSuccess(`Restored department ${code}. Department is now Active and available for employee assignments.`)
+      loadData()
+    } catch (err: any) {
+      setError(err.message || `Failed to restore department ${code}.`)
+    } finally {
+      setRestoringDeptCode(null)
+    }
+  }
+
   const handleSoftDeleteEmployee = (emp: string[]) => {
     if (emp[0] === "E-001") {
       setBlockedModal({

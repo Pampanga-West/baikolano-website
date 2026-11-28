@@ -179,4 +179,30 @@ export interface PriceHistoryRecord {
   stampDate?: string
 }
 
+// Sprint 3 Department Types (S3-DEV-01)
+export interface Department {
+  deptcode: string
+  deptname: string
+  is_deleted: boolean
+  status: "Active" | "Inactive"
+  stamp?: string
+  stampAction?: string
+  stampUser?: string
+  stampDate?: string
+}
+
+export interface DepartmentQueryParams {
+  search?: string
+  status?: "active" | "inactive" | "all"
+}
+
+export interface CreateDepartmentPayload {
+  deptcode?: string
+  deptname: string
+}
+
+export interface UpdateDepartmentPayload {
+  deptname: string
+}
+
 

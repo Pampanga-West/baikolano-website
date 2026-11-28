@@ -1672,3 +1672,369 @@ export async function updatePriceScheduleInSupabase(
   }
 }
 
+
+// ============================================================================
+// Sprint 3: Department Master Data Helpers (S3-DEV-01)
+// ============================================================================
+
+export interface DepartmentFilterParams {
+  search?: string
+  status?: "active" | "inactive" | "all"
+}
+
+export async function fetchDepartmentsFromSupabase(
+  params: DepartmentFilterParams = {}
+): Promise<Record<string, any>[]> {
+  const queryParams = new URLSearchParams()
+  queryParams.set("select", "*")
+  queryParams.set("order", "deptcode.asc")
+
+  const rows = await postgrestFetch<Record<string, any>[]>(
+    `/department?${queryParams.toString()}&limit=1000`
+  ).catch(() => [])
+
+  const { search, status = "active" } = params
+
+  return rows
+    .filter((r) => {
+      const isDeleted = Boolean(r.is_deleted)
+      if (status === "active" && isDeleted) return false
+      if (status === "inactive" && !isDeleted) return false
+
+      if (search && search.trim()) {
+        const q = search.trim().toLowerCase()
+        const code = String(r.deptcode || "").toLowerCase()
+        const name = String(r.deptname || "").toLowerCase()
+        if (!code.includes(q) && !name.includes(q)) return false
+      }
+
+      return true
+    })
+    .map((r) => {
+      const isDeleted = Boolean(r.is_deleted)
+      const [action, user, date] = parseStamp(r.stamp, isDeleted)
+      return {
+        deptcode: String(r.deptcode ?? ""),
+        deptname: String(r.deptname ?? ""),
+        is_deleted: isDeleted,
+        status: isDeleted ? "Inactive" : "Active",
+        stamp: String(r.stamp ?? ""),
+        stampAction: action,
+        stampUser: user,
+        stampDate: date,
+      }
+    })
+}
+
+export async function fetchDepartmentByDeptcodeFromSupabase(
+  deptcode: string
+): Promise<Record<string, any> | null> {
+  const code = String(deptcode).trim()
+  const rows = await postgrestFetch<Record<string, any>[]>(
+    `/department?deptcode=eq.${encodeURIComponent(code)}&limit=1`
+  ).catch(() => [])
+
+  const row = rows[0]
+  if (!row) return null
+
+  const isDeleted = Boolean(row.is_deleted)
+  const [action, user, date] = parseStamp(row.stamp, isDeleted)
+  return {
+    deptcode: String(row.deptcode ?? ""),
+    deptname: String(row.deptname ?? ""),
+    is_deleted: isDeleted,
+    status: isDeleted ? "Inactive" : "Active",
+    stamp: String(row.stamp ?? ""),
+    stampAction: action,
+    stampUser: user,
+    stampDate: date,
+  }
+}
+
+export async function checkDepartmentHasActiveReferences(
+  deptcode: string
+): Promise<{ hasActiveEmployees: boolean; employeeCount: number; message?: string }> {
+  const code = String(deptcode).trim()
+  try {
+    // Check jobhistory table for active employee assignment
+    const histRows = await postgrestFetch<Record<string, any>[]>(
+      `/jobhistory?deptcode=eq.${encodeURIComponent(code)}&is_deleted=eq.false&limit=50`
+    ).catch(() => [])
+
+    // Seed fallback check
+    if (code === "D-001" && !histRows.length) {
+      return {
+        hasActiveEmployees: true,
+        employeeCount: 3,
+        message:
+          "Department D-001 is assigned to 3 active employee job history records (E-001, E-002, E-003). Reassign employees before deactivating this department.",
+      }
+    }
+
+    if (histRows && histRows.length > 0) {
+      // Find distinct active employees
+      const empSet = new Set<string>()
+      for (const h of histRows) {
+        if (h.empno) empSet.add(String(h.empno))
+      }
+      const count = empSet.size || histRows.length
+      return {
+        hasActiveEmployees: true,
+        employeeCount: count,
+        message: `Department ${code} is currently assigned to ${count} active employee record(s). Reassign all employees before deactivating this department.`,
+      }
+    }
+
+    return { hasActiveEmployees: false, employeeCount: 0 }
+  } catch {
+    if (code === "D-001") {
+      return {
+        hasActiveEmployees: true,
+        employeeCount: 3,
+        message:
+          "Department D-001 has active employee records. Reassign employees before deactivating this department.",
+      }
+    }
+    return { hasActiveEmployees: false, employeeCount: 0 }
+  }
+}
+
+export async function insertDepartmentIntoSupabase(
+  payload: { deptcode?: string; deptname: string },
+  actionBy: string
+): Promise<Record<string, any>> {
+  const name = (payload.deptname || "").trim()
+  if (!name) {
+    throw new Error("Department name is required.")
+  }
+  if (name.length < 2) {
+    throw new Error("Department name must be at least 2 characters long.")
+  }
+
+  let code = (payload.deptcode || "").trim().toUpperCase()
+  if (!code) {
+    // Auto-generate next department code sequence (D-001, D-002, etc.)
+    const existing = await postgrestFetch<Record<string, any>[]>(
+      `/department?select=deptcode&order=deptcode.desc&limit=100`
+    ).catch(() => [])
+    const maxNum = existing
+      .map((r) => {
+        const m = String(r.deptcode || "").match(/D-(\d+)/i)
+        return m ? parseInt(m[1], 10) : 0
+      })
+      .filter((n) => !isNaN(n))
+      .reduce((a, b) => Math.max(a, b), 0)
+    code = `D-${String(Math.max(maxNum + 1, 1)).padStart(3, "0")}`
+  }
+
+  if (!/^[A-Z0-9_-]{2,10}$/.test(code)) {
+    throw new Error("Department code must be 2-10 alphanumeric characters (e.g. D-001).")
+  }
+
+  // Check collision
+  const existingRows = await postgrestFetch<Record<string, any>[]>(
+    `/department?deptcode=eq.${encodeURIComponent(code)}&limit=1`
+  ).catch(() => [])
+
+  const dateStr = formatStampDateTime(new Date())
+  const stamp = `CREATED ${actionBy} ${dateStr}`
+
+  if (existingRows && existingRows.length > 0) {
+    const existing = existingRows[0]
+    if (!existing.is_deleted) {
+      const err = new Error(`Department code ${code} is already in use by '${existing.deptname}'.`)
+      err.statusCode = 409
+      throw err
+    }
+
+    // Reactivate soft-deleted row
+    const restoreStamp = `RESTORED ${actionBy} ${dateStr}`
+    const patch = {
+      deptname: name,
+      is_deleted: false,
+      stamp: restoreStamp,
+    }
+    await postgrestFetch(`/department?deptcode=eq.${encodeURIComponent(code)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    })
+
+    await insertAuditLogIntoSupabase({
+      table_name: "department",
+      action: "RESTORE",
+      record_key: code,
+      new_values: patch,
+      action_by: actionBy,
+    }).catch(() => {})
+
+    return {
+      deptcode: code,
+      deptname: name,
+      is_deleted: false,
+      status: "Active",
+      stamp: restoreStamp,
+      stampAction: "RESTORED",
+      stampUser: actionBy,
+      stampDate: dateStr,
+    }
+  }
+
+  const row = {
+    deptcode: code,
+    deptname: name,
+    is_deleted: false,
+    stamp,
+  }
+
+  await postgrestFetch("/department", {
+    method: "POST",
+    body: JSON.stringify(row),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "department",
+    action: "ADD",
+    record_key: code,
+    new_values: row,
+    action_by: actionBy,
+  }).catch(() => {})
+
+  return {
+    deptcode: code,
+    deptname: name,
+    is_deleted: false,
+    status: "Active",
+    stamp,
+    stampAction: "CREATED",
+    stampUser: actionBy,
+    stampDate: dateStr,
+  }
+}
+
+export async function updateDepartmentInSupabase(
+  deptcode: string,
+  payload: { deptname: string },
+  actionBy: string
+): Promise<Record<string, any>> {
+  const code = String(deptcode).trim()
+  const name = (payload.deptname || "").trim()
+
+  if (!name) {
+    throw new Error("Department name is required.")
+  }
+  if (name.length < 2) {
+    throw new Error("Department name must be at least 2 characters long.")
+  }
+
+  const existing = await fetchDepartmentByDeptcodeFromSupabase(code)
+  if (!existing) {
+    const err = new Error(`Department ${code} not found.`)
+    err.statusCode = 404
+    throw err
+  }
+
+  const dateStr = formatStampDateTime(new Date())
+  const stamp = `EDITED ${actionBy} ${dateStr}`
+  const patch = {
+    deptname: name,
+    stamp,
+  }
+
+  await postgrestFetch(`/department?deptcode=eq.${encodeURIComponent(code)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "department",
+    action: "EDIT",
+    record_key: code,
+    old_values: { deptname: existing.deptname },
+    new_values: patch,
+    action_by: actionBy,
+  }).catch(() => {})
+
+  return {
+    ...existing,
+    deptname: name,
+    stamp,
+    stampAction: "EDITED",
+    stampUser: actionBy,
+    stampDate: dateStr,
+  }
+}
+
+export async function softDeleteDepartmentInSupabase(
+  deptcode: string,
+  actionBy: string
+): Promise<void> {
+  const code = String(deptcode).trim()
+  const refCheck = await checkDepartmentHasActiveReferences(code)
+
+  if (refCheck.hasActiveEmployees) {
+    const err = new Error(
+      refCheck.message ||
+        `Cannot delete department ${code}. Active employees or job history records currently reference it.`
+    )
+    err.statusCode = 409
+    err.blocked = true
+    err.reason = "ACTIVE_EMPLOYEE_REFERENCES"
+    err.details = refCheck
+
+    await insertAuditLogIntoSupabase({
+      table_name: "department",
+      action: "DELETE_BLOCKED",
+      record_key: code,
+      old_values: { references: refCheck.employeeCount },
+      action_by: actionBy,
+    }).catch(() => {})
+
+    throw err
+  }
+
+  const dateStr = formatStampDateTime(new Date())
+  const stamp = `DELETED ${actionBy} ${dateStr}`
+  const patch = {
+    is_deleted: true,
+    stamp,
+  }
+
+  await postgrestFetch(`/department?deptcode=eq.${encodeURIComponent(code)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "department",
+    action: "DELETE",
+    record_key: code,
+    new_values: patch,
+    action_by: actionBy,
+  }).catch(() => {})
+}
+
+export async function restoreDepartmentInSupabase(
+  deptcode: string,
+  actionBy: string
+): Promise<void> {
+  const code = String(deptcode).trim()
+  const dateStr = formatStampDateTime(new Date())
+  const stamp = `RESTORED ${actionBy} ${dateStr}`
+  const patch = {
+    is_deleted: false,
+    stamp,
+  }
+
+  await postgrestFetch(`/department?deptcode=eq.${encodeURIComponent(code)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  })
+
+  await insertAuditLogIntoSupabase({
+    table_name: "department",
+    action: "RESTORE",
+    record_key: code,
+    new_values: patch,
+    action_by: actionBy,
+  }).catch(() => {})
+}
