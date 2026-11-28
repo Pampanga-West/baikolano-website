@@ -17,7 +17,13 @@ import Icon from "../components/Icon"
 import ModalShell from "../components/ModalShell"
 import SaleModal from "../components/SaleModal"
 import Stamp from "../components/Stamp"
-import type { Role, SaleLineItem, SaleProductOption } from "../lib/types"
+import type {
+  Role,
+  SaleLineItem,
+  SaleProductOption,
+  PaymentRecord,
+  CustomerBalanceSummary,
+} from "../lib/types"
 
 const fallbackSales = [
   [
@@ -66,17 +72,6 @@ const fallbackSales = [
   ],
 ]
 
-type PaymentRecord = {
-  orno: string
-  transno: string
-  paydate: string
-  amount: string
-  amountNum: number
-  status: string
-  action: string
-  user: string
-  date: string
-}
 
 const fallbackSaleLines: SaleLineItem[] = [
   {
@@ -574,37 +569,122 @@ function Payments({
   sale,
   receipts,
   customerBalances,
+  canRecordPayment,
+  canVoidPayment,
+  canViewInactive,
   onSoftDeleteReceipt,
   onRestoreReceipt,
+  onPaymentRecorded,
   close,
 }: {
   role: Role
   sale: string[]
   receipts: PaymentRecord[]
-  customerBalances: {
-    customer: string
-    billed: number
-    paid: number
-    open: number
-  }[]
-  onSoftDeleteReceipt: (receipt: PaymentRecord) => void
-  onRestoreReceipt: (receipt: PaymentRecord) => void
+  customerBalances: CustomerBalanceSummary[]
+  canRecordPayment: boolean
+  canVoidPayment: boolean
+  canViewInactive: boolean
+  onSoftDeleteReceipt: (receipt: PaymentRecord) => Promise<void> | void
+  onRestoreReceipt: (receipt: PaymentRecord) => Promise<void> | void
+  onPaymentRecorded: (msg?: string) => Promise<void> | void
   close: () => void
 }) {
-  const isAdmin = role !== "User"
   const [tab, setTab] = useState<"payments" | "balances">("payments")
-  const [deletingReceipt, setDeletingReceipt] = useState<PaymentRecord | null>(
-    null
-  )
-  const visibleReceipts = receipts.filter(
-    (r) => isAdmin || r.status === "Active"
-  )
-  const saleTotalNum =
-    Number(sale[4]?.replace(/[^0-9.-]+/g, "")) || 0
+  const [statusFilter, setStatusFilter] = useState<"active" | "inactive" | "all">("active")
+  const [deletingReceipt, setDeletingReceipt] = useState<PaymentRecord | null>(null)
+
+  // Payment Form state
+  const [orno, setOrno] = useState("")
+  const [paydate, setPaydate] = useState(new Date().toISOString().split("T")[0])
+  const [amount, setAmount] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const visibleReceipts = receipts.filter((r) => {
+    if (!canViewInactive && r.status === "Inactive") return false
+    if (canViewInactive && statusFilter !== "all" && r.status.toLowerCase() !== statusFilter) {
+      return false
+    }
+    return true
+  })
+
+  const saleTotalNum = Number(sale[4]?.replace(/[^0-9.-]+/g, "")) || 0
   const totalPaidNum = receipts
     .filter((r) => r.status === "Active")
     .reduce((sum, r) => sum + r.amountNum, 0)
   const remainingNum = Math.max(0, saleTotalNum - totalPaidNum)
+
+  // Load next OR number on open
+  useEffect(() => {
+    let active = true
+    salesApi
+      .getNextOrno()
+      .then((res) => {
+        if (active && res?.nextOrno) {
+          setOrno(res.nextOrno)
+        }
+      })
+      .catch(() => {
+        if (active) setOrno("OR-1001")
+      })
+    return () => {
+      active = false
+    }
+  }, [sale[0]])
+
+  // Set default amount to remaining balance if empty
+  useEffect(() => {
+    if (remainingNum > 0 && !amount) {
+      setAmount(remainingNum.toFixed(2))
+    }
+  }, [remainingNum])
+
+  const handleSavePayment = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setFormError(null)
+
+    const cleanOrno = orno.trim().toUpperCase()
+    if (!cleanOrno) {
+      setFormError("Official Receipt No. is required.")
+      return
+    }
+
+    if (!paydate) {
+      setFormError("Payment date is required.")
+      return
+    }
+
+    const numAmount = Number(amount)
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setFormError("Payment amount must be greater than 0.")
+      return
+    }
+
+    if (remainingNum > 0 && numAmount > remainingNum + 0.001) {
+      setFormError(
+        `Payment amount (${formatMoney(numAmount)}) cannot exceed remaining invoice balance of ${formatMoney(remainingNum)}.`
+      )
+      return
+    }
+
+    setSaving(true)
+    try {
+      await salesApi.recordPayment(sale[0], {
+        orno: cleanOrno,
+        paydate,
+        amount: numAmount,
+      })
+      await onPaymentRecorded(`Payment of ${formatMoney(numAmount)} recorded under receipt ${cleanOrno}.`)
+      // Refresh next OR number and reset amount
+      const nextRes = await salesApi.getNextOrno().catch(() => null)
+      if (nextRes?.nextOrno) setOrno(nextRes.nextOrno)
+      setAmount("")
+    } catch (err: any) {
+      setFormError(err.message || "Failed to record payment.")
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <ModalShell
@@ -650,10 +730,34 @@ function Payments({
           </div>
           <div
             className="payments-layout"
-            style={!isAdmin ? { gridTemplateColumns: "1fr" } : undefined}
+            style={!canRecordPayment ? { gridTemplateColumns: "1fr" } : undefined}
           >
             <div className="payment-table">
-              <div className="section-kicker">Receipt history</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                <div className="section-kicker" style={{ margin: 0 }}>Receipt history</div>
+                {canViewInactive && (
+                  <div className="filter-tabs" style={{ margin: 0 }}>
+                    <button
+                      className={statusFilter === "active" ? "selected" : ""}
+                      onClick={() => setStatusFilter("active")}
+                    >
+                      Active
+                    </button>
+                    <button
+                      className={statusFilter === "inactive" ? "selected" : ""}
+                      onClick={() => setStatusFilter("inactive")}
+                    >
+                      Inactive
+                    </button>
+                    <button
+                      className={statusFilter === "all" ? "selected" : ""}
+                      onClick={() => setStatusFilter("all")}
+                    >
+                      All
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="table-scroll">
                 <table className="entity-table">
                   <thead>
@@ -661,13 +765,13 @@ function Payments({
                       <th>OR No</th>
                       <th>Pay Date</th>
                       <th>Amount</th>
-                      {isAdmin && (
+                      {canViewInactive && (
                         <>
                           <th>Status</th>
                           <th>Stamp</th>
-                          <th>Actions</th>
                         </>
                       )}
+                      {canVoidPayment && <th>Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -675,16 +779,14 @@ function Payments({
                       visibleReceipts.map((r) => (
                         <tr
                           key={r.orno}
-                          className={
-                            r.status === "Inactive" ? "inactive-row" : ""
-                          }
+                          className={r.status === "Inactive" ? "inactive-row" : ""}
                         >
                           <td className="code-cell">{r.orno}</td>
                           <td>{r.paydate}</td>
                           <td>
                             <b className="price-value">{r.amount}</b>
                           </td>
-                          {isAdmin && (
+                          {canViewInactive && (
                             <>
                               <td>
                                 <Badge kind={r.status.toLowerCase()}>
@@ -693,41 +795,40 @@ function Payments({
                               </td>
                               <td>
                                 <Stamp
-                                  action={r.action}
-                                  user={r.user}
-                                  date={r.date}
+                                  action={r.action || "CREATED"}
+                                  user={r.user || "system"}
+                                  date={r.date || ""}
                                 />
                               </td>
-                              <td>
-                                <div className="row-actions">
-                                  {r.status === "Inactive" ? (
-                                    <button
-                                      className="success-link"
-                                      onClick={() => onRestoreReceipt(r)}
-                                    >
-                                      Restore
-                                    </button>
-                                  ) : (
-                                    <>
-                                      <button>Edit</button>
-                                      <button
-                                        className="danger-link"
-                                        onClick={() => setDeletingReceipt(r)}
-                                      >
-                                        Delete
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              </td>
                             </>
+                          )}
+                          {canVoidPayment && (
+                            <td>
+                              <div className="row-actions">
+                                {r.status === "Inactive" ? (
+                                  <button
+                                    className="success-link"
+                                    onClick={() => onRestoreReceipt(r)}
+                                  >
+                                    Restore
+                                  </button>
+                                ) : (
+                                  <button
+                                    className="danger-link"
+                                    onClick={() => setDeletingReceipt(r)}
+                                  >
+                                    Void
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                           )}
                         </tr>
                       ))
                     ) : (
                       <tr>
                         <td
-                          colSpan={isAdmin ? 6 : 3}
+                          colSpan={3 + (canViewInactive ? 2 : 0) + (canVoidPayment ? 1 : 0)}
                           style={{
                             textAlign: "center",
                             color: "var(--muted)",
@@ -742,26 +843,64 @@ function Payments({
                 </table>
               </div>
             </div>
-            {isAdmin && (
-              <aside className="payment-form">
+            {canRecordPayment && (
+              <form className="payment-form" onSubmit={handleSavePayment}>
                 <div className="section-kicker">Record payment</div>
+                {formError && (
+                  <div className="alert-banner alert-banner-error" style={{ marginBottom: "12px", padding: "8px 12px" }}>
+                    <Icon name="alert-triangle" size={14} />
+                    <span>{formError}</span>
+                  </div>
+                )}
                 <label>
                   <span>Official Receipt No.</span>
-                  <input defaultValue="OR-1001" />
+                  <input
+                    value={orno}
+                    onChange={(e) => {
+                      setOrno(e.target.value)
+                      if (formError) setFormError(null)
+                    }}
+                    placeholder="OR-1001"
+                    required
+                    disabled={saving}
+                  />
                 </label>
                 <label>
                   <span>Payment Date</span>
-                  <input type="date" defaultValue="2026-10-13" />
+                  <input
+                    type="date"
+                    value={paydate}
+                    onChange={(e) => {
+                      setPaydate(e.target.value)
+                      if (formError) setFormError(null)
+                    }}
+                    required
+                    disabled={saving}
+                  />
                 </label>
                 <label>
                   <span>Amount</span>
                   <div className="money-input">
                     <span>$</span>
-                    <input defaultValue={remainingNum.toFixed(2)} />
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      value={amount}
+                      onChange={(e) => {
+                        setAmount(e.target.value)
+                        if (formError) setFormError(null)
+                      }}
+                      placeholder="0.00"
+                      required
+                      disabled={saving}
+                    />
                   </div>
                 </label>
-                <Button className="full">Save Payment</Button>
-              </aside>
+                <Button className="full" disabled={saving || (saleTotalNum > 0 && remainingNum <= 0)}>
+                  {saving ? "Saving Payment..." : (saleTotalNum > 0 && remainingNum <= 0) ? "Fully Paid" : "Save Payment"}
+                </Button>
+              </form>
             )}
           </div>
         </>
@@ -806,9 +945,10 @@ function Payments({
           targetLabel={`${deletingReceipt.orno} — ${deletingReceipt.amount}`}
           warningMessage={`Are you sure you want to void receipt ${deletingReceipt.orno}? The payment will be soft-deleted and marked Inactive. Customer open balance will be automatically adjusted.`}
           actionLabel="Void Receipt"
-          onConfirm={() => {
-            onSoftDeleteReceipt(deletingReceipt)
+          onConfirm={async () => {
+            const target = deletingReceipt
             setDeletingReceipt(null)
+            await onSoftDeleteReceipt(target)
           }}
           onClose={() => setDeletingReceipt(null)}
         />
@@ -935,6 +1075,35 @@ export default function SalesPage({ role }: { role: Role }) {
       )
     })
   const canViewInactiveDetail = isSuperadmin || isAdminRole || canEditDetail || canDeleteDetail
+
+  // Payment Rights (S4-DEV-03)
+  const canRecordPayment =
+    isSuperadmin ||
+    isAdminRole ||
+    rights.some((r) => {
+      const l = r.toLowerCase().trim()
+      return (
+        l.includes("record payment") ||
+        l.includes("add payment") ||
+        l === "add sale" ||
+        l === "edit sale"
+      )
+    }) ||
+    canEdit ||
+    canAdd
+  const canVoidPayment =
+    isSuperadmin ||
+    isAdminRole ||
+    rights.some((r) => {
+      const l = r.toLowerCase().trim()
+      return (
+        l.includes("delete payment") ||
+        l.includes("void payment") ||
+        l === "delete sale"
+      )
+    }) ||
+    canDelete
+  const canViewInactivePayment = isSuperadmin || isAdminRole || canVoidPayment
 
   const [sales, setSales] = useState<string[][]>(fallbackSales)
   const [saleLines, setSaleLines] =
@@ -1075,40 +1244,24 @@ export default function SalesPage({ role }: { role: Role }) {
     }
   }
 
-  const handleSoftDeleteReceipt = (receipt: PaymentRecord) => {
-    setPaymentRecords((prev) =>
-      prev.map((p) =>
-        p.orno === receipt.orno
-          ? {
-            ...p,
-            status: "Inactive",
-            action: "DELETED",
-            user: user?.email || "system",
-            date: new Date().toISOString(),
-          }
-        : p
-      )
-    )
-    setSuccess(
-      `Receipt ${receipt.orno} voided / deactivated. Customer balance updated.`
-    )
+  const handleSoftDeleteReceipt = async (receipt: PaymentRecord) => {
+    try {
+      await salesApi.deletePayment(receipt.orno)
+      setSuccess(`Official Receipt ${receipt.orno} voided (soft-deleted). Customer open balance updated.`)
+      await loadSalesData()
+    } catch (err: any) {
+      setError(err.message || `Failed to void receipt ${receipt.orno}.`)
+    }
   }
 
-  const handleRestoreReceipt = (receipt: PaymentRecord) => {
-    setPaymentRecords((prev) =>
-      prev.map((p) =>
-        p.orno === receipt.orno
-          ? {
-              ...p,
-              status: "Active",
-              action: "EDITED",
-              user: user?.email || "system",
-              date: new Date().toISOString(),
-            }
-          : p
-      )
-    )
-    setSuccess(`Receipt ${receipt.orno} restored to active.`)
+  const handleRestoreReceipt = async (receipt: PaymentRecord) => {
+    try {
+      await salesApi.restorePayment(receipt.orno)
+      setSuccess(`Official Receipt ${receipt.orno} restored to active status.`)
+      await loadSalesData()
+    } catch (err: any) {
+      setError(err.message || `Failed to restore receipt ${receipt.orno}.`)
+    }
   }
 
   const loadSalesData = useCallback(async () => {
@@ -1281,6 +1434,11 @@ export default function SalesPage({ role }: { role: Role }) {
       })
       setSales(mappedSales)
       setDetailsSale((prev) => {
+        if (!prev) return null
+        const found = mappedSales.find((s) => s[0] === prev[0])
+        return found || prev
+      })
+      setPaymentsSale((prev) => {
         if (!prev) return null
         const found = mappedSales.find((s) => s[0] === prev[0])
         return found || prev
@@ -1558,8 +1716,15 @@ export default function SalesPage({ role }: { role: Role }) {
           sale={paymentsSale}
           receipts={paymentRecords.filter((p) => p.transno === paymentsSale[0])}
           customerBalances={customerBalances}
+          canRecordPayment={canRecordPayment}
+          canVoidPayment={canVoidPayment}
+          canViewInactive={canViewInactivePayment}
           onSoftDeleteReceipt={handleSoftDeleteReceipt}
           onRestoreReceipt={handleRestoreReceipt}
+          onPaymentRecorded={async (msg) => {
+            if (msg) setSuccess(msg)
+            await loadSalesData()
+          }}
           close={() => setPaymentsSale(null)}
         />
       )}

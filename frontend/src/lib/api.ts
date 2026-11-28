@@ -40,6 +40,9 @@ import {
   type CreateSaleLinePayload,
   type UpdateSaleLinePayload,
   type SaleProductOption,
+  type PaymentRecord,
+  type RecordPaymentPayload,
+  type CustomerBalanceSummary,
 } from "./types"
 
 // Automatically install global in-browser mock server interceptor
@@ -1262,6 +1265,40 @@ export const salesApi = {
       `/api/sales/${encodeURIComponent(transno)}/details/${encodeURIComponent(prodcode)}/restore`,
       { method: "POST" }
     )
+  },
+
+  getNextOrno: (): Promise<{ nextOrno: string }> => {
+    return apiFetch<{ nextOrno: string }>("/api/sales/payments/next-orno")
+  },
+
+  getPayments: (transno: string, status?: string): Promise<PaymentRecord[]> => {
+    const q = status ? `?status=${encodeURIComponent(status)}` : ""
+    return apiFetch<PaymentRecord[]>(`/api/sales/${encodeURIComponent(transno)}/payments${q}`)
+  },
+
+  recordPayment: (transno: string, payload: RecordPaymentPayload): Promise<PaymentRecord> => {
+    return apiFetch<PaymentRecord>(`/api/sales/${encodeURIComponent(transno)}/payments`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
+  },
+
+  deletePayment: (orno: string): Promise<{ message: string; orno: string; stamp: string }> => {
+    return apiFetch<{ message: string; orno: string; stamp: string }>(
+      `/api/sales/payments/${encodeURIComponent(orno)}`,
+      { method: "DELETE" }
+    )
+  },
+
+  restorePayment: (orno: string): Promise<{ message: string; orno: string; stamp: string }> => {
+    return apiFetch<{ message: string; orno: string; stamp: string }>(
+      `/api/sales/payments/${encodeURIComponent(orno)}/restore`,
+      { method: "POST" }
+    )
+  },
+
+  getCustomerBalances: (): Promise<CustomerBalanceSummary[]> => {
+    return apiFetch<CustomerBalanceSummary[]>("/api/sales/reports/customer-balances")
   },
 }
 
