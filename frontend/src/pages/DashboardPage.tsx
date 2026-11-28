@@ -113,7 +113,13 @@ export default function DashboardPage({
               <b>Recent activity</b>
               <p>Latest updates from your team.</p>
             </div>
-            <button>View all</button>
+            {role === "Superadmin" ? (
+              <button onClick={() => goToModule?.("audit")} style={{ cursor: "pointer" }}>
+                View all
+              </button>
+            ) : (
+              <button>View all</button>
+            )}
           </div>
           {[
             ["New customer added", "Acme Trading Co.", "10m", "users"],
@@ -132,13 +138,26 @@ export default function DashboardPage({
             </div>
           ))}
           {role !== "User" && (
-            <Button
-              variant="secondary"
-              className="full manage-btn"
-              onClick={goUsers}
-            >
-              Manage users
-            </Button>
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <Button
+                variant="secondary"
+                className="full manage-btn"
+                onClick={goUsers}
+              >
+                Manage users
+              </Button>
+              {role === "Superadmin" && (
+                <Button
+                  variant="secondary"
+                  className="full manage-btn"
+                  onClick={() => goToModule?.("audit")}
+                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                >
+                  <Icon name="shield" size={14} />
+                  <span>Audit log</span>
+                </Button>
+              )}
+            </div>
           )}
         </section>
       </div>

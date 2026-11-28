@@ -281,6 +281,159 @@ export async function insertAuditLogIntoSupabase(entry: {
   })
 }
 
+export interface AuditLogItem {
+  audit_id: number
+  table_name: string
+  action: string
+  record_key: string
+  old_values: Record<string, any> | null
+  new_values: Record<string, any> | null
+  action_by: string
+  action_at: string
+}
+
+export interface AuditLogFilterParams {
+  table?: string
+  action?: string
+  user?: string
+  from?: string
+  to?: string
+  search?: string
+  limit?: number
+}
+
+export interface AuditLogResponse {
+  logs: AuditLogItem[]
+  total: number
+  tables: string[]
+  actions: string[]
+  users: string[]
+}
+
+export async function fetchAuditLogsFromSupabase(
+  filters: AuditLogFilterParams = {}
+): Promise<AuditLogResponse> {
+  const rawLogs = await postgrestFetch<AuditLogItem[]>(
+    "/audit_log?select=*&order=action_at.desc,audit_id.desc&limit=1000"
+  ).catch(() => [])
+
+  // Collect distinct tables, actions, and users across all logs
+  const tablesSet = new Set<string>()
+  const actionsSet = new Set<string>()
+  const usersSet = new Set<string>()
+
+  // Pre-seed standard core modules/tables
+  ;[
+    "customer",
+    "product",
+    "sales",
+    "salesdetail",
+    "payment",
+    "employee",
+    "job",
+    "jobhistory",
+    "department",
+    "app_user",
+    "user_permission",
+    "pricehist",
+  ].forEach((t) => tablesSet.add(t))
+
+  ;[
+    "ADD",
+    "CREATE",
+    "EDIT",
+    "UPDATE",
+    "DELETE",
+    "RESTORE",
+    "PASSWORD_RESET_REQUEST",
+    "PROFILE_UPDATE",
+  ].forEach((a) => actionsSet.add(a))
+
+  rawLogs.forEach((l) => {
+    if (l.table_name) tablesSet.add(l.table_name)
+    if (l.action) actionsSet.add(l.action)
+    if (l.action_by) usersSet.add(l.action_by)
+  })
+
+  // Apply filters
+  let filtered = rawLogs
+
+  if (filters.table && filters.table !== "ALL" && filters.table !== "All modules") {
+    const tLower = filters.table.toLowerCase().trim()
+    filtered = filtered.filter(
+      (l) => (l.table_name || "").toLowerCase().trim() === tLower
+    )
+  }
+
+  if (filters.action && filters.action !== "ALL" && filters.action !== "All actions") {
+    const aUpper = filters.action.toUpperCase().trim()
+    filtered = filtered.filter(
+      (l) => (l.action || "").toUpperCase().trim() === aUpper
+    )
+  }
+
+  if (filters.user && filters.user !== "ALL" && filters.user !== "All users") {
+    const uLower = filters.user.toLowerCase().trim()
+    filtered = filtered.filter(
+      (l) => (l.action_by || "").toLowerCase().trim() === uLower
+    )
+  }
+
+  if (filters.from) {
+    const fromDate = new Date(filters.from)
+    if (!isNaN(fromDate.getTime())) {
+      fromDate.setHours(0, 0, 0, 0)
+      filtered = filtered.filter((l) => {
+        if (!l.action_at) return true
+        return new Date(l.action_at).getTime() >= fromDate.getTime()
+      })
+    }
+  }
+
+  if (filters.to) {
+    const toDate = new Date(filters.to)
+    if (!isNaN(toDate.getTime())) {
+      toDate.setHours(23, 59, 59, 999)
+      filtered = filtered.filter((l) => {
+        if (!l.action_at) return true
+        return new Date(l.action_at).getTime() <= toDate.getTime()
+      })
+    }
+  }
+
+  if (filters.search && filters.search.trim()) {
+    const q = filters.search.trim().toLowerCase()
+    filtered = filtered.filter((l) => {
+      const rec = String(l.record_key || "").toLowerCase()
+      const actor = String(l.action_by || "").toLowerCase()
+      const tbl = String(l.table_name || "").toLowerCase()
+      const act = String(l.action || "").toLowerCase()
+      const oldV = l.old_values ? JSON.stringify(l.old_values).toLowerCase() : ""
+      const newV = l.new_values ? JSON.stringify(l.new_values).toLowerCase() : ""
+      return (
+        rec.includes(q) ||
+        actor.includes(q) ||
+        tbl.includes(q) ||
+        act.includes(q) ||
+        oldV.includes(q) ||
+        newV.includes(q)
+      )
+    })
+  }
+
+  if (filters.limit && filters.limit > 0) {
+    filtered = filtered.slice(0, filters.limit)
+  }
+
+  return {
+    logs: filtered,
+    total: filtered.length,
+    tables: Array.from(tablesSet).sort(),
+    actions: Array.from(actionsSet).sort(),
+    users: Array.from(usersSet).sort(),
+  }
+}
+
 // ----------------------------------------------------------------------------
 // Password Reset Request & Token Operations
 // (password_reset_request & password_reset_token tables)

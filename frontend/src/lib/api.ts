@@ -1395,4 +1395,56 @@ export const reportsApi = {
   },
 }
 
+// ============================================================================
+// Sprint 4: Audit Log Viewer API (Superadmin Only)
+// ============================================================================
 
+export interface AuditLogItem {
+  audit_id: number
+  table_name: string
+  action: string
+  record_key: string
+  old_values: Record<string, any> | null
+  new_values: Record<string, any> | null
+  action_by: string
+  action_at: string
+}
+
+export interface AuditLogResponse {
+  logs: AuditLogItem[]
+  total: number
+  tables: string[]
+  actions: string[]
+  users: string[]
+}
+
+export interface AuditLogFilterParams {
+  table?: string
+  action?: string
+  user?: string
+  from?: string
+  to?: string
+  search?: string
+  limit?: number
+}
+
+export const auditApi = {
+  list: (params: AuditLogFilterParams = {}): Promise<AuditLogResponse> => {
+    const q = new URLSearchParams()
+    if (params.table && params.table !== "ALL" && params.table !== "All modules") {
+      q.set("table", params.table)
+    }
+    if (params.action && params.action !== "ALL" && params.action !== "All actions") {
+      q.set("action", params.action)
+    }
+    if (params.user && params.user !== "ALL" && params.user !== "All users") {
+      q.set("user", params.user)
+    }
+    if (params.from) q.set("from", params.from)
+    if (params.to) q.set("to", params.to)
+    if (params.search) q.set("search", params.search)
+    if (params.limit) q.set("limit", String(params.limit))
+    const query = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<AuditLogResponse>(`/api/audit-log${query}`)
+  },
+}
