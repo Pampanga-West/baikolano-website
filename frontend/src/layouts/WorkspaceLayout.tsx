@@ -1,4 +1,5 @@
-import { lazy, Suspense, useState } from "react"
+import { lazy, Suspense, useEffect, useMemo, useState } from "react"
+import { rightsApi } from "../lib/api"
 import Badge from "../components/Badge"
 import Icon from "../components/Icon"
 import Logo from "../components/Logo"
@@ -41,6 +42,7 @@ function Sidebar({
   displayName,
   initials,
   onLogout,
+  userRights = [],
 }: {
   role: Role
   view: AppView
@@ -50,6 +52,7 @@ function Sidebar({
   displayName: string
   initials: string
   onLogout: () => void
+  userRights?: string[]
 }) {
   const allModules = [
     ["Customers", "users", "customers"],
@@ -58,7 +61,33 @@ function Sidebar({
     ["Sales", "report", "sales"],
     ["Reports", "report", "reports"],
   ] as [string, IconName, AppView][]
-  const visibleModules = allModules
+
+  const visibleModules = useMemo(() => {
+    if (role !== "User" || !userRights || !userRights.length) return allModules
+    const hasCustomer = userRights.some((r) => r.toLowerCase().includes("customer"))
+    const hasProduct = userRights.some((r) => r.toLowerCase().includes("product") || r.toLowerCase().includes("price"))
+    const hasHr = userRights.some((r) => r.toLowerCase().includes("job") || r.toLowerCase().includes("department") || r.toLowerCase().includes("employee"))
+    const hasSales = userRights.some((r) => r.toLowerCase().includes("sale") || r.toLowerCase().includes("payment"))
+    const hasReports = userRights.some((r) => {
+      const l = r.toLowerCase()
+      return (
+        l.includes("report") ||
+        l.includes("top") ||
+        l.includes("master") ||
+        l.includes("history") ||
+        l.includes("active employees") ||
+        l.includes("all employees")
+      )
+    })
+    return allModules.filter(([_, __, target]) => {
+      if (target === "customers") return hasCustomer
+      if (target === "products") return hasProduct
+      if (target === "hr") return hasHr
+      if (target === "sales") return hasSales
+      if (target === "reports") return hasReports
+      return true
+    })
+  }, [role, userRights])
   const nav = (target: AppView) => {
     setView(target)
     close()
@@ -269,6 +298,21 @@ export default function WorkspaceLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [rightsOpen, setRightsOpen] = useState(false)
   const [rightsTargetUser, setRightsTargetUser] = useState<ManagedUser | null>(null)
+  const [userRights, setUserRights] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!user?.id || role !== "User") return
+    let active = true
+    rightsApi
+      .getUserRights(user.id)
+      .then((r) => {
+        if (active) setUserRights(r || [])
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [user?.id, role])
 
   const displayName = user?.email || roleData[role]?.name || "User"
   const initials = getInitials(user?.email || displayName)
@@ -290,6 +334,7 @@ export default function WorkspaceLayout({
         displayName={displayName}
         initials={initials}
         onLogout={logout}
+        userRights={userRights}
       />
       <div className="app-main">
         <AppHeader
@@ -312,6 +357,7 @@ export default function WorkspaceLayout({
               role={role}
               goUsers={() => setView("users")}
               goToModule={(target) => setView(target)}
+              userRights={userRights}
             />
           )}
           {effectiveView === "profile" && <ProfilePage role={role} />}
@@ -319,7 +365,7 @@ export default function WorkspaceLayout({
           {effectiveView === "products" && <ProductsPage role={role} />}
           {effectiveView === "hr" && <HumanResourcesPage role={role} />}
           {effectiveView === "sales" && <SalesPage role={role} />}
-          {effectiveView === "reports" && <ReportsPage role={role} />}
+          {effectiveView === "reports" && <ReportsPage role={role} userRights={userRights} />}
           {effectiveView === "users" && (
             <UserManagementPage
               role={role}

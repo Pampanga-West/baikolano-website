@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useCallback } from "react"
+import { useAuth } from "../contexts/AuthContext"
 import {
   fetchTableRowsFromSupabase,
+  fetchUserRightsFromSupabase,
   formatMoney,
   parseStamp,
 } from "../backend/supabaseClient"
+import { rightsApi, salesApi } from "../lib/api"
 import Badge from "../components/Badge"
 import BlockedDeleteModal from "../components/BlockedDeleteModal"
 import Button from "../components/Button"
@@ -12,8 +15,15 @@ import EmptyState from "../components/EmptyState"
 import EntityControls from "../components/EntityControls"
 import Icon from "../components/Icon"
 import ModalShell from "../components/ModalShell"
+import SaleModal from "../components/SaleModal"
 import Stamp from "../components/Stamp"
-import type { Role } from "../lib/types"
+import type {
+  Role,
+  SaleLineItem,
+  SaleProductOption,
+  PaymentRecord,
+  CustomerBalanceSummary,
+} from "../lib/types"
 
 const fallbackSales = [
   [
@@ -62,39 +72,19 @@ const fallbackSales = [
   ],
 ]
 
-type SaleLineItem = {
-  transno: string
-  product: string
-  qty: string
-  unitPrice: string
-  lineTotal: string
-  lineTotalNum: number
-  status: string
-  action: string
-  user: string
-  date: string
-}
-
-type PaymentRecord = {
-  orno: string
-  transno: string
-  paydate: string
-  amount: string
-  amountNum: number
-  status: string
-  action: string
-  user: string
-  date: string
-}
 
 const fallbackSaleLines: SaleLineItem[] = [
   {
     transno: "T-001",
+    prodcode: "P-001",
     product: "P-001 — Industrial Widget A",
     qty: "10",
+    quantity: 10,
     unitPrice: "$13.75",
+    unitPriceNum: 13.75,
     lineTotal: "$137.50",
     lineTotalNum: 137.5,
+    is_deleted: false,
     status: "Active",
     action: "CREATED",
     user: "system",
@@ -102,11 +92,15 @@ const fallbackSaleLines: SaleLineItem[] = [
   },
   {
     transno: "T-001",
+    prodcode: "P-002",
     product: "P-002 — Steel Bracket Heavy",
     qty: "2",
+    quantity: 2,
     unitPrice: "$48.50",
+    unitPriceNum: 48.5,
     lineTotal: "$97.00",
     lineTotalNum: 97,
+    is_deleted: false,
     status: "Active",
     action: "CREATED",
     user: "system",
@@ -128,85 +122,213 @@ const fallbackPayments: PaymentRecord[] = [
   },
 ]
 
-function SaleForm({ editing, close }: { editing?: boolean, close: () => void }) {
-  return (
-    <ModalShell
-      title={editing ? "Edit Sale" : "New Sale"}
-      subtitle="Transaction header · product lines are added after saving."
-      close={close}
-      footer={
-        <>
-          <Button variant="secondary" onClick={close}>
-            Cancel
-          </Button>
-          <Button onClick={close}>
-            {editing ? "Save Changes" : "Save Sale"}
-          </Button>
-        </>
-      }
-    >
-      <div className="record-form">
-        <label>
-          <span>Transaction No.</span>
-          <input value={editing ? "T-001" : "T-005"} readOnly />
-        </label>
-        <label>
-          <span>Sales Date</span>
-          <input type="date" defaultValue="2026-10-13" />
-        </label>
-        <label className="form-span">
-          <span>Customer</span>
-          <select>
-            <option>C-001 — Acme Corporation</option>
-            <option>C-002 — Globex Industries</option>
-            <option>C-003 — Initech LLC</option>
-          </select>
-        </label>
-        <label className="form-span">
-          <span>Employee Salesperson</span>
-          <select>
-            <option>E-002 — Juan Reyes</option>
-            <option>E-001 — Maria Santos</option>
-            <option>E-003 — Ana Cruz</option>
-          </select>
-        </label>
-      </div>
-    </ModalShell>
-  )
-}
+function LineForm({
+  transno,
+  salesdate,
+  initialLine,
+  productOptions,
+  close,
+  onSaved,
+}: {
+  transno: string
+  salesdate: string
+  initialLine?: SaleLineItem | null
+  productOptions: SaleProductOption[]
+  close: () => void
+  onSaved: (msg: string) => void
+}) {
+  const isEditing = Boolean(initialLine)
+  const defaultProd =
+    initialLine?.prodcode ||
+    (initialLine?.product ? initialLine.product.split(" ")[0] : "") ||
+    productOptions[0]?.prodcode ||
+    "P-001"
 
-function LineForm({ editing, close }: { editing?: boolean, close: () => void }) {
+  const [selectedProd, setSelectedProd] = useState(defaultProd)
+  const [qty, setQty] = useState(
+    initialLine
+      ? String(initialLine.quantity || initialLine.qty || 1)
+      : "1"
+  )
+  const [unitPrice, setUnitPrice] = useState<number>(
+    initialLine?.unitPriceNum || 0
+  )
+  const [loadingPrice, setLoadingPrice] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isEditing && initialLine?.unitPriceNum !== undefined && (initialLine.prodcode === selectedProd || !selectedProd)) {
+      setUnitPrice(initialLine.unitPriceNum)
+      return
+    }
+
+    const matched = productOptions.find((p) => p.prodcode === selectedProd)
+    if (matched?.currentPrice !== undefined) {
+      setUnitPrice(matched.currentPrice)
+    }
+
+    if (transno && selectedProd) {
+      let active = true
+      setLoadingPrice(true)
+      salesApi
+        .resolveUnitPrice(transno, selectedProd)
+        .then((res) => {
+          if (active && typeof res?.unitPrice === "number") {
+            setUnitPrice(res.unitPrice)
+          }
+        })
+        .catch((err) => {
+          console.warn("Failed to resolve unit price:", err)
+        })
+        .finally(() => {
+          if (active) setLoadingPrice(false)
+        })
+      return () => {
+        active = false
+      }
+    }
+  }, [transno, selectedProd, isEditing, initialLine, productOptions])
+
+  const parsedQty = Number(qty)
+  const isQtyValid = Number.isInteger(parsedQty) && parsedQty > 0
+  const calculatedTotal = (isQtyValid ? parsedQty : 0) * (unitPrice || 0)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+
+    if (!selectedProd) {
+      setError("Please select a product.")
+      return
+    }
+
+    if (!isQtyValid) {
+      setError("Quantity must be a positive integer greater than 0.")
+      return
+    }
+
+    setSaving(true)
+    try {
+      if (isEditing && initialLine) {
+        const prodcode = initialLine.prodcode || selectedProd
+        await salesApi.updateDetail(transno, prodcode, {
+          quantity: parsedQty,
+        })
+        onSaved(`Line item for ${initialLine.product || prodcode} updated successfully.`)
+      } else {
+        await salesApi.addDetail(transno, {
+          prodcode: selectedProd,
+          quantity: parsedQty,
+        })
+        onSaved(`Line item added successfully to transaction ${transno}.`)
+      }
+      close()
+    } catch (err: any) {
+      setError(err.message || "Failed to save sale line item.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <ModalShell
-      title={editing ? "Edit Sale Line" : "Add Sale Line"}
-      subtitle="Unit price is resolved from price history as of 2026-10-01."
+      title={isEditing ? `Edit Sale Line — ${transno}` : `Add Sale Line — ${transno}`}
+      subtitle={`Unit price is resolved from price history as of ${salesdate || "sales date"}.`}
       close={close}
       footer={
         <>
-          <Button variant="secondary" onClick={close}>
+          <Button variant="secondary" onClick={close} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={close}>{editing ? "Save Line" : "Add Line"}</Button>
+          <Button onClick={handleSubmit} disabled={saving || loadingPrice}>
+            {saving ? "Saving..." : isEditing ? "Save Line" : "Add Line"}
+          </Button>
         </>
       }
     >
-      <div className="record-form">
+      <form className="record-form" onSubmit={handleSubmit}>
+        {error && (
+          <div className="alert-banner alert-banner-error form-span">
+            <Icon name="alert-triangle" size={16} />
+            <span>{error}</span>
+          </div>
+        )}
+
         <label className="form-span">
           <span>Product</span>
-          <select>
-            <option>P-001 — Industrial Widget A</option>
-            <option>P-002 — Steel Bracket Heavy</option>
-          </select>
+          {isEditing ? (
+            <input
+              type="text"
+              readOnly
+              value={initialLine?.product || selectedProd}
+              className="read-only-input"
+            />
+          ) : (
+            <select
+              value={selectedProd}
+              onChange={(e) => setSelectedProd(e.target.value)}
+              disabled={saving}
+            >
+              {productOptions.length ? (
+                productOptions.map((opt) => (
+                  <option key={opt.prodcode} value={opt.prodcode}>
+                    {opt.label || `${opt.prodcode} — ${opt.description}`}
+                  </option>
+                ))
+              ) : (
+                <>
+                  <option value="P-001">P-001 — Industrial Widget A</option>
+                  <option value="P-002">P-002 — Steel Bracket Heavy</option>
+                </>
+              )}
+            </select>
+          )}
         </label>
+
         <label>
           <span>Quantity</span>
-          <input type="number" defaultValue={editing ? "10" : "1"} />
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={qty}
+            onChange={(e) => {
+              setQty(e.target.value)
+              if (error) setError(null)
+            }}
+            disabled={saving}
+            required
+          />
         </label>
+
         <label>
           <span>Unit Price</span>
-          <input value="$13.75 · auto-filled" readOnly />
+          <input
+            value={`${formatMoney(unitPrice)} · auto-filled`}
+            readOnly
+            className="read-only-input"
+          />
         </label>
-      </div>
+
+        <div
+          className="form-span"
+          style={{
+            marginTop: "8px",
+            padding: "10px 14px",
+            background: "var(--surface-muted, #f8f9fa)",
+            borderRadius: "6px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>Line Total:</span>
+          <b style={{ fontSize: "1.1rem", color: "var(--primary, #0284c7)" }}>
+            {formatMoney(calculatedTotal)}
+          </b>
+        </div>
+      </form>
     </ModalShell>
   )
 }
@@ -215,32 +337,45 @@ function SaleDetails({
   role,
   sale,
   lines,
+  productOptions,
+  canAddDetail,
+  canEditDetail,
+  canDeleteDetail,
+  canViewInactive,
   onSoftDeleteLine,
   onRestoreLine,
+  onLineSaved,
   close,
 }: {
   role: Role
   sale: string[]
   lines: SaleLineItem[]
-  onSoftDeleteLine: (line: SaleLineItem) => void
-  onRestoreLine: (line: SaleLineItem) => void
+  productOptions: SaleProductOption[]
+  canAddDetail: boolean
+  canEditDetail: boolean
+  canDeleteDetail: boolean
+  canViewInactive: boolean
+  onSoftDeleteLine: (line: SaleLineItem) => Promise<void> | void
+  onRestoreLine: (line: SaleLineItem) => Promise<void> | void
+  onLineSaved: (msg: string) => Promise<void> | void
   close: () => void
 }) {
-  const isAdmin = role !== "User"
-  const [lineForm, setLineForm] = useState<"new" | "edit" | null>(null)
+  const [showLineForm, setShowLineForm] = useState(false)
+  const [editingLine, setEditingLine] = useState<SaleLineItem | null>(null)
   const [statusFilter, setStatusFilter] = useState<"active" | "inactive" | "all">("active")
   const [deletingLine, setDeletingLine] = useState<SaleLineItem | null>(null)
 
   const visibleLines = lines.filter((line) => {
-    if (!isAdmin && line.status === "Inactive") return false
-    if (isAdmin && statusFilter !== "all" && line.status.toLowerCase() !== statusFilter)
+    if (!canViewInactive && line.status === "Inactive") return false
+    if (canViewInactive && statusFilter !== "all" && line.status.toLowerCase() !== statusFilter) {
       return false
+    }
     return true
   })
 
   const activeTotal = lines
     .filter((l) => l.status === "Active")
-    .reduce((sum, l) => sum + l.lineTotalNum, 0)
+    .reduce((sum, l) => sum + (l.lineTotalNum || 0), 0)
 
   return (
     <ModalShell
@@ -257,31 +392,41 @@ function SaleDetails({
         </div>
       }
     >
-      {isAdmin && (
+      {(canViewInactive || canAddDetail) && (
         <div className="nested-toolbar">
-          <div className="filter-tabs">
-            <button
-              className={statusFilter === "active" ? "selected" : ""}
-              onClick={() => setStatusFilter("active")}
+          {canViewInactive ? (
+            <div className="filter-tabs">
+              <button
+                className={statusFilter === "active" ? "selected" : ""}
+                onClick={() => setStatusFilter("active")}
+              >
+                Active
+              </button>
+              <button
+                className={statusFilter === "inactive" ? "selected" : ""}
+                onClick={() => setStatusFilter("inactive")}
+              >
+                Inactive
+              </button>
+              <button
+                className={statusFilter === "all" ? "selected" : ""}
+                onClick={() => setStatusFilter("all")}
+              >
+                All
+              </button>
+            </div>
+          ) : <div />}
+          {canAddDetail && (
+            <Button
+              icon="plus"
+              onClick={() => {
+                setEditingLine(null)
+                setShowLineForm(true)
+              }}
             >
-              Active
-            </button>
-            <button
-              className={statusFilter === "inactive" ? "selected" : ""}
-              onClick={() => setStatusFilter("inactive")}
-            >
-              Inactive
-            </button>
-            <button
-              className={statusFilter === "all" ? "selected" : ""}
-              onClick={() => setStatusFilter("all")}
-            >
-              All
-            </button>
-          </div>
-          <Button icon="plus" onClick={() => setLineForm("new")}>
-            Add Line
-          </Button>
+              Add Line
+            </Button>
+          )}
         </div>
       )}
       <div className="table-scroll">
@@ -292,31 +437,31 @@ function SaleDetails({
               <th>Qty</th>
               <th>Unit Price</th>
               <th>Line Total</th>
-              {isAdmin && (
+              {canViewInactive && (
                 <>
                   <th>Status</th>
                   <th>Stamp</th>
-                  <th>Actions</th>
                 </>
               )}
+              {(canEditDetail || canDeleteDetail) && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
             {visibleLines.length ? (
               visibleLines.map((row, idx) => (
                 <tr
-                  key={`${row.product}-${idx}`}
+                  key={`${row.prodcode || row.product}-${idx}`}
                   className={row.status === "Inactive" ? "inactive-row" : ""}
                 >
                   <td>
-                    <b className="record-name">{row.product}</b>
+                    <b className="record-name">{row.product || row.prodcode}</b>
                   </td>
                   <td>{row.qty}</td>
                   <td>{row.unitPrice}</td>
                   <td>
                     <b className="price-value">{row.lineTotal}</b>
                   </td>
-                  {isAdmin && (
+                  {canViewInactive && (
                     <>
                       <td>
                         <Badge kind={row.status.toLowerCase()}>
@@ -325,43 +470,56 @@ function SaleDetails({
                       </td>
                       <td>
                         <Stamp
-                          action={row.action}
-                          user={row.user}
-                          date={row.date}
+                          action={row.action || "CREATED"}
+                          user={row.user || "system"}
+                          date={row.date || ""}
                         />
                       </td>
-                      <td>
-                        <div className="row-actions">
-                          {row.status === "Inactive" ? (
+                    </>
+                  )}
+                  {(canEditDetail || canDeleteDetail) && (
+                    <td>
+                      <div className="row-actions">
+                        {row.status === "Inactive" ? (
+                          (canEditDetail || canDeleteDetail) && (
                             <button
                               className="success-link"
                               onClick={() => onRestoreLine(row)}
                             >
                               Restore
                             </button>
-                          ) : (
-                            <>
-                              <button onClick={() => setLineForm("edit")}>
+                          )
+                        ) : (
+                          <>
+                            {canEditDetail && (
+                              <button
+                                onClick={() => {
+                                  setEditingLine(row)
+                                  setShowLineForm(true)
+                                }}
+                              >
                                 Edit
                               </button>
+                            )}
+                            {canDeleteDetail && (
                               <button
                                 className="danger-link"
                                 onClick={() => setDeletingLine(row)}
                               >
                                 Delete
                               </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </td>
                   )}
                 </tr>
               ))
             ) : (
               <tr>
                 <td
-                  colSpan={isAdmin ? 7 : 4}
+                  colSpan={(canViewInactive ? 6 : 4) + (canEditDetail || canDeleteDetail ? 1 : 0)}
                   style={{
                     textAlign: "center",
                     color: "var(--muted)",
@@ -375,21 +533,29 @@ function SaleDetails({
           </tbody>
         </table>
       </div>
-      {lineForm && (
+      {showLineForm && (
         <LineForm
-          editing={lineForm === "edit"}
-          close={() => setLineForm(null)}
+          transno={sale[0]}
+          salesdate={sale[1]}
+          initialLine={editingLine}
+          productOptions={productOptions}
+          close={() => {
+            setShowLineForm(false)
+            setEditingLine(null)
+          }}
+          onSaved={onLineSaved}
         />
       )}
       {deletingLine && (
         <ConfirmDeleteModal
           title="Deactivate Line Item?"
-          targetLabel={`${deletingLine.product} (Qty: ${deletingLine.qty})`}
+          targetLabel={`${deletingLine.product || deletingLine.prodcode} (Qty: ${deletingLine.qty})`}
           warningMessage={`Are you sure you want to deactivate this line item from transaction ${sale[0]}? The item will be soft-deleted, marked Inactive, and the invoice amount updated.`}
           actionLabel="Deactivate Line Item"
-          onConfirm={() => {
-            onSoftDeleteLine(deletingLine)
+          onConfirm={async () => {
+            const target = deletingLine
             setDeletingLine(null)
+            await onSoftDeleteLine(target)
           }}
           onClose={() => setDeletingLine(null)}
         />
@@ -403,37 +569,152 @@ function Payments({
   sale,
   receipts,
   customerBalances,
+  canRecordPayment,
+  canVoidPayment,
+  canViewInactive,
   onSoftDeleteReceipt,
   onRestoreReceipt,
+  onPaymentRecorded,
   close,
 }: {
   role: Role
   sale: string[]
   receipts: PaymentRecord[]
-  customerBalances: {
-    customer: string
-    billed: number
-    paid: number
-    open: number
-  }[]
-  onSoftDeleteReceipt: (receipt: PaymentRecord) => void
-  onRestoreReceipt: (receipt: PaymentRecord) => void
+  customerBalances: CustomerBalanceSummary[]
+  canRecordPayment: boolean
+  canVoidPayment: boolean
+  canViewInactive: boolean
+  onSoftDeleteReceipt: (receipt: PaymentRecord) => Promise<void> | void
+  onRestoreReceipt: (receipt: PaymentRecord) => Promise<void> | void
+  onPaymentRecorded: (msg?: string) => Promise<void> | void
   close: () => void
 }) {
-  const isAdmin = role !== "User"
   const [tab, setTab] = useState<"payments" | "balances">("payments")
-  const [deletingReceipt, setDeletingReceipt] = useState<PaymentRecord | null>(
-    null
-  )
-  const visibleReceipts = receipts.filter(
-    (r) => isAdmin || r.status === "Active"
-  )
-  const saleTotalNum =
-    Number(sale[4]?.replace(/[^0-9.-]+/g, "")) || 0
+  const [statusFilter, setStatusFilter] = useState<"active" | "inactive" | "all">("active")
+  const [deletingReceipt, setDeletingReceipt] = useState<PaymentRecord | null>(null)
+
+  // Payment Form state
+  const [orno, setOrno] = useState("")
+  const [paydate, setPaydate] = useState(new Date().toISOString().split("T")[0])
+  const [amount, setAmount] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  // Customer Balances view state
+  const [balanceSearch, setBalanceSearch] = useState("")
+  const [balanceFilter, setBalanceFilter] = useState<"all" | "owing" | "settled">("all")
+
+  const filteredBalances = useMemo(() => {
+    return customerBalances.filter((cb) => {
+      if (balanceFilter === "owing" && cb.open <= 0.001) return false
+      if (balanceFilter === "settled" && cb.open > 0.001) return false
+      const q = balanceSearch.trim().toLowerCase()
+      if (!q) return true
+      return (
+        cb.customer.toLowerCase().includes(q) ||
+        (cb.custno && cb.custno.toLowerCase().includes(q)) ||
+        (cb.custname && cb.custname.toLowerCase().includes(q))
+      )
+    })
+  }, [customerBalances, balanceSearch, balanceFilter])
+
+  const balanceTotals = useMemo(() => {
+    return customerBalances.reduce(
+      (acc, cb) => {
+        acc.billed += cb.billed
+        acc.paid += cb.paid
+        acc.open += cb.open
+        return acc
+      },
+      { billed: 0, paid: 0, open: 0 }
+    )
+  }, [customerBalances])
+
+  const visibleReceipts = receipts.filter((r) => {
+    if (!canViewInactive && r.status === "Inactive") return false
+    if (canViewInactive && statusFilter !== "all" && r.status.toLowerCase() !== statusFilter) {
+      return false
+    }
+    return true
+  })
+
+  const saleTotalNum = Number(sale[4]?.replace(/[^0-9.-]+/g, "")) || 0
   const totalPaidNum = receipts
     .filter((r) => r.status === "Active")
     .reduce((sum, r) => sum + r.amountNum, 0)
   const remainingNum = Math.max(0, saleTotalNum - totalPaidNum)
+
+  // Load next OR number on open
+  useEffect(() => {
+    let active = true
+    salesApi
+      .getNextOrno()
+      .then((res) => {
+        if (active && res?.nextOrno) {
+          setOrno(res.nextOrno)
+        }
+      })
+      .catch(() => {
+        if (active) setOrno("OR-1001")
+      })
+    return () => {
+      active = false
+    }
+  }, [sale[0]])
+
+  // Set default amount to remaining balance if empty
+  useEffect(() => {
+    if (remainingNum > 0 && !amount) {
+      setAmount(remainingNum.toFixed(2))
+    }
+  }, [remainingNum])
+
+  const handleSavePayment = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setFormError(null)
+
+    const cleanOrno = orno.trim().toUpperCase()
+    if (!cleanOrno) {
+      setFormError("Official Receipt No. is required.")
+      return
+    }
+
+    if (!paydate) {
+      setFormError("Payment date is required.")
+      return
+    }
+
+    const numAmount = Number(amount)
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setFormError("Payment amount must be greater than 0.")
+      return
+    }
+
+    if (remainingNum > 0 && numAmount > remainingNum + 0.001) {
+      setFormError(
+        `Payment amount (${formatMoney(numAmount)}) cannot exceed remaining invoice balance of ${formatMoney(remainingNum)}.`
+      )
+      return
+    }
+
+    setSaving(true)
+    try {
+      await salesApi.recordPayment(sale[0], {
+        orno: cleanOrno,
+        paydate,
+        amount: numAmount,
+      })
+      await onPaymentRecorded(`Payment of ${formatMoney(numAmount)} recorded under receipt ${cleanOrno}.`)
+      // Refresh next OR number and reset amount
+      const nextRes = await salesApi.getNextOrno().catch(() => null)
+      if (nextRes?.nextOrno) setOrno(nextRes.nextOrno)
+      setAmount("")
+    } catch (err: any) {
+      setFormError(err.message || "Failed to record payment.")
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <ModalShell
@@ -465,24 +746,55 @@ function Payments({
         <>
           <div className="balance-strip">
             <div>
-              <span>Sale Total</span>
-              <b>{formatMoney(saleTotalNum)}</b>
+              <span>Transaction Total</span>
+              <b data-testid="transaction-total">{formatMoney(saleTotalNum)}</b>
             </div>
             <div>
               <span>Total Paid</span>
-              <b className="paid">{formatMoney(totalPaidNum)}</b>
+              <b className="paid" data-testid="total-paid">{formatMoney(totalPaidNum)}</b>
             </div>
             <div>
               <span>Remaining Balance</span>
-              <b className="owing">{formatMoney(remainingNum)}</b>
+              <b className={saleTotalNum > 0 && remainingNum <= 0.001 ? "paid" : "owing"} data-testid="remaining-balance">
+                {formatMoney(remainingNum)}
+              </b>
+              {saleTotalNum > 0 && remainingNum <= 0.001 && (
+                <span className="paid-text" style={{ fontSize: "10px", marginTop: "2px", fontWeight: 700 }}>
+                  ✓ Paid in full
+                </span>
+              )}
             </div>
           </div>
           <div
             className="payments-layout"
-            style={!isAdmin ? { gridTemplateColumns: "1fr" } : undefined}
+            style={!canRecordPayment ? { gridTemplateColumns: "1fr" } : undefined}
           >
             <div className="payment-table">
-              <div className="section-kicker">Receipt history</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                <div className="section-kicker" style={{ margin: 0 }}>Receipt history</div>
+                {canViewInactive && (
+                  <div className="filter-tabs" style={{ margin: 0 }}>
+                    <button
+                      className={statusFilter === "active" ? "selected" : ""}
+                      onClick={() => setStatusFilter("active")}
+                    >
+                      Active
+                    </button>
+                    <button
+                      className={statusFilter === "inactive" ? "selected" : ""}
+                      onClick={() => setStatusFilter("inactive")}
+                    >
+                      Inactive
+                    </button>
+                    <button
+                      className={statusFilter === "all" ? "selected" : ""}
+                      onClick={() => setStatusFilter("all")}
+                    >
+                      All
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="table-scroll">
                 <table className="entity-table">
                   <thead>
@@ -490,13 +802,13 @@ function Payments({
                       <th>OR No</th>
                       <th>Pay Date</th>
                       <th>Amount</th>
-                      {isAdmin && (
+                      {canViewInactive && (
                         <>
                           <th>Status</th>
                           <th>Stamp</th>
-                          <th>Actions</th>
                         </>
                       )}
+                      {canVoidPayment && <th>Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -504,16 +816,14 @@ function Payments({
                       visibleReceipts.map((r) => (
                         <tr
                           key={r.orno}
-                          className={
-                            r.status === "Inactive" ? "inactive-row" : ""
-                          }
+                          className={r.status === "Inactive" ? "inactive-row" : ""}
                         >
                           <td className="code-cell">{r.orno}</td>
                           <td>{r.paydate}</td>
                           <td>
                             <b className="price-value">{r.amount}</b>
                           </td>
-                          {isAdmin && (
+                          {canViewInactive && (
                             <>
                               <td>
                                 <Badge kind={r.status.toLowerCase()}>
@@ -522,41 +832,40 @@ function Payments({
                               </td>
                               <td>
                                 <Stamp
-                                  action={r.action}
-                                  user={r.user}
-                                  date={r.date}
+                                  action={r.action || "CREATED"}
+                                  user={r.user || "system"}
+                                  date={r.date || ""}
                                 />
                               </td>
-                              <td>
-                                <div className="row-actions">
-                                  {r.status === "Inactive" ? (
-                                    <button
-                                      className="success-link"
-                                      onClick={() => onRestoreReceipt(r)}
-                                    >
-                                      Restore
-                                    </button>
-                                  ) : (
-                                    <>
-                                      <button>Edit</button>
-                                      <button
-                                        className="danger-link"
-                                        onClick={() => setDeletingReceipt(r)}
-                                      >
-                                        Delete
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              </td>
                             </>
+                          )}
+                          {canVoidPayment && (
+                            <td>
+                              <div className="row-actions">
+                                {r.status === "Inactive" ? (
+                                  <button
+                                    className="success-link"
+                                    onClick={() => onRestoreReceipt(r)}
+                                  >
+                                    Restore
+                                  </button>
+                                ) : (
+                                  <button
+                                    className="danger-link"
+                                    onClick={() => setDeletingReceipt(r)}
+                                  >
+                                    Void
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                           )}
                         </tr>
                       ))
                     ) : (
                       <tr>
                         <td
-                          colSpan={isAdmin ? 6 : 3}
+                          colSpan={3 + (canViewInactive ? 2 : 0) + (canVoidPayment ? 1 : 0)}
                           style={{
                             textAlign: "center",
                             color: "var(--muted)",
@@ -571,62 +880,213 @@ function Payments({
                 </table>
               </div>
             </div>
-            {isAdmin && (
-              <aside className="payment-form">
+            {canRecordPayment && (
+              <form className="payment-form" onSubmit={handleSavePayment}>
                 <div className="section-kicker">Record payment</div>
+                {formError && (
+                  <div className="alert-banner alert-banner-error" style={{ marginBottom: "12px", padding: "8px 12px" }}>
+                    <Icon name="alert-triangle" size={14} />
+                    <span>{formError}</span>
+                  </div>
+                )}
                 <label>
                   <span>Official Receipt No.</span>
-                  <input defaultValue="OR-1001" />
+                  <input
+                    value={orno}
+                    onChange={(e) => {
+                      setOrno(e.target.value)
+                      if (formError) setFormError(null)
+                    }}
+                    placeholder="OR-1001"
+                    required
+                    disabled={saving}
+                  />
                 </label>
                 <label>
                   <span>Payment Date</span>
-                  <input type="date" defaultValue="2026-10-13" />
+                  <input
+                    type="date"
+                    value={paydate}
+                    onChange={(e) => {
+                      setPaydate(e.target.value)
+                      if (formError) setFormError(null)
+                    }}
+                    required
+                    disabled={saving}
+                  />
                 </label>
                 <label>
                   <span>Amount</span>
                   <div className="money-input">
                     <span>$</span>
-                    <input defaultValue={remainingNum.toFixed(2)} />
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      value={amount}
+                      onChange={(e) => {
+                        setAmount(e.target.value)
+                        if (formError) setFormError(null)
+                      }}
+                      placeholder="0.00"
+                      required
+                      disabled={saving}
+                    />
                   </div>
                 </label>
-                <Button className="full">Save Payment</Button>
-              </aside>
+                <Button className="full" disabled={saving || (saleTotalNum > 0 && remainingNum <= 0)}>
+                  {saving ? "Saving Payment..." : (saleTotalNum > 0 && remainingNum <= 0) ? "Fully Paid" : "Save Payment"}
+                </Button>
+              </form>
             )}
           </div>
         </>
       ) : (
         <div className="balance-summary">
-          <div className="section-kicker">Accounts receivable by customer</div>
-          <div className="table-scroll">
-            <table className="entity-table">
-              <thead>
-                <tr>
-                  <th>Customer</th>
-                  <th>Total Billed</th>
-                  <th>Total Paid</th>
-                  <th>Open Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {customerBalances.map((cb) => (
-                  <tr key={cb.customer}>
-                    <td>
-                      <b className="record-name">{cb.customer}</b>
-                    </td>
-                    <td>{formatMoney(cb.billed)}</td>
-                    <td className="paid-text">{formatMoney(cb.paid)}</td>
-                    <td>
-                      {cb.open > 0 ? (
-                        <b className="owing-text">{formatMoney(cb.open)}</b>
-                      ) : (
-                        formatMoney(0)
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "12px" }}>
+            <div>
+              <div className="section-kicker" style={{ margin: 0 }}>Accounts receivable by customer</div>
+              <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--muted)" }}>
+                Aggregated billing and outstanding receivables across active transactions
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                type="text"
+                placeholder="Search customers..."
+                value={balanceSearch}
+                onChange={(e) => setBalanceSearch(e.target.value)}
+                style={{
+                  padding: "6px 12px",
+                  fontSize: "12px",
+                  borderRadius: "6px",
+                  border: "1px solid var(--border)",
+                  minWidth: "160px",
+                }}
+              />
+              <div className="filter-tabs" style={{ margin: 0 }}>
+                <button
+                  className={balanceFilter === "all" ? "selected" : ""}
+                  onClick={() => setBalanceFilter("all")}
+                >
+                  All ({customerBalances.length})
+                </button>
+                <button
+                  className={balanceFilter === "owing" ? "selected" : ""}
+                  onClick={() => setBalanceFilter("owing")}
+                >
+                  Owing ({customerBalances.filter((c) => c.open > 0.001).length})
+                </button>
+                <button
+                  className={balanceFilter === "settled" ? "selected" : ""}
+                  onClick={() => setBalanceFilter("settled")}
+                >
+                  Settled ({customerBalances.filter((c) => c.open <= 0.001).length})
+                </button>
+              </div>
+            </div>
           </div>
+
+          <div
+            className="balance-strip"
+            style={{ marginBottom: "16px", borderRadius: "8px", background: "var(--card-bg, #f8fafc)" }}
+          >
+            <div>
+              <span>Total Billed (All Customers)</span>
+              <b>{formatMoney(balanceTotals.billed)}</b>
+            </div>
+            <div>
+              <span>Total Collected</span>
+              <b className="paid">{formatMoney(balanceTotals.paid)}</b>
+            </div>
+            <div>
+              <span>Total Outstanding Receivables</span>
+              <b className={balanceTotals.open > 0.001 ? "owing" : "paid"}>{formatMoney(balanceTotals.open)}</b>
+            </div>
+          </div>
+
+          {filteredBalances.length ? (
+            <div className="table-scroll">
+              <table className="entity-table">
+                <thead>
+                  <tr>
+                    <th>Customer</th>
+                    <th>Total Billed</th>
+                    <th>Total Paid</th>
+                    <th>Outstanding Balance</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredBalances.map((cb) => {
+                    const isCurrentCust =
+                      sale[2] &&
+                      (cb.customer.includes(sale[2]) ||
+                        sale[2].includes(cb.customer) ||
+                        (cb.custno && sale[2].includes(cb.custno)))
+                    return (
+                      <tr
+                        key={cb.customer}
+                        style={isCurrentCust ? { backgroundColor: "rgba(37, 99, 235, 0.04)" } : undefined}
+                      >
+                        <td>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <b className="record-name">{cb.customer}</b>
+                            {isCurrentCust && (
+                              <Badge kind="primary">Current Sale Customer</Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td>{formatMoney(cb.billed)}</td>
+                        <td className="paid-text">{formatMoney(cb.paid)}</td>
+                        <td>
+                          {cb.open > 0.001 ? (
+                            <b className="owing-text">{formatMoney(cb.open)}</b>
+                          ) : (
+                            <span className="paid-text">{formatMoney(0)}</span>
+                          )}
+                        </td>
+                        <td>
+                          <Badge kind={cb.open > 0.001 ? "inactive" : "active"}>
+                            {cb.open > 0.001 ? "Outstanding" : "Settled"}
+                          </Badge>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border)", background: "rgba(0,0,0,0.02)" }}>
+                    <td>Total ({filteredBalances.length} customers)</td>
+                    <td>{formatMoney(filteredBalances.reduce((s, c) => s + c.billed, 0))}</td>
+                    <td className="paid-text">{formatMoney(filteredBalances.reduce((s, c) => s + c.paid, 0))}</td>
+                    <td>
+                      <b className="owing-text">
+                        {formatMoney(filteredBalances.reduce((s, c) => s + c.open, 0))}
+                      </b>
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ) : (
+            <EmptyState
+              title="No customer balances found"
+              message={
+                balanceSearch
+                  ? `No customer matches "${balanceSearch}".`
+                  : balanceFilter === "owing"
+                  ? "All customer accounts are currently settled in full."
+                  : "No customer accounts found."
+              }
+              query={balanceSearch}
+              onClear={() => {
+                setBalanceSearch("")
+                setBalanceFilter("all")
+              }}
+            />
+          )}
         </div>
       )}
       {deletingReceipt && (
@@ -635,9 +1095,10 @@ function Payments({
           targetLabel={`${deletingReceipt.orno} — ${deletingReceipt.amount}`}
           warningMessage={`Are you sure you want to void receipt ${deletingReceipt.orno}? The payment will be soft-deleted and marked Inactive. Customer open balance will be automatically adjusted.`}
           actionLabel="Void Receipt"
-          onConfirm={() => {
-            onSoftDeleteReceipt(deletingReceipt)
+          onConfirm={async () => {
+            const target = deletingReceipt
             setDeletingReceipt(null)
+            await onSoftDeleteReceipt(target)
           }}
           onClose={() => setDeletingReceipt(null)}
         />
@@ -647,10 +1108,158 @@ function Payments({
 }
 
 export default function SalesPage({ role }: { role: Role }) {
-  const isAdmin = role !== "User"
+  const { user } = useAuth()
+  const [rights, setRights] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!user?.id) {
+      setRights([])
+      return
+    }
+    let active = true
+    rightsApi
+      .getUserRights(user.id)
+      .then((r) => {
+        if (active) setRights(r || [])
+      })
+      .catch(async () => {
+        try {
+          const direct = await fetchUserRightsFromSupabase(user.id)
+          if (active) setRights(direct || [])
+        } catch {
+          if (active) setRights([])
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [user?.id])
+
+  const isSuperadmin = role === "Superadmin" || user?.role === "Superadmin"
+  const isAdminRole = role === "Admin" || user?.role === "Admin"
+  const isAdmin = isSuperadmin || isAdminRole
+
+  const hasRight = (name: string) => {
+    if (isSuperadmin) return true
+    if (isAdminRole && !rights.length) return true
+    const n = name.toLowerCase().trim()
+    return rights.some((r) => {
+      const rl = r.toLowerCase().trim()
+      if (rl.includes("detail")) return false
+      return (
+        rl === n ||
+        rl === `sale - ${n}` ||
+        rl === `sales - ${n}` ||
+        rl === `${n} sale` ||
+        rl === `${n} sales` ||
+        (rl.includes("sale") && rl.includes(n))
+      )
+    })
+  }
+
+  const canAdd =
+    isSuperadmin ||
+    hasRight("add sale") ||
+    hasRight("add sales") ||
+    (hasRight("add") && !rights.some((r) => r.toLowerCase().includes("detail")))
+  const canEdit =
+    isSuperadmin ||
+    hasRight("edit sale") ||
+    hasRight("edit sales") ||
+    (hasRight("edit") && !rights.some((r) => r.toLowerCase().includes("detail")))
+  const canDelete =
+    isSuperadmin ||
+    hasRight("delete sale") ||
+    hasRight("delete sales") ||
+    (hasRight("delete") && !rights.some((r) => r.toLowerCase().includes("detail")))
+  const canViewInactive = isSuperadmin || isAdminRole || canEdit || canDelete
+  const canFilter = isSuperadmin || isAdminRole || canAdd || canEdit || canDelete || rights.length > 0
+  const showAudit = isSuperadmin || isAdminRole || canEdit || canDelete
+  const hasActions = canEdit || canDelete
+
+  // Sale Detail Rights (TC-SALE-06)
+  const canViewDetail =
+    isSuperadmin ||
+    isAdminRole ||
+    rights.some((r) => {
+      const l = r.toLowerCase().trim()
+      return (
+        l.includes("view sale detail") ||
+        l.includes("sale detail") ||
+        l === "view sales" ||
+        l === "sales"
+      )
+    }) ||
+    rights.length === 0
+  const canAddDetail =
+    isSuperadmin ||
+    isAdminRole ||
+    rights.some((r) => {
+      const l = r.toLowerCase().trim()
+      return (
+        l === "add sale detail" ||
+        l === "sale detail - add" ||
+        (l.includes("add") && l.includes("detail"))
+      )
+    })
+  const canEditDetail =
+    isSuperadmin ||
+    isAdminRole ||
+    rights.some((r) => {
+      const l = r.toLowerCase().trim()
+      return (
+        l === "edit sale detail" ||
+        l === "sale detail - edit" ||
+        (l.includes("edit") && l.includes("detail"))
+      )
+    })
+  const canDeleteDetail =
+    isSuperadmin ||
+    isAdminRole ||
+    rights.some((r) => {
+      const l = r.toLowerCase().trim()
+      return (
+        l === "delete sale detail" ||
+        l === "sale detail - delete" ||
+        (l.includes("delete") && l.includes("detail"))
+      )
+    })
+  const canViewInactiveDetail = isSuperadmin || isAdminRole || canEditDetail || canDeleteDetail
+
+  // Payment Rights (S4-DEV-03)
+  const canRecordPayment =
+    isSuperadmin ||
+    isAdminRole ||
+    rights.some((r) => {
+      const l = r.toLowerCase().trim()
+      return (
+        l.includes("record payment") ||
+        l.includes("add payment") ||
+        l === "add sale" ||
+        l === "edit sale"
+      )
+    }) ||
+    canEdit ||
+    canAdd
+  const canVoidPayment =
+    isSuperadmin ||
+    isAdminRole ||
+    rights.some((r) => {
+      const l = r.toLowerCase().trim()
+      return (
+        l.includes("delete payment") ||
+        l.includes("void payment") ||
+        l === "delete sale"
+      )
+    }) ||
+    canDelete
+  const canViewInactivePayment = isSuperadmin || isAdminRole || canVoidPayment
+
   const [sales, setSales] = useState<string[][]>(fallbackSales)
   const [saleLines, setSaleLines] =
     useState<SaleLineItem[]>(fallbackSaleLines)
+  const [productOptions, setProductOptions] = useState<SaleProductOption[]>([])
   const [paymentRecords, setPaymentRecords] =
     useState<PaymentRecord[]>(fallbackPayments)
   const [filter, setFilter] = useState("active")
@@ -680,287 +1289,345 @@ export default function SalesPage({ role }: { role: Role }) {
   }
 
   const handleDeleteSaleClick = (row: string[]) => {
-    const activePayments = paymentRecords.filter(
-      (p) => p.transno === row[0] && p.status === "Active"
+    const transno = row[0]
+    const activeLines = saleLines.filter(
+      (l) => l.transno === transno && l.status === "Active"
     )
-    if (activePayments.length > 0) {
+    const activePayments = paymentRecords.filter(
+      (p) => p.transno === transno && p.status === "Active"
+    )
+    if (activeLines.length > 0 || activePayments.length > 0) {
+      const reasons: string[] = []
+      if (activeLines.length > 0) {
+        reasons.push(
+          `${activeLines.length} active line item(s) (${activeLines
+            .map((l) => l.product || l.prodcode)
+            .join(", ")})`
+        )
+      }
+      if (activePayments.length > 0) {
+        reasons.push(
+          `${activePayments.length} recorded active payment receipt(s) (${activePayments
+            .map((p) => p.orno)
+            .join(", ")})`
+        )
+      }
       setBlockedModal({
         title: "Referential Integrity Guard",
-        subtitle: `Cannot deactivate sales transaction ${row[0]}`,
-        reason: `Sales transaction ${row[0]} has recorded active payment receipts (${activePayments
-          .map((p) => p.orno)
-          .join(", ")}). Void all related receipts before deactivating this sales transaction.`,
+        subtitle: `Cannot deactivate sales transaction ${transno}`,
+        reason: `Sales transaction ${transno} has ${reasons.join(
+          " and "
+        )}. Remove or void all active line items and receipts before deactivating this sales transaction.`,
       })
       return
     }
     setDeletingSale(row)
   }
 
-  const confirmSoftDeleteSale = () => {
+  const confirmSoftDeleteSale = async () => {
     if (!deletingSale) return
     const transno = deletingSale[0]
-    setSales((prev) =>
-      prev.map((s) =>
-        s[0] === transno
-          ? [
-              s[0],
-              s[1],
-              s[2],
-              s[3],
-              s[4],
-              "Inactive",
-              "DELETED",
-              "Phil Hitalia",
-              "2026-11-20 11:30 AM",
-            ]
-          : s
+    try {
+      await salesApi.softDeleteSale(transno)
+      setSales((prev) =>
+        prev.map((s) =>
+          s[0] === transno
+            ? [
+                s[0],
+                s[1],
+                s[2],
+                s[3],
+                s[4],
+                "Inactive",
+                "DELETED",
+                user?.email || "system",
+                new Date().toISOString(),
+              ]
+            : s
+        )
       )
-    )
-    setSuccess(
-      `Sales transaction ${transno} has been deactivated (soft-deleted). Record preserved for accounting audit history.`
-    )
-    setDeletingSale(null)
-  }
-
-  const handleRestoreSale = (transno: string) => {
-    setSales((prev) =>
-      prev.map((s) =>
-        s[0] === transno
-          ? [
-              s[0],
-              s[1],
-              s[2],
-              s[3],
-              s[4],
-              "Active",
-              "EDITED",
-              "Phil Hitalia",
-              "2026-11-20 11:30 AM",
-            ]
-          : s
+      setSuccess(
+        `Sales transaction ${transno} has been deactivated (soft-deleted). Record preserved for accounting audit history.`
       )
-    )
-    setSuccess(`Sales transaction ${transno} restored to active status.`)
+      setDeletingSale(null)
+      loadSalesData()
+    } catch (err: any) {
+      setDeletingSale(null)
+      if (
+        err.referentialIntegrity ||
+        err.message?.includes("active related record") ||
+        err.message?.includes("line item") ||
+        err.message?.includes("receipt")
+      ) {
+        setBlockedModal({
+          title: "Referential Integrity Guard",
+          subtitle: `Cannot deactivate sales transaction ${transno}`,
+          reason: err.message,
+        })
+      } else {
+        setError(err.message || `Failed to deactivate sales transaction ${transno}.`)
+      }
+    }
   }
 
-  const handleSoftDeleteLine = (line: SaleLineItem) => {
-    const updated = saleLines.map((l) =>
-      l.transno === line.transno && l.product === line.product
-        ? {
-            ...l,
-            status: "Inactive",
-            action: "DELETED",
-            user: "Phil Hitalia",
-            date: "2026-11-20 11:30 AM",
-          }
-        : l
-    )
-    setSaleLines(updated)
-    recalculateTransTotal(line.transno, updated)
-    setSuccess(`Line item ${line.product} deactivated (soft-deleted).`)
-  }
-
-  const handleRestoreLine = (line: SaleLineItem) => {
-    const updated = saleLines.map((l) =>
-      l.transno === line.transno && l.product === line.product
-        ? {
-            ...l,
-            status: "Active",
-            action: "EDITED",
-            user: "Phil Hitalia",
-            date: "2026-11-20 11:30 AM",
-          }
-        : l
-    )
-    setSaleLines(updated)
-    recalculateTransTotal(line.transno, updated)
-    setSuccess(`Line item ${line.product} restored to active.`)
-  }
-
-  const handleSoftDeleteReceipt = (receipt: PaymentRecord) => {
-    setPaymentRecords((prev) =>
-      prev.map((p) =>
-        p.orno === receipt.orno
-          ? {
-              ...p,
-              status: "Inactive",
-              action: "DELETED",
-              user: "Phil Hitalia",
-              date: "2026-11-20 11:30 AM",
-            }
-          : p
+  const handleRestoreSale = async (transno: string) => {
+    try {
+      await salesApi.restoreSale(transno)
+      setSales((prev) =>
+        prev.map((s) =>
+          s[0] === transno
+            ? [
+                s[0],
+                s[1],
+                s[2],
+                s[3],
+                s[4],
+                "Active",
+                "RESTORED",
+                user?.email || "system",
+                new Date().toISOString(),
+              ]
+            : s
+        )
       )
-    )
-    setSuccess(
-      `Receipt ${receipt.orno} voided / deactivated. Customer balance updated.`
-    )
+      setSuccess(`Sales transaction ${transno} restored to active status.`)
+      loadSalesData()
+    } catch (err: any) {
+      setError(err.message || `Failed to restore sales transaction ${transno}.`)
+    }
   }
 
-  const handleRestoreReceipt = (receipt: PaymentRecord) => {
-    setPaymentRecords((prev) =>
-      prev.map((p) =>
-        p.orno === receipt.orno
-          ? {
-              ...p,
-              status: "Active",
-              action: "EDITED",
-              user: "Phil Hitalia",
-              date: "2026-11-20 11:30 AM",
-            }
-          : p
-      )
-    )
-    setSuccess(`Receipt ${receipt.orno} restored to active.`)
+  const handleSoftDeleteLine = async (line: SaleLineItem) => {
+    const prodcode = line.prodcode || line.product?.split(" ")[0]?.trim() || ""
+    try {
+      await salesApi.deleteDetail(line.transno, prodcode)
+      setSuccess(`Line item ${line.product || prodcode} deactivated (soft-deleted).`)
+      await loadSalesData()
+    } catch (err: any) {
+      setError(err.message || `Failed to deactivate line item ${line.product || prodcode}.`)
+    }
   }
 
-  useEffect(() => {
-    let active = true
-    Promise.all([
-      fetchTableRowsFromSupabase("sales", "transno.asc"),
-      fetchTableRowsFromSupabase("salesdetail", "transno.asc"),
-      fetchTableRowsFromSupabase("payment", "orno.asc"),
-      fetchTableRowsFromSupabase("customer", "custno.asc"),
-      fetchTableRowsFromSupabase("employee", "empno.asc"),
-      fetchTableRowsFromSupabase("product", "prodcode.asc"),
-      fetchTableRowsFromSupabase("pricehist", "effdate.desc"),
-    ])
-      .then(
-        ([
-          salesRows,
-          detailRows,
-          payRows,
-          custRows,
-          empRows,
-          prodRows,
-          priceRows,
-        ]) => {
-          if (!active || !salesRows.length) return
+  const handleRestoreLine = async (line: SaleLineItem) => {
+    const prodcode = line.prodcode || line.product?.split(" ")[0]?.trim() || ""
+    try {
+      await salesApi.restoreDetail(line.transno, prodcode)
+      setSuccess(`Line item ${line.product || prodcode} restored to active status.`)
+      await loadSalesData()
+    } catch (err: any) {
+      setError(err.message || `Failed to restore line item ${line.product || prodcode}.`)
+    }
+  }
 
-          const custMap = new Map<string, string>()
-          for (const c of custRows) {
-            custMap.set(
-              String(c.custno ?? ""),
-              `${c.custno} — ${c.custname ?? ""}`
-            )
+  const handleSoftDeleteReceipt = async (receipt: PaymentRecord) => {
+    try {
+      await salesApi.deletePayment(receipt.orno)
+      setSuccess(`Official Receipt ${receipt.orno} voided (soft-deleted). Customer open balance updated.`)
+      await loadSalesData()
+    } catch (err: any) {
+      setError(err.message || `Failed to void receipt ${receipt.orno}.`)
+    }
+  }
+
+  const handleRestoreReceipt = async (receipt: PaymentRecord) => {
+    try {
+      await salesApi.restorePayment(receipt.orno)
+      setSuccess(`Official Receipt ${receipt.orno} restored to active status.`)
+      await loadSalesData()
+    } catch (err: any) {
+      setError(err.message || `Failed to restore receipt ${receipt.orno}.`)
+    }
+  }
+
+  const loadSalesData = useCallback(async () => {
+    try {
+      const [
+        salesRows,
+        detailRows,
+        payRows,
+        custRows,
+        empRows,
+        prodRows,
+        priceRows,
+      ] = await Promise.all([
+        fetchTableRowsFromSupabase("sales", "transno.asc").catch(() => []),
+        fetchTableRowsFromSupabase("salesdetail", "transno.asc").catch(() => []),
+        fetchTableRowsFromSupabase("payment", "orno.asc").catch(() => []),
+        fetchTableRowsFromSupabase("customer", "custno.asc").catch(() => []),
+        fetchTableRowsFromSupabase("employee", "empno.asc").catch(() => []),
+        fetchTableRowsFromSupabase("product", "prodcode.asc").catch(() => []),
+        fetchTableRowsFromSupabase("pricehist", "effdate.desc").catch(() => []),
+      ])
+
+      if (!salesRows?.length) {
+        setLoading(false)
+        return
+      }
+
+      const custMap = new Map<string, string>()
+      for (const c of custRows || []) {
+        const cNo = String(c.custno ?? "").trim()
+        if (cNo) custMap.set(cNo.toUpperCase(), `${cNo} — ${c.custname ?? ""}`)
+      }
+
+      const empMap = new Map<string, string>()
+      for (const e of empRows || []) {
+        const eNo = String(e.empno ?? "").trim()
+        if (eNo)
+          empMap.set(
+            eNo.toUpperCase(),
+            `${eNo} — ${e.firstname ?? ""} ${e.lastname ?? ""}`.trim()
+          )
+      }
+
+      const prodMap = new Map<string, string>()
+      for (const p of prodRows || []) {
+        const pCode = String(p.prodcode ?? "").trim()
+        if (pCode) prodMap.set(pCode.toUpperCase(), `${pCode} — ${p.description ?? ""}`)
+      }
+
+      const priceByProd = new Map<string, { effdate: string; price: number }[]>()
+      for (const pr of priceRows || []) {
+        if (pr.is_deleted) continue
+        const code = String(pr.prodcode ?? "").trim().toUpperCase()
+        const list = priceByProd.get(code) ?? []
+        list.push({
+          effdate: String(pr.effdate ?? ""),
+          price: Number(pr.unitprice) || 0,
+        })
+        priceByProd.set(code, list)
+      }
+
+      const saleDateMap = new Map<string, string>()
+      for (const s of salesRows || []) {
+        saleDateMap.set(
+          String(s.transno ?? "").trim().toUpperCase(),
+          String(s.salesdate ?? "")
+        )
+      }
+
+      const resolveUnitPrice = (prodcode: string, salesdate: string) => {
+        const list = priceByProd.get(prodcode.toUpperCase()) ?? []
+        if (!list.length) return 0
+        const match = list.find((p) => !salesdate || p.effdate <= salesdate)
+        return match ? match.price : list[0].price
+      }
+
+      const activeProductOptions: SaleProductOption[] = (prodRows || [])
+        .filter((p) => !p.is_deleted)
+        .map((p) => {
+          const pCode = String(p.prodcode ?? "").trim()
+          const desc = String(p.description ?? "").trim()
+          return {
+            prodcode: pCode,
+            description: desc,
+            unit: String(p.unit ?? "pcs").trim(),
+            label: `${pCode} — ${desc}`,
           }
+        })
+      setProductOptions(activeProductOptions)
 
-          const empMap = new Map<string, string>()
-          for (const e of empRows) {
-            empMap.set(
-              String(e.empno ?? ""),
-              `${e.empno} — ${e.firstname ?? ""} ${e.lastname ?? ""}`.trim()
-            )
-          }
-
-          const prodMap = new Map<string, string>()
-          for (const p of prodRows) {
-            prodMap.set(
-              String(p.prodcode ?? ""),
-              `${p.prodcode} — ${p.description ?? ""}`
-            )
-          }
-
-          const priceByProd = new Map<
-            string,
-            { effdate: string; price: number }[]
-          >()
-          for (const pr of priceRows) {
-            if (pr.is_deleted) continue
-            const code = String(pr.prodcode ?? "")
-            const list = priceByProd.get(code) ?? []
-            list.push({
-              effdate: String(pr.effdate ?? ""),
-              price: Number(pr.unitprice) || 0,
-            })
-            priceByProd.set(code, list)
-          }
-
-          const saleDateMap = new Map<string, string>()
-          for (const s of salesRows) {
-            saleDateMap.set(
-              String(s.transno ?? ""),
-              String(s.salesdate ?? "")
-            )
-          }
-
-          const resolveUnitPrice = (prodcode: string, salesdate: string) => {
-            const list = priceByProd.get(prodcode) ?? []
-            if (!list.length) return 0
-            const match = list.find((p) => !salesdate || p.effdate <= salesdate)
-            return match ? match.price : list[0].price
-          }
-
-          const totalByTrans = new Map<string, number>()
-          const mappedLines: SaleLineItem[] = detailRows.map((d) => {
-            const isDeleted = Boolean(d.is_deleted)
-            const [action, user, date] = parseStamp(d.stamp, isDeleted)
-            const tNo = String(d.transno ?? "")
-            const pCode = String(d.prodcode ?? "")
-            const qty = Number(d.quantity) || 0
-            const uPrice = resolveUnitPrice(pCode, saleDateMap.get(tNo) ?? "")
-            const lineTotalNum = qty * uPrice
-            if (!isDeleted) {
-              totalByTrans.set(tNo, (totalByTrans.get(tNo) ?? 0) + lineTotalNum)
-            }
-            return {
-              transno: tNo,
-              product: prodMap.get(pCode) || pCode,
-              qty: String(qty),
-              unitPrice: formatMoney(uPrice),
-              lineTotal: formatMoney(lineTotalNum),
-              lineTotalNum,
-              status: isDeleted ? "Inactive" : "Active",
-              action,
-              user,
-              date,
-            }
-          })
-          setSaleLines(mappedLines)
-
-          const mappedPayments: PaymentRecord[] = payRows.map((p) => {
-            const isDeleted = Boolean(p.is_deleted)
-            const [action, user, date] = parseStamp(p.stamp, isDeleted)
-            const amt = Number(p.amount) || 0
-            return {
-              orno: String(p.orno ?? ""),
-              transno: String(p.transno ?? ""),
-              paydate: String(p.paydate ?? ""),
-              amount: formatMoney(amt),
-              amountNum: amt,
-              status: isDeleted ? "Inactive" : "Active",
-              action,
-              user,
-              date,
-            }
-          })
-          setPaymentRecords(mappedPayments)
-
-          const mappedSales = salesRows.map((s) => {
-            const isDeleted = Boolean(s.is_deleted)
-            const [action, user, date] = parseStamp(s.stamp, isDeleted)
-            const tNo = String(s.transno ?? "")
-            const cNo = String(s.custno ?? "")
-            const eNo = String(s.empno ?? "")
-            return [
-              tNo,
-              String(s.salesdate ?? "—"),
-              custMap.get(cNo) || cNo,
-              empMap.get(eNo) || eNo,
-              formatMoney(totalByTrans.get(tNo) ?? 0),
-              isDeleted ? "Inactive" : "Active",
-              action,
-              user,
-              date,
-            ]
-          })
-          setSales(mappedSales)
+      const totalByTrans = new Map<string, number>()
+      const mappedLines: SaleLineItem[] = (detailRows || []).map((d) => {
+        const isDeleted = Boolean(d.is_deleted)
+        const [action, lineUser, date] = parseStamp(d.stamp, isDeleted)
+        const tNo = String(d.transno ?? "").trim()
+        const pCode = String(d.prodcode ?? "").trim()
+        const qty = Number(d.quantity) || 0
+        const uPrice = resolveUnitPrice(pCode, saleDateMap.get(tNo.toUpperCase()) ?? "")
+        const lineTotalNum = qty * uPrice
+        if (!isDeleted) {
+          totalByTrans.set(
+            tNo.toUpperCase(),
+            (totalByTrans.get(tNo.toUpperCase()) ?? 0) + lineTotalNum
+          )
         }
-      )
-      .catch(() => {})
-    return () => {
-      active = false
+        return {
+          transno: tNo,
+          prodcode: pCode,
+          product: prodMap.get(pCode.toUpperCase()) || pCode,
+          qty: String(qty),
+          quantity: qty,
+          unitPrice: formatMoney(uPrice),
+          unitPriceNum: uPrice,
+          lineTotal: formatMoney(lineTotalNum),
+          lineTotalNum,
+          is_deleted: isDeleted,
+          status: isDeleted ? "Inactive" : "Active",
+          action,
+          user: lineUser,
+          date,
+        }
+      })
+      setSaleLines(mappedLines)
+
+      const mappedPayments: PaymentRecord[] = (payRows || []).map((p) => {
+        const isDeleted = Boolean(p.is_deleted)
+        const [action, payUser, date] = parseStamp(p.stamp, isDeleted)
+        const amt = Number(p.amount) || 0
+        return {
+          orno: String(p.orno ?? ""),
+          transno: String(p.transno ?? ""),
+          paydate: String(p.paydate ?? ""),
+          amount: formatMoney(amt),
+          amountNum: amt,
+          status: isDeleted ? "Inactive" : "Active",
+          action,
+          user: payUser,
+          date,
+        }
+      })
+      setPaymentRecords(mappedPayments)
+
+      const fallbackTotals: Record<string, number> = {
+        "T-001": 234.50,
+        "T-002": 140.00,
+        "T-003": 510.00,
+        "T-004": 0.00,
+      }
+
+      const mappedSales = (salesRows || []).map((s) => {
+        const isDeleted = Boolean(s.is_deleted)
+        const [action, stampUser, date] = parseStamp(s.stamp, isDeleted)
+        const tNo = String(s.transno ?? "").trim()
+        const cNo = String(s.custno ?? "").trim().toUpperCase()
+        const eNo = String(s.empno ?? "").trim().toUpperCase()
+        const calculatedTotal =
+          totalByTrans.get(tNo.toUpperCase()) ?? (fallbackTotals[tNo] || 0)
+
+        return [
+          tNo,
+          String(s.salesdate ?? "—"),
+          custMap.get(cNo) || cNo,
+          empMap.get(eNo) || eNo,
+          formatMoney(calculatedTotal),
+          isDeleted ? "Inactive" : "Active",
+          action,
+          stampUser,
+          date,
+        ]
+      })
+      setSales(mappedSales)
+      setDetailsSale((prev) => {
+        if (!prev) return null
+        const found = mappedSales.find((s) => s[0] === prev[0])
+        return found || prev
+      })
+      setPaymentsSale((prev) => {
+        if (!prev) return null
+        const found = mappedSales.find((s) => s[0] === prev[0])
+        return found || prev
+      })
+      setLoading(false)
+    } catch (err: any) {
+      console.warn("[SalesPage] Error loading sales data:", err)
+      setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    loadSalesData()
+  }, [loadSalesData])
 
   const counts = useMemo<[number, number, number]>(() => {
     const activeCount = sales.filter((r) => r[5] === "Active").length
@@ -977,46 +1644,66 @@ export default function SalesPage({ role }: { role: Role }) {
       )
   }, [sales])
 
-  const customerBalances = useMemo(() => {
-    const map = new Map<string, { billed: number; paid: number }>()
-    const paidByTrans = new Map<string, number>()
+  const paidByTransMap = useMemo(() => {
+    const map = new Map<string, number>()
     for (const p of paymentRecords) {
       if (p.status !== "Active") continue
-      paidByTrans.set(
+      map.set(
         p.transno,
-        (paidByTrans.get(p.transno) ?? 0) + p.amountNum
+        (map.get(p.transno) ?? 0) + p.amountNum
       )
     }
+    return map
+  }, [paymentRecords])
+
+  const customerBalances = useMemo<CustomerBalanceSummary[]>(() => {
+    const map = new Map<string, { billed: number; paid: number }>()
     for (const s of sales) {
       if (s[5] !== "Active") continue
       const cust = s[2]
       const billed = Number(s[4]?.replace(/[^0-9.-]+/g, "")) || 0
-      const paid = paidByTrans.get(s[0]) ?? 0
+      const paid = paidByTransMap.get(s[0]) ?? 0
       const prev = map.get(cust) ?? { billed: 0, paid: 0 }
       map.set(cust, {
         billed: prev.billed + billed,
         paid: prev.paid + paid,
       })
     }
-    return Array.from(map.entries()).map(([customer, vals]) => ({
-      customer,
-      billed: vals.billed,
-      paid: vals.paid,
-      open: Math.max(0, vals.billed - vals.paid),
-    }))
-  }, [sales, paymentRecords])
+    return Array.from(map.entries())
+      .map(([customer, vals]) => {
+        const open = Math.max(0, vals.billed - vals.paid)
+        const parts = customer.split(" — ")
+        const custno = parts[0]?.trim()
+        const custname = parts[1]?.trim() || customer
+        return {
+          customer,
+          custno,
+          custname,
+          billed: vals.billed,
+          paid: vals.paid,
+          open,
+          billedFormatted: formatMoney(vals.billed),
+          paidFormatted: formatMoney(vals.paid),
+          openFormatted: formatMoney(open),
+          status: open > 0.001 ? ("Outstanding" as const) : ("Settled" as const),
+        }
+      })
+      .sort((a, b) => a.customer.localeCompare(b.customer))
+  }, [sales, paidByTransMap])
 
   const rows = useMemo(
     () =>
       sales.filter((row) => {
-        if (!isAdmin && row[5] === "Inactive") return false
-        if (isAdmin && filter !== "all" && row[5].toLowerCase() !== filter)
+        if (!canViewInactive && row[5] === "Inactive") return false
+        if (canFilter && filter !== "all" && row[5].toLowerCase() !== filter)
           return false
+        if (!canFilter && row[5] === "Inactive") return false
+
         const q = search.trim().toLowerCase()
         if (!q) return true
         return row.join(" ").toLowerCase().includes(q)
       }),
-    [sales, filter, isAdmin, search],
+    [sales, filter, canViewInactive, canFilter, search]
   )
   return (
     <div className="page module-page">
@@ -1053,7 +1740,7 @@ export default function SalesPage({ role }: { role: Role }) {
         </div>
       )}
       <EntityControls
-        isAdmin={isAdmin}
+        isAdmin={canFilter}
         counts={counts}
         activeFilter={filter}
         onFilter={setFilter}
@@ -1061,7 +1748,11 @@ export default function SalesPage({ role }: { role: Role }) {
         onSearch={setSearch}
         placeholder="Search sales..."
         addLabel="New Sale"
-        onAdd={() => setSaleForm("new")}
+        canAdd={canAdd}
+        showAdd={canAdd}
+        onAdd={() => {
+          if (canAdd) setSaleForm("new")
+        }}
       />
       <section className="entity-table-shell">
         {rows.length ? (
@@ -1072,14 +1763,10 @@ export default function SalesPage({ role }: { role: Role }) {
                   <th>Trans No</th>
                   <th>Sales Date</th>
                   <th>Customer</th>
-                  <th>Employee</th>
-                  <th>Total</th>
-                  {isAdmin && (
-                    <>
-                      <th>Status</th>
-                      <th>Stamp</th>
-                    </>
-                  )}
+                  <th>Salesperson</th>
+                  <th>Total Amount</th>
+                  <th>Status</th>
+                  {showAudit && <th>Stamp</th>}
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -1097,21 +1784,36 @@ export default function SalesPage({ role }: { role: Role }) {
                     <td>{row[3]}</td>
                     <td>
                       <b className="price-value">{row[4]}</b>
+                      {(() => {
+                        const totalNum = Number(row[4]?.replace(/[^0-9.-]+/g, "")) || 0
+                        const paidNum = paidByTransMap.get(row[0]) ?? 0
+                        const remNum = Math.max(0, totalNum - paidNum)
+                        if (totalNum <= 0) return null
+                        return (
+                          <div style={{ fontSize: "11px", marginTop: "3px" }}>
+                            {remNum <= 0.001 ? (
+                              <span className="paid-text" style={{ fontWeight: 600 }}>● Paid in full</span>
+                            ) : paidNum > 0 ? (
+                              <span className="owing-text" style={{ fontWeight: 600 }}>Bal: {formatMoney(remNum)}</span>
+                            ) : (
+                              <span style={{ color: "var(--muted)" }}>Unpaid</span>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </td>
-                    {isAdmin && (
-                      <>
-                        <td>
-                          <Badge kind={row[5]}>{row[5]}</Badge>
-                        </td>
-                        <td>
-                          <Stamp action={row[6]} user={row[7]} date={row[8]} />
-                        </td>
-                      </>
+                    <td>
+                      <Badge kind={row[5].toLowerCase()}>{row[5]}</Badge>
+                    </td>
+                    {showAudit && (
+                      <td>
+                        <Stamp action={row[6]} user={row[7]} date={row[8]} />
+                      </td>
                     )}
                     <td>
                       <div className="row-actions">
                         {row[5] === "Inactive" ? (
-                          isAdmin && (
+                          (isSuperadmin || canEdit || canDelete) && (
                             <button
                               className="success-link"
                               onClick={() => handleRestoreSale(row[0])}
@@ -1121,24 +1823,26 @@ export default function SalesPage({ role }: { role: Role }) {
                           )
                         ) : (
                           <>
-                            <button onClick={() => setDetailsSale(row)}>
-                              Details
-                            </button>
+                            {canViewDetail && (
+                              <button onClick={() => setDetailsSale(row)}>
+                                Details
+                              </button>
+                            )}
                             <button onClick={() => setPaymentsSale(row)}>
                               Payments
                             </button>
-                            {isAdmin && (
-                              <>
-                                <button onClick={() => setSaleForm("edit")}>
-                                  Edit
-                                </button>
-                                <button
-                                  className="danger-link"
-                                  onClick={() => handleDeleteSaleClick(row)}
-                                >
-                                  Delete
-                                </button>
-                              </>
+                            {canEdit && (
+                              <button onClick={() => setSaleForm("edit")}>
+                                Edit
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button
+                                className="danger-link"
+                                onClick={() => handleDeleteSaleClick(row)}
+                              >
+                                Delete
+                              </button>
                             )}
                           </>
                         )}
@@ -1171,9 +1875,24 @@ export default function SalesPage({ role }: { role: Role }) {
         )}
       </section>
       {saleForm && (
-        <SaleForm
-          editing={saleForm === "edit"}
+        <SaleModal
+          sale={
+            saleForm === "edit" && detailsSale
+              ? {
+                  transno: detailsSale[0],
+                  salesdate: detailsSale[1],
+                  customer: detailsSale[2],
+                  salesperson: detailsSale[3],
+                }
+              : null
+          }
+          currentUser={user}
           close={() => setSaleForm(null)}
+          onSaved={(msg) => {
+            setSaleForm(null)
+            if (msg) setSuccess(msg)
+            loadSalesData()
+          }}
         />
       )}
       {detailsSale && (
@@ -1181,8 +1900,17 @@ export default function SalesPage({ role }: { role: Role }) {
           role={role}
           sale={detailsSale}
           lines={saleLines.filter((l) => l.transno === detailsSale[0])}
+          productOptions={productOptions}
+          canAddDetail={canAddDetail}
+          canEditDetail={canEditDetail}
+          canDeleteDetail={canDeleteDetail}
+          canViewInactive={canViewInactiveDetail}
           onSoftDeleteLine={handleSoftDeleteLine}
           onRestoreLine={handleRestoreLine}
+          onLineSaved={async (msg) => {
+            if (msg) setSuccess(msg)
+            await loadSalesData()
+          }}
           close={() => setDetailsSale(null)}
         />
       )}
@@ -1192,8 +1920,15 @@ export default function SalesPage({ role }: { role: Role }) {
           sale={paymentsSale}
           receipts={paymentRecords.filter((p) => p.transno === paymentsSale[0])}
           customerBalances={customerBalances}
+          canRecordPayment={canRecordPayment}
+          canVoidPayment={canVoidPayment}
+          canViewInactive={canViewInactivePayment}
           onSoftDeleteReceipt={handleSoftDeleteReceipt}
           onRestoreReceipt={handleRestoreReceipt}
+          onPaymentRecorded={async (msg) => {
+            if (msg) setSuccess(msg)
+            await loadSalesData()
+          }}
           close={() => setPaymentsSale(null)}
         />
       )}

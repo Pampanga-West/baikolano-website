@@ -26,6 +26,7 @@ import {
   findUserByIdFromSupabase,
   generateTokenForResetRequestInSupabase,
   insertAuditLogIntoSupabase,
+  fetchAuditLogsFromSupabase,
   insertTableRowIntoSupabase,
   insertUserIntoSupabase,
   createPasswordResetRequestInSupabase,
@@ -40,6 +41,75 @@ import {
   updateCustomerInSupabase,
   softDeleteCustomerInSupabase,
   restoreCustomerInSupabase,
+  fetchProductsFromSupabase,
+  fetchProductByProdcodeFromSupabase,
+  insertProductIntoSupabase,
+  updateProductInSupabase,
+  softDeleteProductInSupabase,
+  restoreProductInSupabase,
+  softDeletePriceScheduleInSupabase,
+  restorePriceScheduleInSupabase,
+  fetchPriceHistoryForProductFromSupabase,
+  insertPriceScheduleIntoSupabase,
+  updatePriceScheduleInSupabase,
+  fetchDepartmentsFromSupabase,
+  fetchDepartmentByDeptcodeFromSupabase,
+  insertDepartmentIntoSupabase,
+  updateDepartmentInSupabase,
+  softDeleteDepartmentInSupabase,
+  restoreDepartmentInSupabase,
+  checkDepartmentHasActiveReferences,
+  fetchJobsFromSupabase,
+  fetchJobByJobcodeFromSupabase,
+  insertJobIntoSupabase,
+  updateJobInSupabase,
+  softDeleteJobInSupabase,
+  restoreJobInSupabase,
+  checkJobHasActiveReferences,
+  fetchEmployeesFromSupabase,
+  fetchEmployeeByEmpnoFromSupabase,
+  insertEmployeeIntoSupabase,
+  updateEmployeeInSupabase,
+  softDeleteEmployeeInSupabase,
+  restoreEmployeeInSupabase,
+  checkEmployeeHasActiveReferences,
+  fetchJobHistoryForEmployeeFromSupabase,
+  insertJobHistoryIntoSupabase,
+  updateJobHistoryInSupabase,
+  softDeleteJobHistoryInSupabase,
+  restoreJobHistoryInSupabase,
+  fetchSalesFromSupabase,
+  fetchSaleByTransnoFromSupabase,
+  insertSaleIntoSupabase,
+  softDeleteSaleInSupabase,
+  restoreSaleInSupabase,
+  checkSaleHasActiveReferences,
+  fetchActiveCustomersForDropdown,
+  fetchActiveSalespersonsForDropdown,
+  generateNextTransno,
+  resolveProductUnitPriceAsOfDate,
+  fetchActiveProductsForSaleDropdown,
+  fetchSaleDetailsFromSupabase,
+  insertSaleDetailIntoSupabase,
+  updateSaleDetailInSupabase,
+  softDeleteSaleDetailInSupabase,
+  restoreSaleDetailInSupabase,
+  generateNextOrno,
+  fetchPaymentsForSaleFromSupabase,
+  insertPaymentIntoSupabase,
+  softDeletePaymentInSupabase,
+  restorePaymentInSupabase,
+  fetchCustomerBalancesFromSupabase,
+  fetchTransactionBalanceFromSupabase,
+  fetchCustomerDetailedBalanceFromSupabase,
+  fetchProductMasterReportFromSupabase,
+  fetchActiveEmployeesReportFromSupabase,
+  fetchAllEmployeesReportFromSupabase,
+  fetchEmployeeJobHistoryReportFromSupabase,
+  fetchTopCustomersReportFromSupabase,
+  fetchTopProductsReportFromSupabase,
+  fetchTopSalesReportFromSupabase,
+  formatMoney,
   parseStamp,
   type SupabaseUserRow,
 } from "./supabaseClient.ts"
@@ -67,10 +137,12 @@ const STORAGE_KEYS = {
 // Local Storage Persistence & Session Helpers
 // ----------------------------------------------------------------------------
 function getSessionUserId(): string | null {
+  if (typeof localStorage === "undefined") return null
   return localStorage.getItem(STORAGE_KEYS.SESSION_USER_ID)
 }
 
 function setSessionUser(user: DbUser | null): void {
+  if (typeof localStorage === "undefined") return
   if (user) {
     localStorage.setItem(STORAGE_KEYS.SESSION_USER_ID, user.id)
     localStorage.setItem(STORAGE_KEYS.SESSION_USER_EMAIL, user.email)
@@ -102,7 +174,9 @@ async function getLiveUsers(): Promise<DbUser[]> {
     const dbUsers = rows.map(toDbUser)
     // Update local cache
     try {
-      localStorage.setItem(STORAGE_KEYS.USERS_CACHE, JSON.stringify(dbUsers))
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(STORAGE_KEYS.USERS_CACHE, JSON.stringify(dbUsers))
+      }
     } catch {
       // Ignore quota errors
     }
@@ -110,8 +184,10 @@ async function getLiveUsers(): Promise<DbUser[]> {
   } catch (err) {
     console.warn("[EmbeddedBackend] Supabase query failed, using local cache fallback:", err)
     try {
-      const cached = localStorage.getItem(STORAGE_KEYS.USERS_CACHE)
-      if (cached) return JSON.parse(cached)
+      if (typeof localStorage !== "undefined") {
+        const cached = localStorage.getItem(STORAGE_KEYS.USERS_CACHE)
+        if (cached) return JSON.parse(cached)
+      }
     } catch {
       // Fall through
     }
@@ -180,9 +256,35 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
   const pathname = parsedUrl.pathname
   const body = options.body ? (typeof options.body === "string" ? JSON.parse(options.body) : options.body) : {}
 
+  const reqHeaders = new Headers(options.headers)
+  const testRole = reqHeaders.get("x-test-role") || reqHeaders.get("x-test-user-role")
+  const testRightsHeader = reqHeaders.get("x-test-rights") || reqHeaders.get("x-test-user-rights")
+  let testRights: string[] | null = null
+  if (testRightsHeader !== null) {
+    try {
+      const parsed = JSON.parse(testRightsHeader)
+      testRights = Array.isArray(parsed) ? parsed : [String(parsed)]
+    } catch {
+      testRights = testRightsHeader.split(",").map((s) => s.trim())
+    }
+  }
+
   const currentUserId = getSessionUserId()
   let currentUser: DbUser | null = null
-  if (currentUserId) {
+  if (testRole) {
+    currentUser = {
+      id: "test-user-session",
+      email: "test.user@hope.example",
+      passwordHash: "",
+      role: testRole as Role,
+      approvalStatus: "APPROVED",
+      blocked: false,
+      firstName: "Test",
+      lastName: testRole,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+  } else if (currentUserId) {
     currentUser = await getLiveUserById(currentUserId)
   }
 
@@ -1157,6 +1259,2051 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
   }
 
   // ==========================================================================
+  // Product Master Endpoints (/api/products) -> Sprint 2 (S2-DEV-04)
+  // Enforces role-based per-action permission checks against Supabase user_permission
+  // ==========================================================================
+
+  const ensureProductPermission = async (
+    action: "View" | "Add" | "Edit" | "Delete" | "AddPrice" | "EditPrice" | "DeletePrice"
+  ): Promise<DbUser> => {
+    if (!currentUser) {
+      // In prototype / standalone preview mode, allow read-only viewing of product master data
+      if (action === "View") {
+        return {
+          id: "prototype-demo-session",
+          email: "superadmin@hope.example",
+          passwordHash: "",
+          role: "Superadmin",
+          approvalStatus: "APPROVED",
+          blocked: false,
+          firstName: "Prototype",
+          lastName: "Superadmin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+      }
+      throw new Error("UNAUTHORIZED")
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = await fetchUserRightsFromSupabase(currentUser.id).catch(() => [])
+    const actionKey = action.toLowerCase()
+
+    const hasRight = userRights.some((r) => {
+      const lower = r.toLowerCase().trim()
+      if (actionKey === "view") {
+        if (currentUser.role === "Admin" || lower.includes("product") || lower.includes("price")) return true
+      }
+      if (actionKey === "add") {
+        if (lower === "product - add" || lower === "add product" || (lower.includes("product") && lower.includes("add"))) return true
+      }
+      if (actionKey === "edit") {
+        if (lower === "product - edit" || lower === "edit product" || (lower.includes("product") && lower.includes("edit"))) return true
+      }
+      if (actionKey === "delete") {
+        if (lower === "product - delete" || lower === "delete product" || (lower.includes("product") && lower.includes("delete"))) return true
+      }
+      if (actionKey === "addprice") {
+        if (lower === "add price" || lower === "product - add price" || lower === "product - edit" || lower === "edit product" || lower === "add product" || lower.includes("add price")) return true
+      }
+      if (actionKey === "editprice") {
+        if (lower === "edit price" || lower === "product - edit price" || lower === "product - edit" || lower === "edit product" || lower.includes("edit price")) return true
+      }
+      if (actionKey === "deleteprice") {
+        if (lower === "delete price" || lower === "product - delete price" || lower === "product - delete" || lower === "delete product" || lower === "product - edit" || lower.includes("delete price")) return true
+      }
+      return false
+    })
+
+    if (currentUser.role === "Admin" && (actionKey === "view" || !userRights.length)) {
+      return currentUser
+    }
+
+    if (!hasRight) {
+      const displayAction = actionKey.startsWith("addprice")
+        ? "Add Price"
+        : actionKey.startsWith("editprice")
+        ? "Edit Price"
+        : actionKey.startsWith("deleteprice")
+        ? "Delete Price"
+        : action
+      const err: any = new Error(`Access denied. Requires Product - ${displayAction} permission.`)
+      err.permissionDenied = true
+      err.statusCode = 403
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // 1. List Products with Search and Filter (GET /api/products)
+  if (pathname === "/api/products" && method === "GET") {
+    try {
+      const caller = await ensureProductPermission("View")
+      const search = parsedUrl.searchParams.get("search")?.trim() || ""
+      const statusParam = (parsedUrl.searchParams.get("status")?.trim().toLowerCase() || "active") as
+        | "active"
+        | "inactive"
+        | "all"
+      const unit = parsedUrl.searchParams.get("unit")?.trim() || ""
+      const asOfDate = parsedUrl.searchParams.get("asOfDate")?.trim() || undefined
+
+      const rawRows = await fetchProductsFromSupabase({
+        search,
+        status: statusParam,
+        unit,
+        asOfDate,
+      })
+
+      const userRights =
+        caller.role === "Superadmin"
+          ? []
+          : await fetchUserRightsFromSupabase(caller.id).catch(() => [])
+
+      const canSeeInactive =
+        caller.role === "Superadmin" ||
+        caller.role === "Admin" ||
+        userRights.some((r) => {
+          const lower = r.toLowerCase().trim()
+          return (
+            lower.includes("product") &&
+            (lower.includes("edit") || lower.includes("delete") || lower.includes("view"))
+          )
+        })
+
+      const dtoList = rawRows
+        .filter((r) => {
+          // Regular users without product rights can never see Inactive/deleted rows
+          if (!canSeeInactive && Boolean(r.is_deleted)) return false
+          return true
+        })
+        .map((r) => {
+          const isDeleted = Boolean(r.is_deleted)
+          const [action, stampUser, stampDate] = parseStamp(r.stamp, isDeleted)
+          return {
+            prodcode: String(r.prodcode ?? ""),
+            description: String(r.description ?? ""),
+            unit: String(r.unit ?? ""),
+            price: String(r.price ?? "—"),
+            numericPrice: r.numericPrice ?? null,
+            currentEffDate: r.currentEffDate ?? null,
+            is_deleted: isDeleted,
+            status: isDeleted ? "Inactive" : "Active",
+            stamp: String(r.stamp ?? ""),
+            stampAction: action,
+            stampUser: stampUser,
+            stampDate: stampDate,
+          }
+        })
+
+      return jsonResponse(dtoList)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied || e.message === "FORBIDDEN") {
+        return jsonResponse({ message: e.message || "Access denied. Requires Product - View permission." }, 403)
+      }
+      return jsonResponse({ message: e.message || "Failed to fetch products." }, 500)
+    }
+  }
+
+  // 2. Product Detail & Sub-actions (/api/products/:prodcode)
+  const productMatch = pathname.match(/^\/api\/products\/([^/]+)(?:\/(restore))?$/)
+  if (productMatch) {
+    const prodcode = decodeURIComponent(productMatch[1])
+    const subAction = productMatch[2] // 'restore' or undefined
+
+    // Restore Product (POST /api/products/:prodcode/restore)
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensureProductPermission("Edit")
+        await restoreProductInSupabase(prodcode, caller.email)
+        return jsonResponse({ message: `Product ${prodcode} restored successfully.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore product." }, 400)
+      }
+    }
+
+    // Get Single Product (GET /api/products/:prodcode)
+    if (!subAction && method === "GET") {
+      try {
+        await ensureProductPermission("View")
+        const asOfDate = parsedUrl.searchParams.get("asOfDate")?.trim() || undefined
+        const row = await fetchProductByProdcodeFromSupabase(prodcode, asOfDate)
+        if (!row) {
+          return jsonResponse({ message: `Product ${prodcode} not found.` }, 404)
+        }
+        const isDeleted = Boolean(row.is_deleted)
+        const [action, stampUser, stampDate] = parseStamp(row.stamp, isDeleted)
+        return jsonResponse({
+          prodcode: String(row.prodcode ?? ""),
+          description: String(row.description ?? ""),
+          unit: String(row.unit ?? ""),
+          price: String(row.price ?? "—"),
+          numericPrice: row.numericPrice ?? null,
+          currentEffDate: row.currentEffDate ?? null,
+          is_deleted: isDeleted,
+          status: isDeleted ? "Inactive" : "Active",
+          stamp: String(row.stamp ?? ""),
+          stampAction: action,
+          stampUser: stampUser,
+          stampDate: stampDate,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to retrieve product." }, 500)
+      }
+    }
+
+    // Update Product (PUT /api/products/:prodcode)
+    if (!subAction && (method === "PUT" || method === "PATCH")) {
+      try {
+        const caller = await ensureProductPermission("Edit")
+        const updated = await updateProductInSupabase(
+          prodcode,
+          {
+            description: body.description,
+            unit: body.unit,
+          },
+          caller.email
+        )
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to update product." }, 400)
+      }
+    }
+
+    // Soft Delete Product (DELETE /api/products/:prodcode)
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensureProductPermission("Delete")
+        await softDeleteProductInSupabase(prodcode, caller.email)
+        return jsonResponse({ message: `Product ${prodcode} marked as Inactive.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.blocked || e.statusCode === 409) {
+          return jsonResponse({ message: e.message, blocked: true }, 409)
+        }
+        return jsonResponse({ message: e.message || "Failed to delete product." }, 400)
+      }
+    }
+  }
+
+  // 2b. Price Schedule Collection (/api/products/:prodcode/prices)
+  const priceCollectionMatch = pathname.match(/^\/api\/products\/([^/]+)\/prices$/)
+  if (priceCollectionMatch) {
+    const prodcode = decodeURIComponent(priceCollectionMatch[1])
+
+    if (method === "GET") {
+      try {
+        await ensureProductPermission("View")
+        const rows = await fetchPriceHistoryForProductFromSupabase(prodcode)
+        return jsonResponse(rows)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to fetch price history." }, 500)
+      }
+    }
+
+    if (method === "POST") {
+      try {
+        const caller = await ensureProductPermission("AddPrice")
+        const created = await insertPriceScheduleIntoSupabase(
+          {
+            prodcode,
+            effdate: body.effdate,
+            unitprice: body.unitprice,
+          },
+          caller.email
+        )
+        return jsonResponse(created, 201)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to create price schedule." }, 400)
+      }
+    }
+  }
+
+  // 2c. Price Schedule Item Sub-actions (/api/products/:prodcode/prices/:effdate)
+  const priceScheduleMatch = pathname.match(/^\/api\/products\/([^/]+)\/prices\/([^/]+)(?:\/(restore))?$/)
+  if (priceScheduleMatch) {
+    const prodcode = decodeURIComponent(priceScheduleMatch[1])
+    const effdate = decodeURIComponent(priceScheduleMatch[2])
+    const subAction = priceScheduleMatch[3]
+
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensureProductPermission("EditPrice")
+        await restorePriceScheduleInSupabase(prodcode, effdate, caller.email)
+        return jsonResponse({ message: `Price schedule for ${prodcode} (${effdate}) restored.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore price schedule." }, 400)
+      }
+    }
+
+    if (!subAction && (method === "PUT" || method === "PATCH")) {
+      try {
+        const caller = await ensureProductPermission("EditPrice")
+        const updated = await updatePriceScheduleInSupabase(
+          prodcode,
+          effdate,
+          {
+            effdate: body.effdate || effdate,
+            unitprice: body.unitprice,
+          },
+          caller.email
+        )
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to update price schedule." }, 400)
+      }
+    }
+
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensureProductPermission("DeletePrice")
+        await softDeletePriceScheduleInSupabase(prodcode, effdate, caller.email)
+        return jsonResponse({ message: `Price schedule for ${prodcode} (${effdate}) superseded.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to supersede price schedule." }, 400)
+      }
+    }
+  }
+
+  // 3. Create Product (POST /api/products)
+  if (pathname === "/api/products" && method === "POST") {
+    try {
+      const caller = await ensureProductPermission("Add")
+      const description = (body.description || "").trim()
+      if (!description) {
+        return jsonResponse({ message: "Product description is required." }, 400)
+      }
+      if (description.length < 2) {
+        return jsonResponse({ message: "Product description must be at least 2 characters long." }, 400)
+      }
+
+      const created = await insertProductIntoSupabase(
+        {
+          prodcode: body.prodcode,
+          description,
+          unit: body.unit,
+          initialPrice: body.initialPrice,
+        },
+        caller.email
+      )
+      return jsonResponse(created, 201)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to create product." }, 400)
+    }
+  }
+
+  // ==========================================================================
+  // Department Master Endpoints (/api/departments) -> Sprint 3 (S3-DEV-01)
+  // Enforces role-based per-action permission checks against Supabase user_permission
+  // ==========================================================================
+
+  const ensureDepartmentPermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+    if (!currentUser) {
+      if (action === "View") {
+        return {
+          id: "prototype-demo-session",
+          email: "superadmin@hope.example",
+          passwordHash: "",
+          role: "Superadmin",
+          approvalStatus: "APPROVED",
+          blocked: false,
+          firstName: "Prototype",
+          lastName: "Superadmin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+      }
+      throw new Error("UNAUTHORIZED")
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = await fetchUserRightsFromSupabase(currentUser.id).catch(() => [])
+    const actionKey = action.toLowerCase()
+
+    const hasRight = userRights.some((r) => {
+      const lower = r.toLowerCase().trim()
+      if (lower === `department - ${actionKey}` || lower === `${actionKey} department`) return true
+      if (lower.includes("department") && lower.includes(actionKey)) return true
+      if (action === "View" && (currentUser.role === "Admin" || lower.includes("department") || lower.includes("hr"))) return true
+      return false
+    })
+
+    if (currentUser.role === "Admin" && (action === "View" || !userRights.length)) {
+      return currentUser
+    }
+
+    if (!hasRight) {
+      const err: any = new Error(`Access denied. Requires Department - ${action} permission.`)
+      err.permissionDenied = true
+      err.statusCode = 403
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // 1. List Departments with Search and Status Filter (GET /api/departments)
+  if (pathname === "/api/departments" && method === "GET") {
+    try {
+      const caller = await ensureDepartmentPermission("View")
+      const search = parsedUrl.searchParams.get("search")?.trim() || ""
+      const statusParam = (parsedUrl.searchParams.get("status")?.trim().toLowerCase() || "active") as
+        | "active"
+        | "inactive"
+        | "all"
+
+      const rawRows = await fetchDepartmentsFromSupabase({
+        search,
+        status: statusParam,
+      })
+
+      const userRights =
+        caller.role === "Superadmin"
+          ? []
+          : await fetchUserRightsFromSupabase(caller.id).catch(() => [])
+
+      const canSeeInactive =
+        caller.role === "Superadmin" ||
+        caller.role === "Admin" ||
+        userRights.some((r) => {
+          const lower = r.toLowerCase().trim()
+          return (
+            lower.includes("department") &&
+            (lower.includes("edit") || lower.includes("delete") || lower.includes("view"))
+          )
+        })
+
+      const dtoList = rawRows.filter((r) => {
+        if (!canSeeInactive && Boolean(r.is_deleted)) return false
+        return true
+      })
+
+      return jsonResponse(dtoList)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) {
+        return jsonResponse({ message: e.message || "Access denied. Requires Department - View permission." }, 403)
+      }
+      return jsonResponse({ message: e.message || "Failed to list departments." }, 500)
+    }
+  }
+
+  // 2. Department Item Sub-actions (/api/departments/:deptcode)
+  const deptMatch = pathname.match(/^\/api\/departments\/([^/]+)(?:\/(restore))?$/)
+  if (deptMatch) {
+    const deptcode = decodeURIComponent(deptMatch[1])
+    const subAction = deptMatch[2]
+
+    // Restore Department (POST /api/departments/:deptcode/restore)
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensureDepartmentPermission("Edit")
+        await restoreDepartmentInSupabase(deptcode, caller.email)
+        return jsonResponse({ message: `Department ${deptcode} restored successfully.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore department." }, 400)
+      }
+    }
+
+    // Get Single Department (GET /api/departments/:deptcode)
+    if (!subAction && method === "GET") {
+      try {
+        await ensureDepartmentPermission("View")
+        const row = await fetchDepartmentByDeptcodeFromSupabase(deptcode)
+        if (!row) {
+          return jsonResponse({ message: `Department ${deptcode} not found.` }, 404)
+        }
+        return jsonResponse(row)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to get department." }, 500)
+      }
+    }
+
+    // Update Department (PUT/PATCH /api/departments/:deptcode)
+    if (!subAction && (method === "PUT" || method === "PATCH")) {
+      try {
+        const caller = await ensureDepartmentPermission("Edit")
+        const updated = await updateDepartmentInSupabase(
+          deptcode,
+          { deptname: body.deptname },
+          caller.email
+        )
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to update department." }, 400)
+      }
+    }
+
+    // Soft-Delete Department (DELETE /api/departments/:deptcode)
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensureDepartmentPermission("Delete")
+        await softDeleteDepartmentInSupabase(deptcode, caller.email)
+        return jsonResponse({ message: `Department ${deptcode} marked as Inactive.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.blocked || e.statusCode === 409) {
+          return jsonResponse({ message: e.message, blocked: true, reason: e.reason }, 409)
+        }
+        return jsonResponse({ message: e.message || "Failed to delete department." }, 400)
+      }
+    }
+  }
+
+  // 3. Create Department (POST /api/departments)
+  if (pathname === "/api/departments" && method === "POST") {
+    try {
+      const caller = await ensureDepartmentPermission("Add")
+      const deptname = (body.deptname || "").trim()
+      if (!deptname) {
+        return jsonResponse({ message: "Department name is required." }, 400)
+      }
+      if (deptname.length < 2) {
+        return jsonResponse({ message: "Department name must be at least 2 characters long." }, 400)
+      }
+
+      const created = await insertDepartmentIntoSupabase(
+        {
+          deptcode: body.deptcode,
+          deptname,
+        },
+        caller.email
+      )
+      return jsonResponse(created, 201)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
+      return jsonResponse({ message: e.message || "Failed to create department." }, 400)
+    }
+  }
+
+  // ==========================================================================
+  // Job Master Endpoints (/api/jobs) -> Sprint 3 (S3-DEV-02)
+  // Enforces role-based per-action permission checks against Supabase user_permission
+  // ==========================================================================
+
+  const ensureJobPermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+    if (!currentUser) {
+      if (action === "View") {
+        return {
+          id: "prototype-demo-session",
+          email: "superadmin@hope.example",
+          passwordHash: "",
+          role: "Superadmin",
+          approvalStatus: "APPROVED",
+          blocked: false,
+          firstName: "Prototype",
+          lastName: "Superadmin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+      }
+      throw new Error("UNAUTHORIZED")
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = await fetchUserRightsFromSupabase(currentUser.id).catch(() => [])
+    const actionKey = action.toLowerCase()
+
+    const hasRight = userRights.some((r) => {
+      const lower = r.toLowerCase().trim()
+      if (lower === `job - ${actionKey}` || lower === `${actionKey} job`) return true
+      if (lower.includes("job") && lower.includes(actionKey)) return true
+      if (action === "View" && (currentUser.role === "Admin" || lower.includes("job") || lower.includes("hr"))) return true
+      return false
+    })
+
+    if (currentUser.role === "Admin" && (action === "View" || !userRights.length)) {
+      return currentUser
+    }
+
+    if (!hasRight) {
+      const err: any = new Error(`Access denied. Requires Job - ${action} permission.`)
+      err.permissionDenied = true
+      err.statusCode = 403
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // 1. List Jobs with Search and Status Filter (GET /api/jobs)
+  if (pathname === "/api/jobs" && method === "GET") {
+    try {
+      const caller = await ensureJobPermission("View")
+      const search = parsedUrl.searchParams.get("search")?.trim() || ""
+      const statusParam = (parsedUrl.searchParams.get("status")?.trim().toLowerCase() || "active") as
+        | "active"
+        | "inactive"
+        | "all"
+
+      const rawRows = await fetchJobsFromSupabase({
+        search,
+        status: statusParam,
+      })
+
+      const userRights =
+        caller.role === "Superadmin"
+          ? []
+          : await fetchUserRightsFromSupabase(caller.id).catch(() => [])
+
+      const canSeeInactive =
+        caller.role === "Superadmin" ||
+        caller.role === "Admin" ||
+        userRights.some((r) => {
+          const l = r.toLowerCase()
+          return l.includes("delete") || l.includes("edit") || l.includes("all")
+        })
+
+      const rows = rawRows.filter((r) => {
+        if (!canSeeInactive && r.is_deleted) return false
+        return true
+      })
+
+      return jsonResponse(rows)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to list jobs." }, 400)
+    }
+  }
+
+  // 2. Job Detail / Subactions (/api/jobs/:jobcode[/:subaction])
+  const jobMatch = pathname.match(/^\/api\/jobs\/([^/]+)(?:\/([^/]+))?$/)
+  if (jobMatch) {
+    const jobcode = decodeURIComponent(jobMatch[1])
+    const subAction = jobMatch[2]
+
+    // Restore Job (POST /api/jobs/:jobcode/restore)
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensureJobPermission("Edit")
+        await restoreJobInSupabase(jobcode, caller.email)
+        return jsonResponse({ message: `Job ${jobcode} restored to Active.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore job." }, 400)
+      }
+    }
+
+    // Get Single Job (GET /api/jobs/:jobcode)
+    if (!subAction && method === "GET") {
+      try {
+        await ensureJobPermission("View")
+        const job = await fetchJobByJobcodeFromSupabase(jobcode)
+        if (!job) return jsonResponse({ message: "Job not found." }, 404)
+        return jsonResponse(job)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to get job." }, 400)
+      }
+    }
+
+    // Update Job (PUT /api/jobs/:jobcode)
+    if (!subAction && method === "PUT") {
+      try {
+        const caller = await ensureJobPermission("Edit")
+        const updated = await updateJobInSupabase(
+          jobcode,
+          { jobdesc: body.jobdesc },
+          caller.email
+        )
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to update job." }, 400)
+      }
+    }
+
+    // Soft-Delete Job (DELETE /api/jobs/:jobcode)
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensureJobPermission("Delete")
+        await softDeleteJobInSupabase(jobcode, caller.email)
+        return jsonResponse({ message: `Job ${jobcode} marked as Inactive.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.blocked || e.statusCode === 409) {
+          return jsonResponse({ message: e.message, blocked: true, reason: e.reason }, 409)
+        }
+        return jsonResponse({ message: e.message || "Failed to delete job." }, 400)
+      }
+    }
+  }
+
+  // 3. Create Job (POST /api/jobs)
+  if (pathname === "/api/jobs" && method === "POST") {
+    try {
+      const caller = await ensureJobPermission("Add")
+      const jobdesc = (body.jobdesc || "").trim()
+      if (!jobdesc) {
+        return jsonResponse({ message: "Job title / description is required." }, 400)
+      }
+      if (jobdesc.length < 2) {
+        return jsonResponse({ message: "Job title must be at least 2 characters long." }, 400)
+      }
+
+      const created = await insertJobIntoSupabase(
+        {
+          jobcode: body.jobcode,
+          jobdesc,
+        },
+        caller.email
+      )
+      return jsonResponse(created, 201)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
+      return jsonResponse({ message: e.message || "Failed to create job." }, 400)
+    }
+  }
+
+  // ==========================================================================
+  // Employee Directory Endpoints (/api/employees) -> Sprint 3 (S3-DEV-03)
+  // Enforces role-based per-action permission checks against Supabase user_permission
+  // ==========================================================================
+
+  const ensureEmployeePermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+    if (!currentUser) {
+      if (action === "View") {
+        return {
+          id: "prototype-demo-session",
+          email: "superadmin@hope.example",
+          passwordHash: "",
+          role: "Superadmin",
+          approvalStatus: "APPROVED",
+          blocked: false,
+          firstName: "Prototype",
+          lastName: "Superadmin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+      }
+      throw new Error("UNAUTHORIZED")
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = testRights || (await fetchUserRightsFromSupabase(currentUser.id).catch(() => []))
+    const actionKey = action.toLowerCase()
+
+    const hasRight = userRights.some((r) => {
+      const lower = r.toLowerCase().trim()
+      if (lower === `employee - ${actionKey}` || lower === `${actionKey} employee`) return true
+      if (lower.includes("employee") && lower.includes(actionKey)) return true
+      if (action === "View" && (
+        currentUser.role === "Admin" ||
+        lower.includes("employee") ||
+        lower.includes("hr") ||
+        lower === "active employees" ||
+        lower === "all employees"
+      )) return true
+      return false
+    })
+
+    if (currentUser.role === "Admin" && (action === "View" || !userRights.length)) {
+      return currentUser
+    }
+
+    if (!hasRight) {
+      const err: any = new Error(`Access denied. Requires Employee - ${action} permission.`)
+      err.permissionDenied = true
+      err.statusCode = 403
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // ==========================================================================
+  // Job History Permission Guard (TC-HR-PERM-01 & TC-HR-PERM-04)
+  // Gated by "View Job History" right; separates View from Add/Edit/Delete
+  // ==========================================================================
+
+  const ensureJobHistoryPermission = async (
+    action: "View" | "Add" | "Edit" | "Delete"
+  ): Promise<DbUser> => {
+    if (!currentUser) {
+      if (action === "View") {
+        return {
+          id: "prototype-demo-session",
+          email: "superadmin@hope.example",
+          passwordHash: "",
+          role: "Superadmin",
+          approvalStatus: "APPROVED",
+          blocked: false,
+          firstName: "Prototype",
+          lastName: "Superadmin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+      }
+      throw new Error("UNAUTHORIZED")
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = testRights || (await fetchUserRightsFromSupabase(currentUser.id).catch(() => []))
+    const actionKey = action.toLowerCase()
+
+    const hasRight = userRights.some((r) => {
+      const lower = r.toLowerCase().trim()
+      if (actionKey === "view") {
+        if (currentUser.role === "Admin" && !userRights.length) return true
+        if (
+          lower === "view job history" ||
+          lower === "job history" ||
+          lower === "hr - view job history" ||
+          lower === "employee job history" ||
+          (lower.includes("job history") && lower.includes("view"))
+        ) {
+          return true
+        }
+      }
+      if (actionKey === "add") {
+        if (currentUser.role === "Admin" && !userRights.length) return true
+        if (
+          lower === "add job history" ||
+          lower === "hr - add job history" ||
+          (lower.includes("job history") && lower.includes("add"))
+        ) {
+          return true
+        }
+      }
+      if (actionKey === "edit") {
+        if (currentUser.role === "Admin" && !userRights.length) return true
+        if (
+          lower === "edit job history" ||
+          lower === "hr - edit job history" ||
+          (lower.includes("job history") && lower.includes("edit"))
+        ) {
+          return true
+        }
+      }
+      if (actionKey === "delete") {
+        if (currentUser.role === "Admin" && !userRights.length) return true
+        if (
+          lower === "delete job history" ||
+          lower === "hr - delete job history" ||
+          (lower.includes("job history") && lower.includes("delete"))
+        ) {
+          return true
+        }
+      }
+      return false
+    })
+
+    if (currentUser.role === "Admin" && (actionKey === "view" || !userRights.length)) {
+      return currentUser
+    }
+
+    if (!hasRight) {
+      const err: any = new Error(
+        action === "View"
+          ? "Access denied. Requires View Job History right."
+          : `Access denied. Requires ${action} Job History right.`
+      )
+      err.permissionDenied = true
+      err.statusCode = 403
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // 1. List Employees with Search, Department, Job, and Status Filter (GET /api/employees)
+  if (pathname === "/api/employees" && method === "GET") {
+    try {
+      const caller = await ensureEmployeePermission("View")
+      const search = parsedUrl.searchParams.get("search")?.trim() || ""
+      const statusParam = (parsedUrl.searchParams.get("status")?.trim().toLowerCase() || "active") as
+        | "active"
+        | "inactive"
+        | "all"
+      const department = parsedUrl.searchParams.get("department")?.trim() || ""
+      const job = parsedUrl.searchParams.get("job")?.trim() || ""
+
+      const rawRows = await fetchEmployeesFromSupabase({
+        search,
+        status: statusParam,
+        department,
+        job,
+      })
+
+      const userRights =
+        caller.role === "Superadmin"
+          ? []
+          : await fetchUserRightsFromSupabase(caller.id).catch(() => [])
+
+      const canSeeInactive =
+        caller.role === "Superadmin" ||
+        caller.role === "Admin" ||
+        userRights.some((r) => {
+          const l = r.toLowerCase()
+          return l.includes("delete") || l.includes("all employees") || l.includes("edit")
+        })
+
+      const rows = rawRows.filter((r) => {
+        if (!canSeeInactive && r.status !== "Active") return false
+        return true
+      })
+
+      return jsonResponse(rows)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to list employees." }, 400)
+    }
+  }
+
+  // 2. Get / Update Single Employee (/api/employees/:empno)
+  const empMatch = pathname.match(/^\/api\/employees\/([^/]+)$/)
+  if (empMatch) {
+    const empno = decodeURIComponent(empMatch[1])
+
+    if (method === "GET") {
+      try {
+        await ensureEmployeePermission("View")
+        const emp = await fetchEmployeeByEmpnoFromSupabase(empno)
+        if (!emp) return jsonResponse({ message: `Employee ${empno} not found.` }, 404)
+        return jsonResponse(emp)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to get employee." }, 400)
+      }
+    }
+
+    if (method === "PUT") {
+      try {
+        const caller = await ensureEmployeePermission("Edit")
+        const updated = await updateEmployeeInSupabase(empno, body, caller.email)
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+        return jsonResponse({ message: e.message || "Failed to update employee." }, 400)
+      }
+    }
+
+    if (method === "DELETE") {
+      try {
+        const caller = await ensureEmployeePermission("Delete")
+        const result = await softDeleteEmployeeInSupabase(empno, caller.email)
+        return jsonResponse({
+          message: `Employee ${empno} deactivated (soft-deleted). Separation date set.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+        if (e.statusCode === 409 || e.blocked) {
+          return jsonResponse(
+            {
+              message: e.message,
+              blocked: true,
+              reason: e.reason || "ACTIVE_REFERENCES",
+              details: e.details,
+            },
+            409
+          )
+        }
+        return jsonResponse({ message: e.message || "Failed to delete employee." }, 400)
+      }
+    }
+  }
+
+  // 3. Restore Single Employee (/api/employees/:empno/restore)
+  const restoreEmpMatch = pathname.match(/^\/api\/employees\/([^/]+)\/restore$/)
+  if (restoreEmpMatch && method === "POST") {
+    const empno = decodeURIComponent(restoreEmpMatch[1])
+    try {
+      const caller = await ensureEmployeePermission("Edit")
+      const result = await restoreEmployeeInSupabase(empno, caller.email)
+      return jsonResponse({
+        message: `Employee ${empno} restored to active status. Separation date cleared.`,
+        ...result,
+      })
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+      return jsonResponse({ message: e.message || "Failed to restore employee." }, 400)
+    }
+  }
+
+  // 4. Check Employee References (/api/employees/:empno/check-references)
+  const checkRefMatch = pathname.match(/^\/api\/employees\/([^/]+)\/check-references$/)
+  if (checkRefMatch && method === "GET") {
+    const empno = decodeURIComponent(checkRefMatch[1])
+    try {
+      await ensureEmployeePermission("View")
+      const refCheck = await checkEmployeeHasActiveReferences(empno)
+      return jsonResponse(refCheck)
+    } catch (e: any) {
+      return jsonResponse({ message: e.message || "Failed to check employee references." }, 400)
+    }
+  }
+
+  // 3. Create Employee (POST /api/employees)
+  if (pathname === "/api/employees" && method === "POST") {
+    try {
+      const caller = await ensureEmployeePermission("Add")
+      const created = await insertEmployeeIntoSupabase(body, caller.email)
+      return jsonResponse(created, 201)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
+      return jsonResponse({ message: e.message || "Failed to create employee." }, 400)
+    }
+  }
+
+  // ==========================================================================
+  // Job History Endpoints (/api/employees/:empno/history) -> Sprint 3 (S3-DEV-06, S3-DEV-08)
+  // Supports add, edit, delete, and restore of employee career promotions & transfers
+  // Strictly enforces View Job History right vs mutation rights (TC-HR-PERM-01 & TC-HR-PERM-04)
+  // ==========================================================================
+
+  // 1. List / Add Job History (/api/employees/:empno/history)
+  const historyListMatch = pathname.match(/^\/api\/employees\/([^/]+)\/history$/)
+  if (historyListMatch) {
+    const empno = decodeURIComponent(historyListMatch[1])
+
+    if (method === "GET") {
+      try {
+        const caller = await ensureJobHistoryPermission("View")
+        const rows = await fetchJobHistoryForEmployeeFromSupabase(empno)
+
+        const userRights =
+          caller.role === "Superadmin"
+            ? []
+            : (testRights || (await fetchUserRightsFromSupabase(caller.id).catch(() => [])))
+
+        const canSeeInactive =
+          caller.role === "Superadmin" ||
+          caller.role === "Admin" ||
+          userRights.some((r) => {
+            const l = r.toLowerCase()
+            return l.includes("delete") || l.includes("all employees") || l.includes("edit")
+          })
+
+        const filtered = rows.filter((r) => {
+          if (!canSeeInactive && r.status !== "Active") return false
+          return true
+        })
+
+        return jsonResponse(filtered)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to list job history." }, 400)
+      }
+    }
+
+    if (method === "POST") {
+      try {
+        const caller = await ensureJobHistoryPermission("Add")
+        const created = await insertJobHistoryIntoSupabase(empno, body, caller.email)
+        return jsonResponse(created, 201)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
+        return jsonResponse({ message: e.message || "Failed to add job history milestone." }, 400)
+      }
+    }
+  }
+
+  // 2. Restore Job History Milestone (/api/employees/:empno/history/:effdate/restore)
+  const historyRestoreMatch = pathname.match(/^\/api\/employees\/([^/]+)\/history\/([^/]+)\/restore$/)
+  if (historyRestoreMatch && method === "POST") {
+    const empno = decodeURIComponent(historyRestoreMatch[1])
+    const effdate = decodeURIComponent(historyRestoreMatch[2])
+    try {
+      const caller = await ensureJobHistoryPermission("Edit")
+      const result = await restoreJobHistoryInSupabase(empno, effdate, caller.email)
+      return jsonResponse({
+        message: `Job history milestone (${effdate}) restored to active.`,
+        ...result,
+      })
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+      return jsonResponse({ message: e.message || "Failed to restore job history milestone." }, 400)
+    }
+  }
+
+  // 3. Update / Delete Job History Milestone (/api/employees/:empno/history/:effdate)
+  const historyItemMatch = pathname.match(/^\/api\/employees\/([^/]+)\/history\/([^/]+)$/)
+  if (historyItemMatch) {
+    const empno = decodeURIComponent(historyItemMatch[1])
+    const effdate = decodeURIComponent(historyItemMatch[2])
+
+    if (method === "PUT") {
+      try {
+        const caller = await ensureJobHistoryPermission("Edit")
+        const updated = await updateJobHistoryInSupabase(empno, effdate, body, caller.email)
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+        return jsonResponse({ message: e.message || "Failed to update job history milestone." }, 400)
+      }
+    }
+
+    if (method === "DELETE") {
+      try {
+        const caller = await ensureJobHistoryPermission("Delete")
+        const result = await softDeleteJobHistoryInSupabase(empno, effdate, caller.email)
+        return jsonResponse({
+          message: `Job history milestone (${effdate}) archived.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+        return jsonResponse({ message: e.message || "Failed to delete job history milestone." }, 400)
+      }
+    }
+  }
+
+  // ==========================================================================
+  // Sprint 4: Sales Management Endpoints (/api/sales)
+  // ==========================================================================
+
+  const ensureSalePermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+    if (!currentUser) {
+      return {
+        id: "prototype-demo-session",
+        email: "superadmin@hope.example",
+        passwordHash: "",
+        role: "Superadmin",
+        approvalStatus: "APPROVED",
+        blocked: false,
+        firstName: "Prototype",
+        lastName: "Superadmin",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = testRights || (await fetchUserRightsFromSupabase(currentUser.id).catch(() => []))
+    const effectiveRights = userRights
+
+    const hasRight = (name: string) => {
+      const n = name.toLowerCase().trim()
+      return effectiveRights.some((r) => {
+        const rl = r.toLowerCase().trim()
+        if (rl.includes("detail")) return false
+        return (
+          rl === n ||
+          rl === `sale - ${n}` ||
+          rl === `sales - ${n}` ||
+          rl === `${n} sale` ||
+          rl === `${n} sales` ||
+          (rl.includes("sale") && rl.includes(n))
+        )
+      })
+    }
+
+    if (action === "View") {
+      if (
+        currentUser.role === "Admin" ||
+        hasRight("view") ||
+        hasRight("add") ||
+        hasRight("edit") ||
+        hasRight("delete")
+      ) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: View Sale right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Add") {
+      if ((currentUser.role === "Admin" && !effectiveRights.length) || hasRight("add")) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Add Sale right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Edit") {
+      if ((currentUser.role === "Admin" && !effectiveRights.length) || hasRight("edit")) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Edit Sale right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Delete") {
+      if ((currentUser.role === "Admin" && !effectiveRights.length) || hasRight("delete")) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Delete Sale right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // 1. Lookups & Options (/api/sales/lookups/options)
+  if (pathname === "/api/sales/lookups/options" && method === "GET") {
+    try {
+      await ensureSalePermission("View")
+      const [customers, salespersons, allSales] = await Promise.all([
+        fetchActiveCustomersForDropdown(),
+        fetchActiveSalespersonsForDropdown(),
+        fetchTableRowsFromSupabase("sales").catch(() => []),
+      ])
+
+      const existingTransnos = (allSales || []).map((s: any) => String(s.transno || ""))
+      const suggestedTransno = generateNextTransno(existingTransnos)
+
+      return jsonResponse({
+        customers,
+        salespersons,
+        suggestedTransno,
+      })
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to fetch sales options." }, 400)
+    }
+  }
+
+  // 2. Sales Collection Endpoints (/api/sales)
+  if (pathname === "/api/sales") {
+    // List Sales (GET /api/sales)
+    if (method === "GET") {
+      try {
+        const caller = await ensureSalePermission("View")
+        const search = parsedUrl.searchParams.get("search")?.trim() || ""
+        const statusParam = (parsedUrl.searchParams.get("status")?.trim().toLowerCase() || "active") as
+          | "active"
+          | "inactive"
+          | "all"
+
+        const rawRows = await fetchSalesFromSupabase({
+          search,
+          status: statusParam,
+        })
+
+        const userRights =
+          caller.role === "Superadmin"
+            ? []
+            : (testRights || (await fetchUserRightsFromSupabase(caller.id).catch(() => [])))
+
+        const effectiveRights = userRights
+
+        const hasRight = (name: string) => {
+          if (caller.role === "Superadmin") return true
+          const n = name.toLowerCase().trim()
+          return effectiveRights.some((r) => {
+            const rl = r.toLowerCase().trim()
+            return (
+              rl === n ||
+              rl === `sale - ${n}` ||
+              rl === `sales - ${n}` ||
+              rl === `${n} sale` ||
+              rl === `${n} sales` ||
+              (rl.includes("sale") && rl.includes(n))
+            )
+          })
+        }
+
+        const canViewInactive = caller.role === "Superadmin" || caller.role === "Admin" || hasRight("edit") || hasRight("delete")
+        const visibleRows = rawRows.filter((r) => {
+          if (!canViewInactive && r.is_deleted) return false
+          return true
+        })
+
+        return jsonResponse(visibleRows)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to list sales." }, 500)
+      }
+    }
+
+    // Create New Sale Header (POST /api/sales)
+    if (method === "POST") {
+      try {
+        const caller = await ensureSalePermission("Add")
+        const created = await insertSaleIntoSupabase(body, caller.email)
+        return jsonResponse(created, 201)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
+        return jsonResponse({ message: e.message || "Failed to create sales header." }, e.statusCode || 400)
+      }
+    }
+  }
+
+  // 3. Single Sale Endpoints (/api/sales/:transno, /api/sales/:transno/restore, /check-references)
+  const saleMatch = pathname.match(/^\/api\/sales\/([^/]+)(?:\/(restore|check-references))?$/)
+  if (
+    saleMatch &&
+    saleMatch[1] !== "customer-balances" &&
+    saleMatch[1] !== "lookups" &&
+    saleMatch[1] !== "payments" &&
+    saleMatch[1] !== "reports"
+  ) {
+    const transno = decodeURIComponent(saleMatch[1])
+    const subAction = saleMatch[2]
+
+    // Check Active References (GET /api/sales/:transno/check-references)
+    if (subAction === "check-references" && method === "GET") {
+      try {
+        await ensureSalePermission("View")
+        const result = await checkSaleHasActiveReferences(transno)
+        return jsonResponse(result)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to check sales references." }, 500)
+      }
+    }
+
+    // Restore Sale (POST /api/sales/:transno/restore)
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensureSalePermission("Edit")
+        const result = await restoreSaleInSupabase(transno, caller.email)
+        return jsonResponse({
+          message: `Sales transaction ${transno} restored to active.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore sale." }, 400)
+      }
+    }
+
+    // Get Single Sale (GET /api/sales/:transno)
+    if (!subAction && method === "GET") {
+      try {
+        await ensureSalePermission("View")
+        const row = await fetchSaleByTransnoFromSupabase(transno)
+        if (!row) {
+          return jsonResponse({ message: `Sales transaction ${transno} not found.` }, 404)
+        }
+        return jsonResponse(row)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to fetch sale." }, 400)
+      }
+    }
+
+    // Soft-Delete Sale (DELETE /api/sales/:transno)
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensureSalePermission("Delete")
+        const result = await softDeleteSaleInSupabase(transno, caller.email)
+        return jsonResponse({
+          message: `Sales transaction ${transno} has been deactivated (soft-deleted). Record preserved for accounting audit history.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.referentialIntegrity) {
+          return jsonResponse(
+            {
+              title: "Referential Integrity Guard",
+              message: e.message,
+              referentialIntegrity: true,
+            },
+            400
+          )
+        }
+        return jsonResponse({ message: e.message || "Failed to deactivate sales transaction." }, 400)
+      }
+    }
+  }
+
+  // ==========================================================================
+  // Sprint 4: Sale Details Line Items Endpoints (/api/sales/:transno/details)
+  // ==========================================================================
+
+  const ensureSaleDetailPermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+    if (!currentUser) {
+      return {
+        id: "prototype-demo-session",
+        email: "superadmin@hope.example",
+        passwordHash: "",
+        role: "Superadmin",
+        approvalStatus: "APPROVED",
+        blocked: false,
+        firstName: "Prototype",
+        lastName: "Superadmin",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = testRights || (await fetchUserRightsFromSupabase(currentUser.id).catch(() => []))
+    const effectiveRights = userRights
+
+    const hasRight = (name: string) => {
+      const n = name.toLowerCase().trim()
+      return effectiveRights.some((r) => {
+        const rl = r.toLowerCase().trim()
+        return (
+          rl === n ||
+          rl === `sale detail - ${n}` ||
+          rl === `sale details - ${n}` ||
+          rl === `${n} sale detail` ||
+          rl === `${n} sale details` ||
+          (rl.includes("sale") && rl.includes("detail") && rl.includes(n))
+        )
+      })
+    }
+
+    if (action === "View") {
+      if (
+        currentUser.role === "Admin" ||
+        hasRight("view") ||
+        hasRight("add") ||
+        hasRight("edit") ||
+        hasRight("delete") ||
+        effectiveRights.some((r) => {
+          const rl = r.toLowerCase().trim()
+          return (
+            rl === "sales - view" ||
+            rl === "sale - view" ||
+            rl === "view sale" ||
+            rl === "view sales"
+          )
+        })
+      ) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: View Sale Detail right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Add") {
+      if ((currentUser.role === "Admin" && !effectiveRights.length) || hasRight("add")) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Add Sale Detail right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Edit") {
+      if ((currentUser.role === "Admin" && !effectiveRights.length) || hasRight("edit")) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Edit Sale Detail right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Delete") {
+      if ((currentUser.role === "Admin" && !effectiveRights.length) || hasRight("delete")) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Delete Sale Detail right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    return currentUser
+  }
+
+  const ensurePaymentPermission = async (action: "View" | "Add" | "Edit" | "Delete"): Promise<DbUser> => {
+    if (!currentUser) {
+      return {
+        id: "prototype-demo-session",
+        email: "superadmin@hope.example",
+        passwordHash: "",
+        role: "Superadmin",
+        approvalStatus: "APPROVED",
+        blocked: false,
+        firstName: "Prototype",
+        lastName: "Superadmin",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = testRights || (await fetchUserRightsFromSupabase(currentUser.id).catch(() => []))
+    const effectiveRights = userRights
+
+    const hasRight = (name: string) => {
+      const n = name.toLowerCase().trim()
+      return effectiveRights.some((r) => {
+        const rl = r.toLowerCase().trim()
+        return (
+          rl === n ||
+          rl === `payment - ${n}` ||
+          rl === `${n} payment` ||
+          rl === `receipt - ${n}` ||
+          rl === `${n} receipt` ||
+          rl === `sale - ${n}` ||
+          rl === `sales - ${n}` ||
+          rl === `${n} sale` ||
+          rl === `${n} sales` ||
+          (rl.includes("sale") && rl.includes(n)) ||
+          (rl.includes("payment") && rl.includes(n))
+        )
+      })
+    }
+
+    if (action === "View") {
+      if (
+        (currentUser.role === "Admin" && !effectiveRights.length) ||
+        hasRight("view") ||
+        hasRight("view sales") ||
+        hasRight("view sale") ||
+        effectiveRights.length === 0
+      ) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: View Sales/Payment right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Add") {
+      if (
+        (currentUser.role === "Admin" && !effectiveRights.length) ||
+        hasRight("add") ||
+        hasRight("add payment") ||
+        hasRight("record payment") ||
+        hasRight("edit sale") ||
+        hasRight("add sale")
+      ) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Record Payment right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Edit") {
+      if (
+        (currentUser.role === "Admin" && !effectiveRights.length) ||
+        hasRight("edit") ||
+        hasRight("edit payment") ||
+        hasRight("edit sale")
+      ) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Edit Payment right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    if (action === "Delete") {
+      if (
+        (currentUser.role === "Admin" && !effectiveRights.length) ||
+        hasRight("delete") ||
+        hasRight("delete payment") ||
+        hasRight("void payment") ||
+        hasRight("delete sale") ||
+        hasRight("edit sale")
+      ) {
+        return currentUser
+      }
+      const err: any = new Error("Access denied: Void/Delete Payment right required.")
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    return currentUser
+  }
+
+  const ensureReportPermission = async (reportKey: string): Promise<DbUser> => {
+    if (!currentUser) {
+      return {
+        id: "prototype-demo-session",
+        email: "superadmin@hope.example",
+        passwordHash: "",
+        role: "Superadmin",
+        approvalStatus: "APPROVED",
+        blocked: false,
+        firstName: "Prototype",
+        lastName: "Superadmin",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    }
+
+    if (currentUser.role === "Superadmin") return currentUser
+
+    const userRights = testRights || (await fetchUserRightsFromSupabase(currentUser.id).catch(() => []))
+    const effectiveRights = userRights
+
+    // If Admin and no specific rights restriction configured, grant full access
+    if (currentUser.role === "Admin" && !effectiveRights.length) {
+      return currentUser
+    }
+
+    const hasRight = (name: string) => {
+      const n = name.toLowerCase().trim()
+      return effectiveRights.some((r) => {
+        const rl = r.toLowerCase().trim()
+        return (
+          rl === n ||
+          rl === `report - ${n}` ||
+          rl === `${n} report` ||
+          (rl.includes("report") && rl.includes(n)) ||
+          rl.includes(n)
+        )
+      })
+    }
+
+    let permitted = false
+    let requiredRightLabel = ""
+
+    switch (reportKey.toLowerCase().trim()) {
+      case "product-master":
+      case "product-master-list":
+        permitted = hasRight("product master") || hasRight("product master list") || hasRight("product")
+        requiredRightLabel = "Report - Product Master List"
+        break
+      case "active-employees":
+        permitted = hasRight("active employees") || hasRight("active employee")
+        requiredRightLabel = "Report - Active Employees"
+        break
+      case "all-employees":
+        permitted = hasRight("all employees") || hasRight("all employee")
+        requiredRightLabel = "Report - All Employees"
+        break
+      case "history":
+      case "employee-job-history":
+      case "job-history":
+        permitted = hasRight("employee job history") || hasRight("job history") || hasRight("view job history")
+        requiredRightLabel = "Report - Employee Job History"
+        break
+      case "customers":
+      case "top-customers":
+        permitted = hasRight("top customers") || hasRight("customer")
+        requiredRightLabel = "Report - Top Customers"
+        break
+      case "products":
+      case "top-products":
+        permitted = hasRight("top products") || hasRight("product")
+        requiredRightLabel = "Report - Top Products"
+        break
+      case "sales":
+      case "top-sales":
+        permitted = hasRight("top sales") || hasRight("sale")
+        requiredRightLabel = "Report - Top Sales"
+        break
+      default:
+        permitted = false
+        requiredRightLabel = `Report - ${reportKey}`
+    }
+
+    if (!permitted) {
+      const err: any = new Error(`Access denied: ${requiredRightLabel} right required.`)
+      err.statusCode = 403
+      err.permissionDenied = true
+      throw err
+    }
+
+    return currentUser
+  }
+
+  // 1. Lookups: Products for Sale Line Items (/api/sales/lookups/products)
+  if (pathname === "/api/sales/lookups/products" && method === "GET") {
+    try {
+      await ensureSaleDetailPermission("View")
+      const salesdate = parsedUrl.searchParams.get("salesdate") || undefined
+      const products = await fetchActiveProductsForSaleDropdown(salesdate)
+      return jsonResponse(products)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to fetch product options." }, 400)
+    }
+  }
+
+  // 2. Single Sale Detail Price-as-of-Date Lookup (/api/sales/:transno/details/price-lookup)
+  const priceLookupMatch = pathname.match(/^\/api\/sales\/([^/]+)\/details\/price-lookup$/)
+  if (priceLookupMatch && method === "GET") {
+    try {
+      await ensureSaleDetailPermission("View")
+      const transno = decodeURIComponent(priceLookupMatch[1])
+      const prodcode = parsedUrl.searchParams.get("prodcode") || ""
+
+      const parentSale = await fetchSaleByTransnoFromSupabase(transno)
+      const salesdate = parentSale?.salesdate || ""
+
+      const unitPrice = await resolveProductUnitPriceAsOfDate(prodcode, salesdate)
+      return jsonResponse({
+        transno,
+        prodcode,
+        salesdate,
+        unitPrice,
+        formattedUnitPrice: formatMoney(unitPrice),
+      })
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to resolve unit price." }, 400)
+    }
+  }
+
+  // 3. Sale Details Collection Endpoints (/api/sales/:transno/details)
+  const saleDetailsMatch = pathname.match(/^\/api\/sales\/([^/]+)\/details$/)
+  if (saleDetailsMatch) {
+    const transno = decodeURIComponent(saleDetailsMatch[1])
+
+    // List Line Items (GET /api/sales/:transno/details)
+    if (method === "GET") {
+      try {
+        const caller = await ensureSaleDetailPermission("View")
+        const lines = await fetchSaleDetailsFromSupabase(transno)
+
+        const userRights =
+          caller.role === "Superadmin"
+            ? []
+            : (testRights || (await fetchUserRightsFromSupabase(caller.id).catch(() => [])))
+
+        const canSeeInactive =
+          caller.role === "Superadmin" ||
+          caller.role === "Admin" ||
+          userRights.some((r) => {
+            const l = r.toLowerCase()
+            return l.includes("delete") || l.includes("edit")
+          })
+
+        const statusParam = parsedUrl.searchParams.get("status")?.toLowerCase()
+        const visibleLines = lines.filter((l) => {
+          if (!canSeeInactive && l.is_deleted) return false
+          if (statusParam === "active" && l.is_deleted) return false
+          if (statusParam === "inactive" && !l.is_deleted) return false
+          return true
+        })
+
+        return jsonResponse(visibleLines)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to fetch sale details." }, 500)
+      }
+    }
+
+    // Add Line Item (POST /api/sales/:transno/details)
+    if (method === "POST") {
+      try {
+        const caller = await ensureSaleDetailPermission("Add")
+        const created = await insertSaleDetailIntoSupabase(transno, body, caller.email)
+        return jsonResponse(created, 201)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
+        return jsonResponse({ message: e.message || "Failed to add sale line item." }, e.statusCode || 400)
+      }
+    }
+  }
+
+  // 4. Single Line Item Endpoints (/api/sales/:transno/details/:prodcode, /restore)
+  const singleDetailMatch = pathname.match(/^\/api\/sales\/([^/]+)\/details\/([^/]+)(?:\/(restore))?$/)
+  if (singleDetailMatch) {
+    const transno = decodeURIComponent(singleDetailMatch[1])
+    const prodcode = decodeURIComponent(singleDetailMatch[2])
+    const subAction = singleDetailMatch[3]
+
+    // Restore Line Item (POST /api/sales/:transno/details/:prodcode/restore)
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensureSaleDetailPermission("Edit")
+        const result = await restoreSaleDetailInSupabase(transno, prodcode, caller.email)
+        return jsonResponse({
+          message: `Line item ${prodcode} restored to active status.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore sale line item." }, 400)
+      }
+    }
+
+    // Update Line Item Quantity (PUT /api/sales/:transno/details/:prodcode)
+    if (!subAction && (method === "PUT" || method === "PATCH")) {
+      try {
+        const caller = await ensureSaleDetailPermission("Edit")
+        const updated = await updateSaleDetailInSupabase(transno, prodcode, body, caller.email)
+        return jsonResponse(updated)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to update sale line item." }, e.statusCode || 400)
+      }
+    }
+
+    // Soft-Delete Line Item (DELETE /api/sales/:transno/details/:prodcode)
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensureSaleDetailPermission("Delete")
+        const result = await softDeleteSaleDetailInSupabase(transno, prodcode, caller.email)
+        return jsonResponse({
+          message: `Line item ${prodcode} deactivated (soft-deleted). Record preserved for accounting audit history.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to deactivate sale line item." }, 400)
+      }
+    }
+  }
+
+  // ==========================================================================
+  // Sprint 4: Payment Records Endpoints (S4-DEV-03)
+  // ==========================================================================
+
+  // Next Official Receipt Number (GET /api/sales/payments/next-orno)
+  if (pathname === "/api/sales/payments/next-orno" && method === "GET") {
+    try {
+      await ensurePaymentPermission("View")
+      const nextOrno = await generateNextOrno()
+      return jsonResponse({ nextOrno })
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to generate next OR number." }, 500)
+    }
+  }
+
+  // Customer Balances Summary (GET /api/sales/reports/customer-balances or /api/sales/customer-balances)
+  if (
+    (pathname === "/api/sales/reports/customer-balances" ||
+      pathname === "/api/sales/customer-balances" ||
+      pathname === "/api/reports/customer-balances") &&
+    method === "GET"
+  ) {
+    try {
+      await ensurePaymentPermission("View")
+      let balances = await fetchCustomerBalancesFromSupabase()
+      const searchParam = parsedUrl.searchParams.get("search")?.toLowerCase().trim()
+      if (searchParam) {
+        balances = balances.filter(
+          (b) =>
+            b.customer.toLowerCase().includes(searchParam) ||
+            (b.custno && b.custno.toLowerCase().includes(searchParam)) ||
+            (b.custname && b.custname.toLowerCase().includes(searchParam))
+        )
+      }
+      const statusParam = parsedUrl.searchParams.get("status")?.toLowerCase().trim()
+      if (statusParam === "owing" || statusParam === "outstanding") {
+        balances = balances.filter((b) => b.open > 0)
+      } else if (statusParam === "settled" || statusParam === "paid") {
+        balances = balances.filter((b) => b.open === 0)
+      }
+      return jsonResponse(balances)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to fetch customer balance summary." }, 500)
+    }
+  }
+
+  // Transaction Balance View (GET /api/sales/:transno/balance)
+  const saleBalanceMatch = pathname.match(/^\/api\/sales\/([^/]+)\/balance$/)
+  if (saleBalanceMatch && method === "GET") {
+    const transno = decodeURIComponent(saleBalanceMatch[1])
+    try {
+      await ensurePaymentPermission("View")
+      const balance = await fetchTransactionBalanceFromSupabase(transno)
+      return jsonResponse(balance)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+      return jsonResponse({ message: e.message || "Failed to fetch transaction balance." }, 500)
+    }
+  }
+
+  // Single Customer Detailed Balance (GET /api/customers/:custno/balance)
+  const custBalanceMatch = pathname.match(/^\/api\/customers\/([^/]+)\/balance$/)
+  if (custBalanceMatch && method === "GET") {
+    const custno = decodeURIComponent(custBalanceMatch[1])
+    try {
+      await ensurePaymentPermission("View")
+      const balance = await fetchCustomerDetailedBalanceFromSupabase(custno)
+      return jsonResponse(balance)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+      return jsonResponse({ message: e.message || "Failed to fetch customer detailed balance." }, 500)
+    }
+  }
+
+  // Transaction Payments Collection Endpoints (/api/sales/:transno/payments)
+  const salePaymentsMatch = pathname.match(/^\/api\/sales\/([^/]+)\/payments$/)
+  if (salePaymentsMatch) {
+    const transno = decodeURIComponent(salePaymentsMatch[1])
+
+    // List Payment Receipts (GET /api/sales/:transno/payments)
+    if (method === "GET") {
+      try {
+        const caller = await ensurePaymentPermission("View")
+        const receipts = await fetchPaymentsForSaleFromSupabase(transno)
+
+        const userRights =
+          caller.role === "Superadmin"
+            ? []
+            : (testRights || (await fetchUserRightsFromSupabase(caller.id).catch(() => [])))
+
+        const canSeeInactive =
+          caller.role === "Superadmin" ||
+          caller.role === "Admin" ||
+          userRights.some((r) => {
+            const l = r.toLowerCase()
+            return l.includes("delete") || l.includes("void") || l.includes("edit")
+          })
+
+        const statusParam = parsedUrl.searchParams.get("status")?.toLowerCase()
+        const visibleReceipts = receipts.filter((r) => {
+          if (!canSeeInactive && r.is_deleted) return false
+          if (statusParam === "active" && r.is_deleted) return false
+          if (statusParam === "inactive" && !r.is_deleted) return false
+          return true
+        })
+
+        return jsonResponse(visibleReceipts)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to fetch payment receipts." }, 500)
+      }
+    }
+
+    // Record Payment Receipt (POST /api/sales/:transno/payments)
+    if (method === "POST") {
+      try {
+        const caller = await ensurePaymentPermission("Add")
+        const created = await insertPaymentIntoSupabase(transno, body, caller.email)
+        return jsonResponse(created, 201)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        if (e.statusCode === 409) return jsonResponse({ message: e.message }, 409)
+        return jsonResponse({ message: e.message || "Failed to record payment." }, e.statusCode || 400)
+      }
+    }
+  }
+
+  // Single Payment Receipt Actions (/api/sales/payments/:orno, /restore)
+  const singlePaymentMatch = pathname.match(/^\/api\/sales\/(?:[^/]+\/)?payments\/([^/]+)(?:\/(restore))?$/)
+  if (singlePaymentMatch) {
+    const orno = decodeURIComponent(singlePaymentMatch[1])
+    const subAction = singlePaymentMatch[2]
+
+    // Restore Payment Receipt (POST /api/sales/payments/:orno/restore)
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensurePaymentPermission("Edit")
+        const result = await restorePaymentInSupabase(orno, caller.email)
+        return jsonResponse({
+          message: `Official Receipt ${orno} restored to active status. Customer open balance adjusted.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore payment receipt." }, 400)
+      }
+    }
+
+    // Void / Soft-Delete Payment Receipt (DELETE /api/sales/payments/:orno)
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensurePaymentPermission("Delete")
+        const result = await softDeletePaymentInSupabase(orno, caller.email)
+        return jsonResponse({
+          message: `Official Receipt ${orno} voided (soft-deleted). Customer open balance adjusted.`,
+          ...result,
+        })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to void payment receipt." }, 400)
+      }
+    }
+  }
+
+
+
+  // ==========================================================================
   // Table Editor Endpoints (/api/tables/:tableName) -> Superadmin Only
   // ==========================================================================
   const tableMatch = pathname.match(/^\/api\/tables\/([^/]+)$/)
@@ -1198,6 +3345,295 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
       if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
       if (e.message === "FORBIDDEN") return jsonResponse({ message: "Access denied." }, 403)
       return jsonResponse({ message: e.message || "Table Editor operation failed." }, 400)
+    }
+  }
+
+  // ==========================================================================
+  // Sprint 4: Reports Module Endpoints (S4-DEV-04)
+  // ==========================================================================
+
+  // 1. Available Reports for Current User (GET /api/reports/available)
+  if (pathname === "/api/reports/available" && method === "GET") {
+    try {
+      if (!currentUser) {
+        return jsonResponse({
+          reports: [
+            "product-master",
+            "active-employees",
+            "all-employees",
+            "history",
+            "customers",
+            "products",
+            "sales",
+          ],
+          count: 7,
+        })
+      }
+      if (currentUser.role === "Superadmin") {
+        return jsonResponse({
+          reports: [
+            "product-master",
+            "active-employees",
+            "all-employees",
+            "history",
+            "customers",
+            "products",
+            "sales",
+          ],
+          count: 7,
+        })
+      }
+
+      const allKeys = [
+        "product-master",
+        "active-employees",
+        "all-employees",
+        "history",
+        "customers",
+        "products",
+        "sales",
+      ]
+      const accessible: string[] = []
+      for (const k of allKeys) {
+        try {
+          await ensureReportPermission(k)
+          accessible.push(k)
+        } catch {
+          // not permitted
+        }
+      }
+      return jsonResponse({ reports: accessible, count: accessible.length })
+    } catch (e: any) {
+      return jsonResponse({ message: e.message || "Failed to fetch accessible reports." }, 500)
+    }
+  }
+
+  // 2. Product Master List Report (GET /api/reports/product-master)
+  if (
+    (pathname === "/api/reports/product-master" ||
+      pathname === "/api/reports/product-master-list") &&
+    method === "GET"
+  ) {
+    try {
+      await ensureReportPermission("product-master")
+      const report = await fetchProductMasterReportFromSupabase()
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to generate Product Master report." }, 500)
+    }
+  }
+
+  // 3. Active Employees Report (GET /api/reports/active-employees)
+  if (pathname === "/api/reports/active-employees" && method === "GET") {
+    try {
+      await ensureReportPermission("active-employees")
+      const report = await fetchActiveEmployeesReportFromSupabase()
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to generate Active Employees report." }, 500)
+    }
+  }
+
+  // 4. All Employees Report (GET /api/reports/all-employees)
+  if (pathname === "/api/reports/all-employees" && method === "GET") {
+    try {
+      await ensureReportPermission("all-employees")
+      const report = await fetchAllEmployeesReportFromSupabase()
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to generate All Employees report." }, 500)
+    }
+  }
+
+  // 5. Employee Job History Report (GET /api/reports/employee-job-history, /api/reports/job-history, /api/reports/history)
+  if (
+    (pathname === "/api/reports/employee-job-history" ||
+      pathname === "/api/reports/job-history" ||
+      pathname === "/api/reports/history") &&
+    method === "GET"
+  ) {
+    try {
+      await ensureReportPermission("history")
+      const empnoParam = parsedUrl.searchParams.get("empno") || undefined
+      const report = await fetchEmployeeJobHistoryReportFromSupabase(empnoParam)
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      return jsonResponse({ message: e.message || "Failed to generate Employee Job History report." }, 500)
+    }
+  }
+
+  // 6. Top Customers Report (GET /api/reports/top-customers or /api/reports/customers)
+  if (
+    (pathname === "/api/reports/top-customers" || pathname === "/api/reports/customers") &&
+    method === "GET"
+  ) {
+    try {
+      await ensureReportPermission("customers")
+      const fromDate = parsedUrl.searchParams.get("fromDate") || undefined
+      const toDate = parsedUrl.searchParams.get("toDate") || undefined
+      const topN = parsedUrl.searchParams.get("topN") || undefined
+      const report = await fetchTopCustomersReportFromSupabase({ fromDate, toDate, topN })
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 400 || e.message?.includes("cannot be later than")) return jsonResponse({ message: e.message }, 400)
+      return jsonResponse({ message: e.message || "Failed to generate Top Customers report." }, 500)
+    }
+  }
+
+  // 7. Top Products Report (GET /api/reports/top-products or /api/reports/products)
+  if (
+    (pathname === "/api/reports/top-products" || pathname === "/api/reports/products") &&
+    method === "GET"
+  ) {
+    try {
+      await ensureReportPermission("products")
+      const fromDate = parsedUrl.searchParams.get("fromDate") || undefined
+      const toDate = parsedUrl.searchParams.get("toDate") || undefined
+      const topN = parsedUrl.searchParams.get("topN") || undefined
+      const report = await fetchTopProductsReportFromSupabase({ fromDate, toDate, topN })
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 400 || e.message?.includes("cannot be later than")) return jsonResponse({ message: e.message }, 400)
+      return jsonResponse({ message: e.message || "Failed to generate Top Products report." }, 500)
+    }
+  }
+
+  // 8. Top Sales Report (GET /api/reports/top-sales or /api/reports/sales)
+  if (
+    (pathname === "/api/reports/top-sales" || pathname === "/api/reports/sales") &&
+    method === "GET"
+  ) {
+    try {
+      await ensureReportPermission("sales")
+      const fromDate = parsedUrl.searchParams.get("fromDate") || undefined
+      const toDate = parsedUrl.searchParams.get("toDate") || undefined
+      const topN = parsedUrl.searchParams.get("topN") || undefined
+      const report = await fetchTopSalesReportFromSupabase({ fromDate, toDate, topN })
+      return jsonResponse(report)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 400 || e.message?.includes("cannot be later than")) return jsonResponse({ message: e.message }, 400)
+      return jsonResponse({ message: e.message || "Failed to generate Top Sales report." }, 500)
+    }
+  }
+
+  // 9. Generic Report Endpoint (GET /api/reports/:reportKey)
+  const reportParamMatch = pathname.match(/^\/api\/reports\/([^/]+)$/)
+  if (reportParamMatch && method === "GET") {
+    const rawKey = decodeURIComponent(reportParamMatch[1]).toLowerCase()
+    try {
+      await ensureReportPermission(rawKey)
+
+      if (rawKey === "product-master" || rawKey === "product-master-list") {
+        const report = await fetchProductMasterReportFromSupabase()
+        return jsonResponse(report)
+      }
+      if (rawKey === "active-employees") {
+        const report = await fetchActiveEmployeesReportFromSupabase()
+        return jsonResponse(report)
+      }
+      if (rawKey === "all-employees") {
+        const report = await fetchAllEmployeesReportFromSupabase()
+        return jsonResponse(report)
+      }
+      if (
+        rawKey === "history" ||
+        rawKey === "employee-job-history" ||
+        rawKey === "job-history"
+      ) {
+        const empnoParam = parsedUrl.searchParams.get("empno") || undefined
+        const report = await fetchEmployeeJobHistoryReportFromSupabase(empnoParam)
+        return jsonResponse(report)
+      }
+      if (rawKey === "customers" || rawKey === "top-customers") {
+        const fromDate = parsedUrl.searchParams.get("fromDate") || undefined
+        const toDate = parsedUrl.searchParams.get("toDate") || undefined
+        const topN = parsedUrl.searchParams.get("topN") || undefined
+        const report = await fetchTopCustomersReportFromSupabase({ fromDate, toDate, topN })
+        return jsonResponse(report)
+      }
+      if (rawKey === "products" || rawKey === "top-products") {
+        const fromDate = parsedUrl.searchParams.get("fromDate") || undefined
+        const toDate = parsedUrl.searchParams.get("toDate") || undefined
+        const topN = parsedUrl.searchParams.get("topN") || undefined
+        const report = await fetchTopProductsReportFromSupabase({ fromDate, toDate, topN })
+        return jsonResponse(report)
+      }
+      if (rawKey === "sales" || rawKey === "top-sales") {
+        const fromDate = parsedUrl.searchParams.get("fromDate") || undefined
+        const toDate = parsedUrl.searchParams.get("toDate") || undefined
+        const topN = parsedUrl.searchParams.get("topN") || undefined
+        const report = await fetchTopSalesReportFromSupabase({ fromDate, toDate, topN })
+        return jsonResponse(report)
+      }
+
+      return jsonResponse({ message: `Report '${rawKey}' generated.` }, 200)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 400 || e.message?.includes("cannot be later than")) return jsonResponse({ message: e.message }, 400)
+      return jsonResponse({ message: e.message || `Failed to generate report '${rawKey}'.` }, 500)
+    }
+  }
+
+  // ==========================================================================
+  // Superadmin: Audit Log Endpoints (/api/audit-log, /api/audit)
+  // ==========================================================================
+  if (pathname === "/api/audit-log" || pathname === "/api/audit") {
+    // Audit logs are append-only and immutable
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+      return jsonResponse(
+        { message: "Audit log entries are immutable and append-only. Direct modification or deletion is prohibited." },
+        405
+      )
+    }
+
+    if (method === "GET") {
+      try {
+        if (!currentUser) {
+          return jsonResponse({ message: "Not authenticated." }, 401)
+        }
+        if (currentUser.role !== "Superadmin") {
+          return jsonResponse({ message: "Access to audit log is restricted to Superadmin accounts." }, 403)
+        }
+
+        const tableParam = parsedUrl.searchParams.get("table") || undefined
+        const actionParam = parsedUrl.searchParams.get("action") || undefined
+        const userParam = parsedUrl.searchParams.get("user") || undefined
+        const fromParam = parsedUrl.searchParams.get("from") || undefined
+        const toParam = parsedUrl.searchParams.get("to") || undefined
+        const searchParam = parsedUrl.searchParams.get("search") || undefined
+        const limitParam = parsedUrl.searchParams.get("limit")
+          ? Number(parsedUrl.searchParams.get("limit"))
+          : undefined
+
+        const result = await fetchAuditLogsFromSupabase({
+          table: tableParam,
+          action: actionParam,
+          user: userParam,
+          from: fromParam,
+          to: toParam,
+          search: searchParam,
+          limit: limitParam,
+        })
+
+        return jsonResponse(result)
+      } catch (err: any) {
+        return jsonResponse({ message: err.message || "Failed to fetch audit logs." }, 500)
+      }
     }
   }
 
