@@ -1164,6 +1164,41 @@ export async function restoreCustomerInSupabase(
 }
 
 // ----------------------------------------------------------------------------
+// HR: Job History Validation (No Duplicate Effective Dates) (S3-DBA-02)
+// ----------------------------------------------------------------------------
+
+export async function checkJobHistoryEffectiveDateAvailableFromSupabase(
+  empno: string,
+  effdate: string,
+  currentEffdate?: string
+): Promise<boolean> {
+  try {
+    const res = await postgrestFetch<boolean>(
+      `/rpc/check_jobhistory_effective_date_available`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          p_empno: empno,
+          p_effdate: effdate,
+          p_current_effdate: currentEffdate || null,
+        }),
+      }
+    )
+    return Boolean(res)
+  } catch {
+    // Fallback: check directly via SELECT query on jobhistory
+    const rows = await postgrestFetch<Array<{ effdate: string }>>(
+      `/jobhistory?empno=eq.${encodeURIComponent(empno)}&effdate=eq.${encodeURIComponent(effdate)}&is_deleted=eq.false&select=effdate`
+    ).catch(() => [])
+
+    if (currentEffdate && effdate === currentEffdate) {
+      return true
+    }
+    return rows.length === 0
+  }
+}
+
+// ----------------------------------------------------------------------------
 // HR: Employee Current Job & Department View & Query Operations (S3-DBA-01)
 // ----------------------------------------------------------------------------
 
@@ -1995,7 +2030,6 @@ export async function updatePriceScheduleInSupabase(
     stampDate: dateStr,
   }
 }
-
 
 // ============================================================================
 // Sprint 3: Department Master Data Helpers (S3-DEV-01)
