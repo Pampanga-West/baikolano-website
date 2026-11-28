@@ -297,6 +297,7 @@ export default function ReportsPage({
   const [toDate, setToDate] = useState("")
   const [topN, setTopN] = useState("25")
   const [selectedEmp, setSelectedEmp] = useState("ALL")
+  const isInvalidDateRange = Boolean(fromDate && toDate && fromDate > toDate)
 
   // Ensure active report belongs to available reports
   useEffect(() => {
@@ -434,8 +435,6 @@ export default function ReportsPage({
       const match = list.find((p) => p.effdate <= targetDate)
       return match ? match.price : list[0].price
     }
-
-    const isInvalidDateRange = Boolean(fromDate && toDate && fromDate > toDate)
 
     const activeSales = isInvalidDateRange
       ? []
