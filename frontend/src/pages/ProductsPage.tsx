@@ -14,6 +14,7 @@ import ConfirmDeleteModal from "../components/ConfirmDeleteModal"
 import EmptyState from "../components/EmptyState"
 import EntityControls from "../components/EntityControls"
 import ModalShell from "../components/ModalShell"
+import ProductModal from "../components/ProductModal"
 import Stamp from "../components/Stamp"
 import type { Product, Role } from "../lib/types"
 
@@ -133,196 +134,6 @@ const fallbackPriceHistory: PriceHistoryEntry[] = [
     date: "2026-01-20 3:30 PM",
   },
 ]
-
-function ProductForm({
-  product,
-  close,
-  onSave,
-  existingProdCodes = [],
-}: {
-  product?: Product | null
-  close: () => void
-  onSave: (data: {
-    prodCode: string
-    description: string
-    unit: string
-  }) => Promise<void> | void
-  existingProdCodes?: string[]
-}) {
-  const isEditing = Boolean(product)
-  const defaultCode = useMemo(() => {
-    if (product?.prodcode) return product.prodcode
-    const numbers = existingProdCodes
-      .map((c) => {
-        const m = c.match(/P-?(\d+)/i)
-        return m ? parseInt(m[1], 10) : 0
-      })
-      .filter((n) => !isNaN(n))
-    const maxNum = numbers.length ? Math.max(...numbers) : 5
-    return `P${String(maxNum + 1).padStart(4, "0")}`
-  }, [product, existingProdCodes])
-
-  const [prodCode, setProdCode] = useState(product?.prodcode ?? defaultCode)
-  const [description, setDescription] = useState(product?.description ?? "")
-  const [unitSelect, setUnitSelect] = useState(
-    ["pcs", "box", "kg", "liter", "can", "pair", "meter", "pack", "set", "roll"].includes(
-      product?.unit ?? "pcs"
-    )
-      ? product?.unit ?? "pcs"
-      : "Custom"
-  )
-  const [customUnit, setCustomUnit] = useState(
-    ["pcs", "box", "kg", "liter", "can", "pair", "meter", "pack", "set", "roll"].includes(
-      product?.unit ?? "pcs"
-    )
-      ? ""
-      : product?.unit ?? ""
-  )
-  const [validationError, setValidationError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-
-  const handleSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault()
-    if (!prodCode.trim()) {
-      setValidationError("Product Code is required.")
-      return
-    }
-    if (!description.trim()) {
-      setValidationError("Description is required.")
-      return
-    }
-    if (
-      !isEditing &&
-      existingProdCodes.some(
-        (c) => c.toLowerCase() === prodCode.trim().toLowerCase()
-      )
-    ) {
-      setValidationError(`Product Code "${prodCode.trim()}" already exists.`)
-      return
-    }
-
-    const resolvedUnit =
-      unitSelect === "Custom"
-        ? customUnit.trim() || "pcs"
-        : unitSelect
-
-    setSaving(true)
-    try {
-      await onSave({
-        prodCode: prodCode.trim(),
-        description: description.trim(),
-        unit: resolvedUnit,
-      })
-      close()
-    } catch (err: any) {
-      setValidationError(err.message || "Failed to save product.")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <ModalShell
-      title={isEditing ? "Edit Product" : "Add Product"}
-      subtitle={isEditing ? "Update product details" : "Enter new product details"}
-      close={close}
-      footer={
-        <div className="modal-footer-duo">
-          <Button
-            className="btn-save-main"
-            onClick={() => handleSubmit()}
-            disabled={saving}
-          >
-            {saving ? "Saving..." : isEditing ? "Save Changes" : "Save Product"}
-          </Button>
-          <Button
-            variant="secondary"
-            className="btn-cancel-main"
-            onClick={close}
-            disabled={saving}
-          >
-            Cancel
-          </Button>
-        </div>
-      }
-    >
-      <form onSubmit={handleSubmit} className="modal-form-vertical">
-        {validationError && (
-          <div
-            className="validation-error"
-            style={{
-              fontSize: "12px",
-              padding: "9px 12px",
-              background: "var(--danger-bg)",
-              color: "var(--danger-text)",
-              borderRadius: "6px",
-              fontWeight: 600,
-            }}
-          >
-            {validationError}
-          </div>
-        )}
-        <div className="field-group">
-          <label>Product Code</label>
-          <input
-            className="field-input"
-            value={prodCode}
-            onChange={(e) => {
-              setProdCode(e.target.value)
-              setValidationError(null)
-            }}
-            placeholder="e.g. P0001"
-            disabled={isEditing}
-            required
-          />
-        </div>
-        <div className="field-group">
-          <label>Description</label>
-          <input
-            className="field-input"
-            value={description}
-            onChange={(e) => {
-              setDescription(e.target.value)
-              setValidationError(null)
-            }}
-            placeholder="Product description"
-            required
-          />
-        </div>
-        <div className="field-group">
-          <label>Unit</label>
-          <select
-            className="field-input"
-            value={unitSelect}
-            onChange={(e) => setUnitSelect(e.target.value)}
-          >
-            <option value="pcs">pcs (pieces)</option>
-            <option value="box">box</option>
-            <option value="kg">kg (kilograms)</option>
-            <option value="liter">liter</option>
-            <option value="can">can</option>
-            <option value="pair">pair</option>
-            <option value="meter">meter</option>
-            <option value="pack">pack</option>
-            <option value="set">set</option>
-            <option value="roll">roll</option>
-            <option value="Custom">Custom unit...</option>
-          </select>
-          {unitSelect === "Custom" && (
-            <input
-              className="field-input"
-              style={{ marginTop: "6px" }}
-              value={customUnit}
-              onChange={(e) => setCustomUnit(e.target.value)}
-              placeholder="e.g. pcs, box, kg, liter"
-              autoFocus
-            />
-          )}
-        </div>
-      </form>
-    </ModalShell>
-  )
-}
 
 function PriceForm({
   productCode,
@@ -726,6 +537,17 @@ export default function ProductsPage({ role }: { role: Role }) {
     user?.email ||
     "Authorized User"
 
+  const suggestedProdCode = useMemo(() => {
+    const numbers = products
+      .map((p) => {
+        const m = p.prodcode.match(/([A-Z]+)(\d+)/i)
+        return m ? parseInt(m[2], 10) : 0
+      })
+      .filter((n) => !isNaN(n))
+    const maxNum = numbers.length ? Math.max(...numbers) : 0
+    return `P${String(maxNum + 1).padStart(4, "0")}`
+  }, [products])
+
   const loadProducts = () => {
     let active = true
     setLoading(true)
@@ -784,75 +606,6 @@ export default function ProductsPage({ role }: { role: Role }) {
     const cleanup = loadProducts()
     return cleanup
   }, [user?.id, isAdmin])
-
-  const handleSaveProduct = async (data: {
-    prodCode: string
-    description: string
-    unit: string
-  }) => {
-    const isEditing = Boolean(form && form !== "new")
-    setError(null)
-    setSuccess(null)
-
-    const todayStr = new Date().toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    })
-
-    if (isEditing && typeof form !== "string" && form) {
-      try {
-        const updated = await productApi.updateProduct(data.prodCode, {
-          description: data.description,
-          unit: data.unit,
-        })
-        setProducts((prev) =>
-          prev.map((p) =>
-            p.prodcode === data.prodCode
-              ? {
-                  ...p,
-                  description: data.description,
-                  unit: data.unit,
-                  stamp: updated.stamp || p.stamp,
-                  stampAction: "EDITED",
-                  stampUser: operatorName,
-                  stampDate: todayStr,
-                }
-              : p
-          )
-        )
-        setSuccess(`Successfully updated product ${data.prodCode} (${data.description}).`)
-      } catch (err: any) {
-        throw new Error(err.message || "Failed to update product.")
-      }
-    } else {
-      try {
-        const created = await productApi.createProduct({
-          prodcode: data.prodCode,
-          description: data.description,
-          unit: data.unit,
-        })
-        const newProduct: Product = {
-          prodcode: created.prodcode || data.prodCode,
-          description: created.description || data.description,
-          unit: created.unit || data.unit,
-          price: "—",
-          numericPrice: null,
-          is_deleted: false,
-          status: "Active",
-          stamp: created.stamp || `CREATED ${operatorName} ${todayStr}`,
-          stampAction: "CREATED",
-          stampUser: operatorName,
-          stampDate: todayStr,
-        }
-        setProducts((prev) => [newProduct, ...prev])
-        setSuccess(`Successfully created product ${data.prodCode} (${data.description}).`)
-      } catch (err: any) {
-        throw new Error(err.message || "Failed to create product.")
-      }
-    }
-    setForm(null)
-  }
 
   const handleSavePrice = (data: {
     prodcode: string
@@ -1282,11 +1035,17 @@ export default function ProductsPage({ role }: { role: Role }) {
       )}
 
       {form && (
-        <ProductForm
+        <ProductModal
           product={form === "new" ? undefined : form}
-          close={() => setForm(null)}
-          onSave={handleSaveProduct}
+          suggestedProdcode={suggestedProdCode}
           existingProdCodes={products.map((p) => p.prodcode)}
+          currentUser={user}
+          close={() => setForm(null)}
+          onSaved={(msg) => {
+            if (msg) setSuccess(msg)
+            setForm(null)
+            loadProducts()
+          }}
         />
       )}
       {pricesProduct && (

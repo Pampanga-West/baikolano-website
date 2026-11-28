@@ -1375,12 +1375,16 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
       if (!description) {
         return jsonResponse({ message: "Product description is required." }, 400)
       }
+      if (description.length < 2) {
+        return jsonResponse({ message: "Product description must be at least 2 characters long." }, 400)
+      }
 
       const created = await insertProductIntoSupabase(
         {
           prodcode: body.prodcode,
           description,
           unit: body.unit,
+          initialPrice: body.initialPrice,
         },
         caller.email
       )
