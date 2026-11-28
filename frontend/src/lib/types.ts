@@ -423,9 +423,52 @@ export interface RecordPaymentPayload {
 
 export interface CustomerBalanceSummary {
   customer: string
+  custno?: string
+  custname?: string
   billed: number
   paid: number
   open: number
+  billedFormatted?: string
+  paidFormatted?: string
+  openFormatted?: string
+  status?: "Settled" | "Outstanding"
+}
+
+export interface TransactionBalanceSummary {
+  transno: string
+  salesdate: string
+  custno: string
+  customer: string
+  totalAmount: string
+  totalAmountNum: number
+  totalPaid: string
+  totalPaidNum: number
+  remainingBalance: string
+  remainingBalanceNum: number
+  status: "PAID" | "PARTIAL" | "UNPAID"
+  isPaid: boolean
+  paymentCount: number
+}
+
+export interface CustomerDetailedBalance {
+  custno: string
+  customer: string
+  totalBilled: string
+  totalBilledNum: number
+  totalPaid: string
+  totalPaidNum: number
+  openBalance: string
+  openBalanceNum: number
+  activeTransactionsCount: number
+  status: "Settled" | "Outstanding"
+  transactions: Array<{
+    transno: string
+    salesdate: string
+    total: string
+    paid: string
+    balance: string
+    status: "PAID" | "PARTIAL" | "UNPAID"
+  }>
 }
 
 // ============================================================================

@@ -600,6 +600,36 @@ function Payments({
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
+  // Customer Balances view state
+  const [balanceSearch, setBalanceSearch] = useState("")
+  const [balanceFilter, setBalanceFilter] = useState<"all" | "owing" | "settled">("all")
+
+  const filteredBalances = useMemo(() => {
+    return customerBalances.filter((cb) => {
+      if (balanceFilter === "owing" && cb.open <= 0.001) return false
+      if (balanceFilter === "settled" && cb.open > 0.001) return false
+      const q = balanceSearch.trim().toLowerCase()
+      if (!q) return true
+      return (
+        cb.customer.toLowerCase().includes(q) ||
+        (cb.custno && cb.custno.toLowerCase().includes(q)) ||
+        (cb.custname && cb.custname.toLowerCase().includes(q))
+      )
+    })
+  }, [customerBalances, balanceSearch, balanceFilter])
+
+  const balanceTotals = useMemo(() => {
+    return customerBalances.reduce(
+      (acc, cb) => {
+        acc.billed += cb.billed
+        acc.paid += cb.paid
+        acc.open += cb.open
+        return acc
+      },
+      { billed: 0, paid: 0, open: 0 }
+    )
+  }, [customerBalances])
+
   const visibleReceipts = receipts.filter((r) => {
     if (!canViewInactive && r.status === "Inactive") return false
     if (canViewInactive && statusFilter !== "all" && r.status.toLowerCase() !== statusFilter) {
@@ -716,16 +746,23 @@ function Payments({
         <>
           <div className="balance-strip">
             <div>
-              <span>Sale Total</span>
-              <b>{formatMoney(saleTotalNum)}</b>
+              <span>Transaction Total</span>
+              <b data-testid="transaction-total">{formatMoney(saleTotalNum)}</b>
             </div>
             <div>
               <span>Total Paid</span>
-              <b className="paid">{formatMoney(totalPaidNum)}</b>
+              <b className="paid" data-testid="total-paid">{formatMoney(totalPaidNum)}</b>
             </div>
             <div>
               <span>Remaining Balance</span>
-              <b className="owing">{formatMoney(remainingNum)}</b>
+              <b className={saleTotalNum > 0 && remainingNum <= 0.001 ? "paid" : "owing"} data-testid="remaining-balance">
+                {formatMoney(remainingNum)}
+              </b>
+              {saleTotalNum > 0 && remainingNum <= 0.001 && (
+                <span className="paid-text" style={{ fontSize: "10px", marginTop: "2px", fontWeight: 700 }}>
+                  ✓ Paid in full
+                </span>
+              )}
             </div>
           </div>
           <div
@@ -906,37 +943,150 @@ function Payments({
         </>
       ) : (
         <div className="balance-summary">
-          <div className="section-kicker">Accounts receivable by customer</div>
-          <div className="table-scroll">
-            <table className="entity-table">
-              <thead>
-                <tr>
-                  <th>Customer</th>
-                  <th>Total Billed</th>
-                  <th>Total Paid</th>
-                  <th>Open Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {customerBalances.map((cb) => (
-                  <tr key={cb.customer}>
-                    <td>
-                      <b className="record-name">{cb.customer}</b>
-                    </td>
-                    <td>{formatMoney(cb.billed)}</td>
-                    <td className="paid-text">{formatMoney(cb.paid)}</td>
-                    <td>
-                      {cb.open > 0 ? (
-                        <b className="owing-text">{formatMoney(cb.open)}</b>
-                      ) : (
-                        formatMoney(0)
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "12px" }}>
+            <div>
+              <div className="section-kicker" style={{ margin: 0 }}>Accounts receivable by customer</div>
+              <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--muted)" }}>
+                Aggregated billing and outstanding receivables across active transactions
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                type="text"
+                placeholder="Search customers..."
+                value={balanceSearch}
+                onChange={(e) => setBalanceSearch(e.target.value)}
+                style={{
+                  padding: "6px 12px",
+                  fontSize: "12px",
+                  borderRadius: "6px",
+                  border: "1px solid var(--border)",
+                  minWidth: "160px",
+                }}
+              />
+              <div className="filter-tabs" style={{ margin: 0 }}>
+                <button
+                  className={balanceFilter === "all" ? "selected" : ""}
+                  onClick={() => setBalanceFilter("all")}
+                >
+                  All ({customerBalances.length})
+                </button>
+                <button
+                  className={balanceFilter === "owing" ? "selected" : ""}
+                  onClick={() => setBalanceFilter("owing")}
+                >
+                  Owing ({customerBalances.filter((c) => c.open > 0.001).length})
+                </button>
+                <button
+                  className={balanceFilter === "settled" ? "selected" : ""}
+                  onClick={() => setBalanceFilter("settled")}
+                >
+                  Settled ({customerBalances.filter((c) => c.open <= 0.001).length})
+                </button>
+              </div>
+            </div>
           </div>
+
+          <div
+            className="balance-strip"
+            style={{ marginBottom: "16px", borderRadius: "8px", background: "var(--card-bg, #f8fafc)" }}
+          >
+            <div>
+              <span>Total Billed (All Customers)</span>
+              <b>{formatMoney(balanceTotals.billed)}</b>
+            </div>
+            <div>
+              <span>Total Collected</span>
+              <b className="paid">{formatMoney(balanceTotals.paid)}</b>
+            </div>
+            <div>
+              <span>Total Outstanding Receivables</span>
+              <b className={balanceTotals.open > 0.001 ? "owing" : "paid"}>{formatMoney(balanceTotals.open)}</b>
+            </div>
+          </div>
+
+          {filteredBalances.length ? (
+            <div className="table-scroll">
+              <table className="entity-table">
+                <thead>
+                  <tr>
+                    <th>Customer</th>
+                    <th>Total Billed</th>
+                    <th>Total Paid</th>
+                    <th>Outstanding Balance</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredBalances.map((cb) => {
+                    const isCurrentCust =
+                      sale[2] &&
+                      (cb.customer.includes(sale[2]) ||
+                        sale[2].includes(cb.customer) ||
+                        (cb.custno && sale[2].includes(cb.custno)))
+                    return (
+                      <tr
+                        key={cb.customer}
+                        style={isCurrentCust ? { backgroundColor: "rgba(37, 99, 235, 0.04)" } : undefined}
+                      >
+                        <td>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <b className="record-name">{cb.customer}</b>
+                            {isCurrentCust && (
+                              <Badge kind="primary">Current Sale Customer</Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td>{formatMoney(cb.billed)}</td>
+                        <td className="paid-text">{formatMoney(cb.paid)}</td>
+                        <td>
+                          {cb.open > 0.001 ? (
+                            <b className="owing-text">{formatMoney(cb.open)}</b>
+                          ) : (
+                            <span className="paid-text">{formatMoney(0)}</span>
+                          )}
+                        </td>
+                        <td>
+                          <Badge kind={cb.open > 0.001 ? "inactive" : "active"}>
+                            {cb.open > 0.001 ? "Outstanding" : "Settled"}
+                          </Badge>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ fontWeight: 700, borderTop: "2px solid var(--border)", background: "rgba(0,0,0,0.02)" }}>
+                    <td>Total ({filteredBalances.length} customers)</td>
+                    <td>{formatMoney(filteredBalances.reduce((s, c) => s + c.billed, 0))}</td>
+                    <td className="paid-text">{formatMoney(filteredBalances.reduce((s, c) => s + c.paid, 0))}</td>
+                    <td>
+                      <b className="owing-text">
+                        {formatMoney(filteredBalances.reduce((s, c) => s + c.open, 0))}
+                      </b>
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ) : (
+            <EmptyState
+              title="No customer balances found"
+              message={
+                balanceSearch
+                  ? `No customer matches "${balanceSearch}".`
+                  : balanceFilter === "owing"
+                  ? "All customer accounts are currently settled in full."
+                  : "No customer accounts found."
+              }
+              query={balanceSearch}
+              onClear={() => {
+                setBalanceSearch("")
+                setBalanceFilter("all")
+              }}
+            />
+          )}
         </div>
       )}
       {deletingReceipt && (
@@ -1469,34 +1619,52 @@ export default function SalesPage({ role }: { role: Role }) {
       )
   }, [sales])
 
-  const customerBalances = useMemo(() => {
-    const map = new Map<string, { billed: number; paid: number }>()
-    const paidByTrans = new Map<string, number>()
+  const paidByTransMap = useMemo(() => {
+    const map = new Map<string, number>()
     for (const p of paymentRecords) {
       if (p.status !== "Active") continue
-      paidByTrans.set(
+      map.set(
         p.transno,
-        (paidByTrans.get(p.transno) ?? 0) + p.amountNum
+        (map.get(p.transno) ?? 0) + p.amountNum
       )
     }
+    return map
+  }, [paymentRecords])
+
+  const customerBalances = useMemo<CustomerBalanceSummary[]>(() => {
+    const map = new Map<string, { billed: number; paid: number }>()
     for (const s of sales) {
       if (s[5] !== "Active") continue
       const cust = s[2]
       const billed = Number(s[4]?.replace(/[^0-9.-]+/g, "")) || 0
-      const paid = paidByTrans.get(s[0]) ?? 0
+      const paid = paidByTransMap.get(s[0]) ?? 0
       const prev = map.get(cust) ?? { billed: 0, paid: 0 }
       map.set(cust, {
         billed: prev.billed + billed,
         paid: prev.paid + paid,
       })
     }
-    return Array.from(map.entries()).map(([customer, vals]) => ({
-      customer,
-      billed: vals.billed,
-      paid: vals.paid,
-      open: Math.max(0, vals.billed - vals.paid),
-    }))
-  }, [sales, paymentRecords])
+    return Array.from(map.entries())
+      .map(([customer, vals]) => {
+        const open = Math.max(0, vals.billed - vals.paid)
+        const parts = customer.split(" — ")
+        const custno = parts[0]?.trim()
+        const custname = parts[1]?.trim() || customer
+        return {
+          customer,
+          custno,
+          custname,
+          billed: vals.billed,
+          paid: vals.paid,
+          open,
+          billedFormatted: formatMoney(vals.billed),
+          paidFormatted: formatMoney(vals.paid),
+          openFormatted: formatMoney(open),
+          status: open > 0.001 ? ("Outstanding" as const) : ("Settled" as const),
+        }
+      })
+      .sort((a, b) => a.customer.localeCompare(b.customer))
+  }, [sales, paidByTransMap])
 
   const rows = useMemo(
     () =>
@@ -1595,6 +1763,23 @@ export default function SalesPage({ role }: { role: Role }) {
                     <td>{row[3]}</td>
                     <td>
                       <b className="price-value">{row[4]}</b>
+                      {(() => {
+                        const totalNum = Number(row[4]?.replace(/[^0-9.-]+/g, "")) || 0
+                        const paidNum = paidByTransMap.get(row[0]) ?? 0
+                        const remNum = Math.max(0, totalNum - paidNum)
+                        if (totalNum <= 0) return null
+                        return (
+                          <div style={{ fontSize: "11px", marginTop: "3px" }}>
+                            {remNum <= 0.001 ? (
+                              <span className="paid-text" style={{ fontWeight: 600 }}>● Paid in full</span>
+                            ) : paidNum > 0 ? (
+                              <span className="owing-text" style={{ fontWeight: 600 }}>Bal: {formatMoney(remNum)}</span>
+                            ) : (
+                              <span style={{ color: "var(--muted)" }}>Unpaid</span>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </td>
                     {showAudit && (
                       <>

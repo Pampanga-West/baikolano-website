@@ -43,6 +43,8 @@ import {
   type PaymentRecord,
   type RecordPaymentPayload,
   type CustomerBalanceSummary,
+  type TransactionBalanceSummary,
+  type CustomerDetailedBalance,
   type ReportKey,
   type ReportResult,
   type SalesReportQueryParams,
@@ -1300,8 +1302,20 @@ export const salesApi = {
     )
   },
 
-  getCustomerBalances: (): Promise<CustomerBalanceSummary[]> => {
-    return apiFetch<CustomerBalanceSummary[]>("/api/sales/reports/customer-balances")
+  getCustomerBalances: (params?: { search?: string; status?: string }): Promise<CustomerBalanceSummary[]> => {
+    const q = new URLSearchParams()
+    if (params?.search) q.set("search", params.search)
+    if (params?.status) q.set("status", params.status)
+    const qs = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<CustomerBalanceSummary[]>(`/api/sales/customer-balances${qs}`)
+  },
+
+  getTransactionBalance: (transno: string): Promise<TransactionBalanceSummary> => {
+    return apiFetch<TransactionBalanceSummary>(`/api/sales/${encodeURIComponent(transno)}/balance`)
+  },
+
+  getSingleCustomerBalance: (custno: string): Promise<CustomerDetailedBalance> => {
+    return apiFetch<CustomerDetailedBalance>(`/api/customers/${encodeURIComponent(custno)}/balance`)
   },
 }
 
