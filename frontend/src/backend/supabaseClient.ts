@@ -997,3 +997,53 @@ export async function restoreCustomerInSupabase(
   }).catch(() => {})
 }
 
+// ----------------------------------------------------------------------------
+// HR: Employee Current Job & Department View & Query Operations (S3-DBA-01)
+// ----------------------------------------------------------------------------
+
+export type EmployeeCurrentJobDeptRow = {
+  empno: string
+  lastname: string | null
+  firstname: string | null
+  gender: string | null
+  birthdate: string | null
+  hiredate: string | null
+  sepdate: string | null
+  employee_is_deleted: boolean
+  jobcode: string | null
+  jobdesc: string | null
+  deptcode: string | null
+  deptname: string | null
+  salary: number | null
+  job_effdate: string | null
+  employment_status: "Active" | "Inactive"
+}
+
+export async function fetchEmployeeCurrentJobDeptFromSupabase(
+  empno?: string
+): Promise<EmployeeCurrentJobDeptRow[]> {
+  const query = empno
+    ? `/employee_current_job_department?empno=eq.${encodeURIComponent(empno)}&select=*`
+    : "/employee_current_job_department?select=*&order=empno.asc"
+  return postgrestFetch<EmployeeCurrentJobDeptRow[]>(query)
+}
+
+export async function getEmployeeJobDeptAsOfFromSupabase(
+  empno: string,
+  asOfDate: string
+): Promise<EmployeeCurrentJobDeptRow | null> {
+  const rows = await postgrestFetch<EmployeeCurrentJobDeptRow[]>(
+    `/rpc/get_employee_job_dept_as_of`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        p_empno: empno,
+        p_as_of_date: asOfDate,
+      }),
+    }
+  ).catch(() => [])
+
+  return rows.length > 0 ? rows[0] : null
+}
+
+
