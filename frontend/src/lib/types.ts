@@ -356,6 +356,47 @@ export interface SalesQueryParams {
   salesperson?: string
 }
 
+// Sprint 4 Sale Details Types (S4-DEV-02)
+export interface SaleLineItem {
+  transno: string
+  prodcode: string
+  product?: string
+  qty: string | number
+  quantity: number
+  unitPrice?: string
+  unitPriceNum?: number
+  lineTotal?: string
+  lineTotalNum: number
+  is_deleted?: boolean
+  status: "Active" | "Inactive"
+  stamp?: string
+  stampAction?: string
+  stampUser?: string
+  stampDate?: string
+  action?: string
+  user?: string
+  date?: string
+}
+
+export interface CreateSaleLinePayload {
+  transno?: string
+  prodcode: string
+  quantity: number
+}
+
+export interface UpdateSaleLinePayload {
+  quantity: number
+}
+
+export interface SaleProductOption {
+  prodcode: string
+  description: string
+  unit?: string
+  label: string
+  currentPrice?: number
+}
+
+
 
 
 
