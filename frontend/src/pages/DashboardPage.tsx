@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import Button from "../components/Button"
 import Icon from "../components/Icon"
 import { useAuth } from "../contexts/AuthContext"
@@ -8,14 +9,32 @@ export default function DashboardPage({
   role,
   goUsers,
   goToModule,
+  userRights = [],
 }: {
   role: Role
   goUsers: () => void
   goToModule?: (module: AppView) => void
+  userRights?: string[]
 }) {
   const { user } = useAuth()
   const person = roleData[role] || roleData.User
   const userGreeting = user?.email || person.name
+
+  const visibleModules = useMemo(() => {
+    if (role !== "User" || !userRights || !userRights.length) return modules
+    const hasCustomer = userRights.some((r) => r.toLowerCase().includes("customer"))
+    const hasProduct = userRights.some((r) => r.toLowerCase().includes("product") || r.toLowerCase().includes("price"))
+    const hasHr = userRights.some((r) => r.toLowerCase().includes("job") || r.toLowerCase().includes("department") || r.toLowerCase().includes("employee"))
+    const hasSales = userRights.some((r) => r.toLowerCase().includes("sale") || r.toLowerCase().includes("payment"))
+    return modules.filter((m) => {
+      if (m.target === "customers") return hasCustomer
+      if (m.target === "products") return hasProduct
+      if (m.target === "hr") return hasHr
+      if (m.target === "sales") return hasSales
+      return true
+    })
+  }, [role, userRights])
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -70,7 +89,7 @@ export default function DashboardPage({
             <button>Customize</button>
           </div>
           <div className="quick-grid">
-            {modules.map((item) => (
+            {visibleModules.map((item) => (
               <button
                 className="quick-action"
                 onClick={() => goToModule?.(item.target)}
@@ -94,7 +113,13 @@ export default function DashboardPage({
               <b>Recent activity</b>
               <p>Latest updates from your team.</p>
             </div>
-            <button>View all</button>
+            {role === "Superadmin" ? (
+              <button onClick={() => goToModule?.("audit")} style={{ cursor: "pointer" }}>
+                View all
+              </button>
+            ) : (
+              <button>View all</button>
+            )}
           </div>
           {[
             ["New customer added", "Acme Trading Co.", "10m", "users"],
@@ -113,13 +138,26 @@ export default function DashboardPage({
             </div>
           ))}
           {role !== "User" && (
-            <Button
-              variant="secondary"
-              className="full manage-btn"
-              onClick={goUsers}
-            >
-              Manage users
-            </Button>
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <Button
+                variant="secondary"
+                className="full manage-btn"
+                onClick={goUsers}
+              >
+                Manage users
+              </Button>
+              {role === "Superadmin" && (
+                <Button
+                  variant="secondary"
+                  className="full manage-btn"
+                  onClick={() => goToModule?.("audit")}
+                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                >
+                  <Icon name="shield" size={14} />
+                  <span>Audit log</span>
+                </Button>
+              )}
+            </div>
           )}
         </section>
       </div>
