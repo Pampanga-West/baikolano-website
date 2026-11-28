@@ -26,6 +26,7 @@ import {
   findUserByIdFromSupabase,
   generateTokenForResetRequestInSupabase,
   insertAuditLogIntoSupabase,
+  fetchAuditLogsFromSupabase,
   insertTableRowIntoSupabase,
   insertUserIntoSupabase,
   createPasswordResetRequestInSupabase,
@@ -173,7 +174,9 @@ async function getLiveUsers(): Promise<DbUser[]> {
     const dbUsers = rows.map(toDbUser)
     // Update local cache
     try {
-      localStorage.setItem(STORAGE_KEYS.USERS_CACHE, JSON.stringify(dbUsers))
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(STORAGE_KEYS.USERS_CACHE, JSON.stringify(dbUsers))
+      }
     } catch {
       // Ignore quota errors
     }
@@ -181,8 +184,10 @@ async function getLiveUsers(): Promise<DbUser[]> {
   } catch (err) {
     console.warn("[EmbeddedBackend] Supabase query failed, using local cache fallback:", err)
     try {
-      const cached = localStorage.getItem(STORAGE_KEYS.USERS_CACHE)
-      if (cached) return JSON.parse(cached)
+      if (typeof localStorage !== "undefined") {
+        const cached = localStorage.getItem(STORAGE_KEYS.USERS_CACHE)
+        if (cached) return JSON.parse(cached)
+      }
     } catch {
       // Fall through
     }
@@ -3581,6 +3586,54 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
       if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
       if (e.statusCode === 400 || e.message?.includes("cannot be later than")) return jsonResponse({ message: e.message }, 400)
       return jsonResponse({ message: e.message || `Failed to generate report '${rawKey}'.` }, 500)
+    }
+  }
+
+  // ==========================================================================
+  // Superadmin: Audit Log Endpoints (/api/audit-log, /api/audit)
+  // ==========================================================================
+  if (pathname === "/api/audit-log" || pathname === "/api/audit") {
+    // Audit logs are append-only and immutable
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+      return jsonResponse(
+        { message: "Audit log entries are immutable and append-only. Direct modification or deletion is prohibited." },
+        405
+      )
+    }
+
+    if (method === "GET") {
+      try {
+        if (!currentUser) {
+          return jsonResponse({ message: "Not authenticated." }, 401)
+        }
+        if (currentUser.role !== "Superadmin") {
+          return jsonResponse({ message: "Access to audit log is restricted to Superadmin accounts." }, 403)
+        }
+
+        const tableParam = parsedUrl.searchParams.get("table") || undefined
+        const actionParam = parsedUrl.searchParams.get("action") || undefined
+        const userParam = parsedUrl.searchParams.get("user") || undefined
+        const fromParam = parsedUrl.searchParams.get("from") || undefined
+        const toParam = parsedUrl.searchParams.get("to") || undefined
+        const searchParam = parsedUrl.searchParams.get("search") || undefined
+        const limitParam = parsedUrl.searchParams.get("limit")
+          ? Number(parsedUrl.searchParams.get("limit"))
+          : undefined
+
+        const result = await fetchAuditLogsFromSupabase({
+          table: tableParam,
+          action: actionParam,
+          user: userParam,
+          from: fromParam,
+          to: toParam,
+          search: searchParam,
+          limit: limitParam,
+        })
+
+        return jsonResponse(result)
+      } catch (err: any) {
+        return jsonResponse({ message: err.message || "Failed to fetch audit logs." }, 500)
+      }
     }
   }
 
