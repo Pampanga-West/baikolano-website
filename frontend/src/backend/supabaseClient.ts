@@ -4804,6 +4804,296 @@ export async function fetchCustomerBalancesFromSupabase(): Promise<CustomerBalan
   })
 }
 
+// ============================================================================
+// Sprint 4: Reports Module Handlers (S4-DEV-04)
+// ============================================================================
+
+export async function fetchProductMasterReportFromSupabase(): Promise<{
+  key: "product-master"
+  title: string
+  subtitle: string
+  headers: string[]
+  rows: string[][]
+  items: {
+    prodcode: string
+    description: string
+    unit: string
+    currentPrice: string
+    currentPriceNum: number
+  }[]
+  totalRows: number
+  generatedAt: string
+}> {
+  const [products, prices] = await Promise.all([
+    postgrestFetch<Record<string, any>[]>(
+      "/product?is_deleted=eq.false&order=prodcode.asc&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/pricehist?is_deleted=eq.false&order=effdate.desc&select=*"
+    ).catch(() => []),
+  ])
+
+  const today = new Date().toISOString().slice(0, 10)
+  const priceByProd = new Map<string, { effdate: string; price: number }[]>()
+  for (const pr of prices || []) {
+    const code = String(pr.prodcode ?? "").trim()
+    const list = priceByProd.get(code) ?? []
+    list.push({
+      effdate: String(pr.effdate ?? "").slice(0, 10),
+      price: Number(pr.unitprice) || 0,
+    })
+    priceByProd.set(code, list)
+  }
+
+  const items = (products || [])
+    .filter((p) => !p.is_deleted)
+    .map((p) => {
+      const code = String(p.prodcode ?? "").trim()
+      const list = priceByProd.get(code) ?? []
+      const match = list.find((item) => item.effdate <= today) || list[0]
+      const currentPriceNum = match ? match.price : 0
+      const currentPrice = match ? formatMoney(match.price) : "—"
+
+      return {
+        prodcode: code,
+        description: String(p.description ?? "—").trim(),
+        unit: String(p.unit ?? "pcs").trim(),
+        currentPrice,
+        currentPriceNum,
+      }
+    })
+
+  return {
+    key: "product-master",
+    title: "Product Master List (Current Price)",
+    subtitle: "Current effective price for every active catalog item.",
+    headers: ["Prod Code", "Description", "Unit", "Current Price"],
+    rows: items.map((i) => [i.prodcode, i.description, i.unit, i.currentPrice]),
+    items,
+    totalRows: items.length,
+    generatedAt: new Date().toISOString(),
+  }
+}
+
+export async function fetchActiveEmployeesReportFromSupabase(): Promise<{
+  key: "active-employees"
+  title: string
+  subtitle: string
+  headers: string[]
+  rows: string[][]
+  items: {
+    empno: string
+    lastname: string
+    firstname: string
+    gender: string
+    birthdate: string
+    hiredate: string
+  }[]
+  totalRows: number
+  generatedAt: string
+}> {
+  const employees = await postgrestFetch<Record<string, any>[]>(
+    "/employee?is_deleted=eq.false&order=empno.asc&select=*"
+  ).catch(() => [])
+
+  // Strictly filter out separated employees (non-null / non-empty sepdate) and soft-deleted
+  const items = (employees || [])
+    .filter((e) => !e.is_deleted && (!e.sepdate || String(e.sepdate).trim() === ""))
+    .map((e) => ({
+      empno: String(e.empno ?? "").trim(),
+      lastname: String(e.lastname ?? "—").trim(),
+      firstname: String(e.firstname ?? "—").trim(),
+      gender: String(e.gender ?? "—").trim(),
+      birthdate: String(e.birthdate ?? "—").slice(0, 10),
+      hiredate: String(e.hiredate ?? "—").slice(0, 10),
+    }))
+
+  return {
+    key: "active-employees",
+    title: "Active Employees (Not Separated)",
+    subtitle: "Employees with no separation date.",
+    headers: ["Emp No", "Last Name", "First Name", "Gender", "Birth Date", "Hire Date"],
+    rows: items.map((e) => [
+      e.empno,
+      e.lastname,
+      e.firstname,
+      e.gender,
+      e.birthdate,
+      e.hiredate,
+    ]),
+    items,
+    totalRows: items.length,
+    generatedAt: new Date().toISOString(),
+  }
+}
+
+export async function fetchAllEmployeesReportFromSupabase(): Promise<{
+  key: "all-employees"
+  title: string
+  subtitle: string
+  headers: string[]
+  rows: string[][]
+  items: {
+    empno: string
+    lastname: string
+    firstname: string
+    gender: string
+    birthdate: string
+    hiredate: string
+    sepdate: string
+    status: "Active" | "Inactive"
+  }[]
+  totalRows: number
+  generatedAt: string
+}> {
+  const employees = await postgrestFetch<Record<string, any>[]>(
+    "/employee?is_deleted=eq.false&order=empno.asc&select=*"
+  ).catch(() => [])
+
+  const items = (employees || [])
+    .filter((e) => !e.is_deleted)
+    .map((e) => {
+      const sep = e.sepdate ? String(e.sepdate).slice(0, 10) : ""
+      const isSeparated = Boolean(sep && sep.trim() !== "")
+      return {
+        empno: String(e.empno ?? "").trim(),
+        lastname: String(e.lastname ?? "—").trim(),
+        firstname: String(e.firstname ?? "—").trim(),
+        gender: String(e.gender ?? "—").trim(),
+        birthdate: String(e.birthdate ?? "—").slice(0, 10),
+        hiredate: String(e.hiredate ?? "—").slice(0, 10),
+        sepdate: isSeparated ? sep : "—",
+        status: isSeparated || e.is_deleted ? ("Inactive" as const) : ("Active" as const),
+      }
+    })
+
+  return {
+    key: "all-employees",
+    title: "All Employees (Including Separated)",
+    subtitle: "Complete employment register, including separation status.",
+    headers: [
+      "Emp No",
+      "Last Name",
+      "First Name",
+      "Gender",
+      "Birth Date",
+      "Hire Date",
+      "Sep Date",
+      "Status",
+    ],
+    rows: items.map((e) => [
+      e.empno,
+      e.lastname,
+      e.firstname,
+      e.gender,
+      e.birthdate,
+      e.hiredate,
+      e.sepdate,
+      e.status,
+    ]),
+    items,
+    totalRows: items.length,
+    generatedAt: new Date().toISOString(),
+  }
+}
+
+export async function fetchEmployeeJobHistoryReportFromSupabase(
+  empnoFilter?: string
+): Promise<{
+  key: "history"
+  title: string
+  subtitle: string
+  headers: string[]
+  rows: string[][]
+  items: {
+    empno: string
+    employee: string
+    effdate: string
+    job: string
+    department: string
+    salary: string
+    salaryNum: number
+  }[]
+  totalRows: number
+  generatedAt: string
+  filtersApplied: { empno: string }
+}> {
+  const [historyRows, employees, jobs, departments] = await Promise.all([
+    postgrestFetch<Record<string, any>[]>(
+      "/jobhistory?is_deleted=eq.false&order=effdate.desc&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/employee?is_deleted=eq.false&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/job?is_deleted=eq.false&select=*"
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      "/department?is_deleted=eq.false&select=*"
+    ).catch(() => []),
+  ])
+
+  const empMap = new Map<string, string>()
+  for (const e of employees || []) {
+    const code = String(e.empno ?? "").trim()
+    empMap.set(code, `${e.firstname ?? ""} ${e.lastname ?? ""}`.trim())
+  }
+
+  const jobMap = new Map<string, string>()
+  for (const j of jobs || []) {
+    const code = String(j.jobcode ?? "").trim()
+    jobMap.set(code, `${code} — ${j.jobdesc ?? ""}`.trim())
+  }
+
+  const deptMap = new Map<string, string>()
+  for (const d of departments || []) {
+    const code = String(d.deptcode ?? "").trim()
+    deptMap.set(code, `${code} — ${d.deptname ?? ""}`.trim())
+  }
+
+  const filterEmp = empnoFilter && empnoFilter !== "ALL" ? empnoFilter.trim() : null
+
+  const items = (historyRows || [])
+    .filter((h) => !h.is_deleted)
+    .filter((h) => (!filterEmp ? true : String(h.empno ?? "").trim() === filterEmp))
+    .map((h) => {
+      const eNo = String(h.empno ?? "").trim()
+      const jCode = String(h.jobcode ?? "").trim()
+      const dCode = String(h.deptcode ?? "").trim()
+      const sal = Number(h.salary) || 0
+
+      return {
+        empno: eNo,
+        employee: empMap.get(eNo) || eNo,
+        effdate: String(h.effdate ?? "—").slice(0, 10),
+        job: jobMap.get(jCode) || jCode,
+        department: deptMap.get(dCode) || dCode,
+        salary: formatMoney(sal),
+        salaryNum: sal,
+      }
+    })
+
+  return {
+    key: "history",
+    title: "Employee Job History",
+    subtitle: "Effective-dated career and salary record.",
+    headers: ["Emp No", "Employee", "Eff Date", "Job", "Department", "Salary"],
+    rows: items.map((h) => [
+      h.empno,
+      h.employee,
+      h.effdate,
+      h.job,
+      h.department,
+      h.salary,
+    ]),
+    items,
+    totalRows: items.length,
+    generatedAt: new Date().toISOString(),
+    filtersApplied: { empno: filterEmp || "ALL" },
+  }
+}
+
+
 
 
 

@@ -68,11 +68,23 @@ function Sidebar({
     const hasProduct = userRights.some((r) => r.toLowerCase().includes("product") || r.toLowerCase().includes("price"))
     const hasHr = userRights.some((r) => r.toLowerCase().includes("job") || r.toLowerCase().includes("department") || r.toLowerCase().includes("employee"))
     const hasSales = userRights.some((r) => r.toLowerCase().includes("sale") || r.toLowerCase().includes("payment"))
+    const hasReports = userRights.some((r) => {
+      const l = r.toLowerCase()
+      return (
+        l.includes("report") ||
+        l.includes("top") ||
+        l.includes("master") ||
+        l.includes("history") ||
+        l.includes("active employees") ||
+        l.includes("all employees")
+      )
+    })
     return allModules.filter(([_, __, target]) => {
       if (target === "customers") return hasCustomer
       if (target === "products") return hasProduct
       if (target === "hr") return hasHr
       if (target === "sales") return hasSales
+      if (target === "reports") return hasReports
       return true
     })
   }, [role, userRights])
@@ -353,7 +365,7 @@ export default function WorkspaceLayout({
           {effectiveView === "products" && <ProductsPage role={role} />}
           {effectiveView === "hr" && <HumanResourcesPage role={role} />}
           {effectiveView === "sales" && <SalesPage role={role} />}
-          {effectiveView === "reports" && <ReportsPage role={role} />}
+          {effectiveView === "reports" && <ReportsPage role={role} userRights={userRights} />}
           {effectiveView === "users" && (
             <UserManagementPage
               role={role}

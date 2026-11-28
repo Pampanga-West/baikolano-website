@@ -1,63 +1,74 @@
 import { useEffect, useMemo, useState } from "react"
-import { fetchTableRowsFromSupabase, formatMoney } from "../backend/supabaseClient"
+import {
+  fetchTableRowsFromSupabase,
+  fetchUserRightsFromSupabase,
+  formatMoney,
+} from "../backend/supabaseClient"
 import Button from "../components/Button"
 import EmptyState from "../components/EmptyState"
 import Icon from "../components/Icon"
-import type { Role } from "../lib/types"
-
-type ReportKey = "customers" | "product-master" | "products" | "active-employees" | "all-employees" | "history" | "sales"
+import { useAuth } from "../contexts/AuthContext"
+import type { ReportKey, Role } from "../lib/types"
 
 const reports: {
   key: ReportKey
   short: string
   title: string
   subtitle: string
+  right: string
 }[] = [
   {
     key: "customers",
     short: "Top Customers",
     title: "Top Customers by Sales",
     subtitle: "Ranked by active sale total in the selected period.",
+    right: "Top Customers",
   },
   {
     key: "product-master",
     short: "Product Master",
     title: "Product Master List (Current Price)",
     subtitle: "Current effective price for every active catalog item.",
+    right: "Product Master List",
   },
   {
     key: "products",
     short: "Top Products",
     title: "Top Products by Sales Amount",
     subtitle: "Quantity and sales contribution by active product.",
+    right: "Top Products",
   },
   {
     key: "active-employees",
     short: "Active Employees",
     title: "Active Employees (Not Separated)",
     subtitle: "Employees with no separation date.",
+    right: "Active Employees",
   },
   {
     key: "all-employees",
     short: "All Employees",
     title: "All Employees (Including Separated)",
     subtitle: "Complete employment register, including separation status.",
+    right: "All Employees",
   },
   {
     key: "history",
     short: "Job History",
     title: "Employee Job History",
     subtitle: "Effective-dated career and salary record.",
+    right: "Employee Job History",
   },
   {
     key: "sales",
     short: "Top Sales",
     title: "Top Sales",
     subtitle: "Highest-value active transactions in the selected period.",
+    right: "Top Sales",
   },
 ]
 
-const fallbackReportData: Record<ReportKey, { headers: string[], rows: string[][] }> = {
+const fallbackReportData: Record<ReportKey, { headers: string[]; rows: string[][] }> = {
   customers: {
     headers: ["Rank", "Cust No", "Customer Name", "Total Sales"],
     rows: [
@@ -196,14 +207,103 @@ const fallbackReportData: Record<ReportKey, { headers: string[], rows: string[][
   },
 }
 
-export default function ReportsPage({ role: _role }: { role: Role }) {
-  const available = reports
-  const [active, setActive] = useState<ReportKey>(available[0].key)
+export default function ReportsPage({
+  role,
+  userRights: propRights,
+}: {
+  role: Role
+  userRights?: string[]
+}) {
+  const { user } = useAuth()
+  const [fetchedRights, setFetchedRights] = useState<string[] | null>(null)
+
+  // Fetch rights if not provided via props
+  useEffect(() => {
+    if (propRights !== undefined) return
+    if (!user?.id || role === "Superadmin") return
+
+    let active = true
+    fetchUserRightsFromSupabase(user.id)
+      .then((rights) => {
+        if (active) setFetchedRights(rights || [])
+      })
+      .catch(() => {
+        if (active) setFetchedRights([])
+      })
+
+    return () => {
+      active = false
+    }
+  }, [user?.id, role, propRights])
+
+  const effectiveRights = propRights !== undefined ? propRights : fetchedRights
+
+  // Filter available reports based on per-report permissions
+  const available = useMemo(() => {
+    if (role === "Superadmin") return reports
+    if (role === "Admin" && (!effectiveRights || !effectiveRights.length)) return reports
+
+    const rightsList = effectiveRights || []
+
+    const hasRight = (name: string) => {
+      const n = name.toLowerCase().trim()
+      return rightsList.some((r) => {
+        const rl = r.toLowerCase().trim()
+        return (
+          rl === n ||
+          rl === `report - ${n}` ||
+          rl === `${n} report` ||
+          (rl.includes("report") && rl.includes(n)) ||
+          rl.includes(n)
+        )
+      })
+    }
+
+    return reports.filter((rpt) => {
+      switch (rpt.key) {
+        case "product-master":
+          return (
+            hasRight("product master") ||
+            hasRight("product master list") ||
+            hasRight("product")
+          )
+        case "active-employees":
+          return hasRight("active employees") || hasRight("active employee")
+        case "all-employees":
+          return hasRight("all employees") || hasRight("all employee")
+        case "history":
+          return (
+            hasRight("employee job history") ||
+            hasRight("job history") ||
+            hasRight("view job history")
+          )
+        case "customers":
+          return hasRight("top customers") || hasRight("customer")
+        case "products":
+          return hasRight("top products") || hasRight("product")
+        case "sales":
+          return hasRight("top sales") || hasRight("sale")
+        default:
+          return true
+      }
+    })
+  }, [role, effectiveRights])
+
+  const [active, setActive] = useState<ReportKey>(
+    available[0]?.key || "product-master"
+  )
   const [search, setSearch] = useState("")
   const [fromDate, setFromDate] = useState("")
   const [toDate, setToDate] = useState("")
   const [topN, setTopN] = useState("25")
   const [selectedEmp, setSelectedEmp] = useState("ALL")
+
+  // Ensure active report belongs to available reports
+  useEffect(() => {
+    if (available.length > 0 && !available.some((r) => r.key === active)) {
+      setActive(available[0].key)
+    }
+  }, [available, active])
 
   const [rawTables, setRawTables] = useState<{
     customers: Record<string, any>[]
@@ -220,15 +320,15 @@ export default function ReportsPage({ role: _role }: { role: Role }) {
   useEffect(() => {
     let mounted = true
     Promise.all([
-      fetchTableRowsFromSupabase("customer", "custno.asc"),
-      fetchTableRowsFromSupabase("product", "prodcode.asc"),
-      fetchTableRowsFromSupabase("pricehist", "effdate.desc"),
-      fetchTableRowsFromSupabase("employee", "empno.asc"),
-      fetchTableRowsFromSupabase("job", "jobcode.asc"),
-      fetchTableRowsFromSupabase("department", "deptcode.asc"),
-      fetchTableRowsFromSupabase("jobhistory", "effdate.desc"),
-      fetchTableRowsFromSupabase("sales", "transno.asc"),
-      fetchTableRowsFromSupabase("salesdetail", "transno.asc"),
+      fetchTableRowsFromSupabase("customer", "custno.asc").catch(() => []),
+      fetchTableRowsFromSupabase("product", "prodcode.asc").catch(() => []),
+      fetchTableRowsFromSupabase("pricehist", "effdate.desc").catch(() => []),
+      fetchTableRowsFromSupabase("employee", "empno.asc").catch(() => []),
+      fetchTableRowsFromSupabase("job", "jobcode.asc").catch(() => []),
+      fetchTableRowsFromSupabase("department", "deptcode.asc").catch(() => []),
+      fetchTableRowsFromSupabase("jobhistory", "effdate.desc").catch(() => []),
+      fetchTableRowsFromSupabase("sales", "transno.asc").catch(() => []),
+      fetchTableRowsFromSupabase("salesdetail", "transno.asc").catch(() => []),
     ])
       .then(
         ([
@@ -281,8 +381,8 @@ export default function ReportsPage({ role: _role }: { role: Role }) {
       ...rawTables.employees
         .filter((e) => !e.is_deleted)
         .map((e) => ({
-          value: String(e.empno ?? ""),
-          label: `${e.empno} — ${e.firstname ?? ""} ${e.lastname ?? ""}`.trim(),
+          value: String(e.empno ?? "").trim(),
+          label: `${String(e.empno ?? "").trim()} — ${e.firstname ?? ""} ${e.lastname ?? ""}`.trim(),
         })),
     ]
   }, [rawTables])
@@ -292,34 +392,36 @@ export default function ReportsPage({ role: _role }: { role: Role }) {
   >(() => {
     if (!rawTables) return fallbackReportData
 
+    const today = new Date().toISOString().slice(0, 10)
+
     const custNameMap = new Map<string, string>()
     for (const c of rawTables.customers) {
-      custNameMap.set(String(c.custno ?? ""), String(c.custname ?? "—"))
+      custNameMap.set(String(c.custno ?? "").trim(), String(c.custname ?? "—").trim())
     }
 
     const empNameMap = new Map<string, string>()
     for (const e of rawTables.employees) {
       empNameMap.set(
-        String(e.empno ?? ""),
+        String(e.empno ?? "").trim(),
         `${e.firstname ?? ""} ${e.lastname ?? ""}`.trim()
       )
     }
 
     const prodMap = new Map<string, { desc: string; unit: string }>()
     for (const p of rawTables.products) {
-      prodMap.set(String(p.prodcode ?? ""), {
-        desc: String(p.description ?? "—"),
-        unit: String(p.unit ?? "pcs"),
+      prodMap.set(String(p.prodcode ?? "").trim(), {
+        desc: String(p.description ?? "—").trim(),
+        unit: String(p.unit ?? "pcs").trim(),
       })
     }
 
     const priceByProd = new Map<string, { effdate: string; price: number }[]>()
     for (const pr of rawTables.prices) {
       if (pr.is_deleted) continue
-      const code = String(pr.prodcode ?? "")
+      const code = String(pr.prodcode ?? "").trim()
       const list = priceByProd.get(code) ?? []
       list.push({
-        effdate: String(pr.effdate ?? ""),
+        effdate: String(pr.effdate ?? "").slice(0, 10),
         price: Number(pr.unitprice) || 0,
       })
       priceByProd.set(code, list)
@@ -328,14 +430,14 @@ export default function ReportsPage({ role: _role }: { role: Role }) {
     const resolvePrice = (prodcode: string, salesdate?: string) => {
       const list = priceByProd.get(prodcode) ?? []
       if (!list.length) return 0
-      if (!salesdate) return list[0].price
-      const match = list.find((p) => p.effdate <= salesdate)
+      const targetDate = salesdate ? salesdate.slice(0, 10) : today
+      const match = list.find((p) => p.effdate <= targetDate)
       return match ? match.price : list[0].price
     }
 
     const activeSales = rawTables.sales.filter((s) => {
       if (s.is_deleted) return false
-      const d = String(s.salesdate ?? "")
+      const d = String(s.salesdate ?? "").slice(0, 10)
       if (fromDate && d < fromDate) return false
       if (toDate && d > toDate) return false
       return true
@@ -343,7 +445,7 @@ export default function ReportsPage({ role: _role }: { role: Role }) {
 
     const activeSaleMap = new Map<string, Record<string, any>>()
     for (const s of activeSales) {
-      activeSaleMap.set(String(s.transno ?? ""), s)
+      activeSaleMap.set(String(s.transno ?? "").trim(), s)
     }
 
     const saleTotalByTrans = new Map<string, number>()
@@ -351,10 +453,10 @@ export default function ReportsPage({ role: _role }: { role: Role }) {
 
     for (const d of rawTables.salesdetail) {
       if (d.is_deleted) continue
-      const tNo = String(d.transno ?? "")
+      const tNo = String(d.transno ?? "").trim()
       const sale = activeSaleMap.get(tNo)
       if (!sale) continue
-      const pCode = String(d.prodcode ?? "")
+      const pCode = String(d.prodcode ?? "").trim()
       const qty = Number(d.quantity) || 0
       const uPrice = resolvePrice(pCode, String(sale.salesdate ?? ""))
       const lineTotal = qty * uPrice
@@ -372,8 +474,8 @@ export default function ReportsPage({ role: _role }: { role: Role }) {
     // 1. Top Customers
     const custSales = new Map<string, number>()
     for (const s of activeSales) {
-      const cNo = String(s.custno ?? "")
-      const tNo = String(s.transno ?? "")
+      const cNo = String(s.custno ?? "").trim()
+      const tNo = String(s.transno ?? "").trim()
       custSales.set(
         cNo,
         (custSales.get(cNo) ?? 0) + (saleTotalByTrans.get(tNo) ?? 0)
@@ -389,16 +491,18 @@ export default function ReportsPage({ role: _role }: { role: Role }) {
         formatMoney(total),
       ])
 
-    // 2. Product Master
+    // 2. Product Master (TC-RPT-01: Excludes soft-deleted, resolves current price <= today)
     const productMasterRows = rawTables.products
       .filter((p) => !p.is_deleted)
       .map((p) => {
-        const code = String(p.prodcode ?? "")
-        const latest = priceByProd.get(code)?.[0]?.price
+        const code = String(p.prodcode ?? "").trim()
+        const list = priceByProd.get(code) ?? []
+        const currentPriceObj = list.find((item) => item.effdate <= today) || list[0]
+        const latest = currentPriceObj?.price
         return [
           code,
-          String(p.description ?? "—"),
-          String(p.unit ?? "pcs"),
+          String(p.description ?? "—").trim(),
+          String(p.unit ?? "pcs").trim(),
           latest !== undefined ? formatMoney(latest) : "—",
         ]
       })
@@ -415,59 +519,61 @@ export default function ReportsPage({ role: _role }: { role: Role }) {
         formatMoney(agg.amount),
       ])
 
-    // 4. Active Employees
+    // 4. Active Employees (TC-RPT-02: Strictly excludes separated staff)
     const activeEmployeeRows = rawTables.employees
-      .filter((e) => !e.is_deleted && !e.sepdate)
+      .filter((e) => !e.is_deleted && (!e.sepdate || String(e.sepdate).trim() === ""))
       .map((e) => [
-        String(e.empno ?? ""),
-        String(e.lastname ?? "—"),
-        String(e.firstname ?? "—"),
-        String(e.gender ?? "—"),
-        String(e.birthdate ?? "—"),
-        String(e.hiredate ?? "—"),
+        String(e.empno ?? "").trim(),
+        String(e.lastname ?? "—").trim(),
+        String(e.firstname ?? "—").trim(),
+        String(e.gender ?? "—").trim(),
+        String(e.birthdate ?? "—").slice(0, 10),
+        String(e.hiredate ?? "—").slice(0, 10),
       ])
 
-    // 5. All Employees
-    const allEmployeeRows = rawTables.employees.map((e) => [
-      String(e.empno ?? ""),
-      String(e.lastname ?? "—"),
-      String(e.firstname ?? "—"),
-      String(e.gender ?? "—"),
-      String(e.birthdate ?? "—"),
-      String(e.hiredate ?? "—"),
-      e.sepdate ? String(e.sepdate) : "—",
-      e.is_deleted || e.sepdate ? "Inactive" : "Active",
-    ])
+    // 5. All Employees (TC-RPT-02: Includes separated with sepdate and status)
+    const allEmployeeRows = rawTables.employees
+      .filter((e) => !e.is_deleted)
+      .map((e) => {
+        const sep = e.sepdate ? String(e.sepdate).slice(0, 10) : ""
+        const isSeparated = Boolean(sep && sep.trim() !== "")
+        return [
+          String(e.empno ?? "").trim(),
+          String(e.lastname ?? "—").trim(),
+          String(e.firstname ?? "—").trim(),
+          String(e.gender ?? "—").trim(),
+          String(e.birthdate ?? "—").slice(0, 10),
+          String(e.hiredate ?? "—").slice(0, 10),
+          isSeparated ? sep : "—",
+          isSeparated || e.is_deleted ? "Inactive" : "Active",
+        ]
+      })
 
-    // 6. Job History
+    // 6. Job History (TC-RPT-03: Chronological, formatted salary, employee filter)
     const jobMap = new Map<string, string>()
     for (const j of rawTables.jobs) {
-      jobMap.set(
-        String(j.jobcode ?? ""),
-        `${j.jobcode} — ${j.jobdesc ?? ""}`
-      )
+      const code = String(j.jobcode ?? "").trim()
+      jobMap.set(code, `${code} — ${j.jobdesc ?? ""}`.trim())
     }
     const deptMap = new Map<string, string>()
     for (const d of rawTables.departments) {
-      deptMap.set(
-        String(d.deptcode ?? ""),
-        `${d.deptcode} — ${d.deptname ?? ""}`
-      )
+      const code = String(d.deptcode ?? "").trim()
+      deptMap.set(code, `${code} — ${d.deptname ?? ""}`.trim())
     }
     const historyRows = rawTables.history
       .filter(
         (h) =>
           !h.is_deleted &&
-          (selectedEmp === "ALL" || String(h.empno ?? "") === selectedEmp)
+          (selectedEmp === "ALL" || String(h.empno ?? "").trim() === selectedEmp.trim())
       )
       .map((h) => {
-        const eNo = String(h.empno ?? "")
-        const jCode = String(h.jobcode ?? "")
-        const dCode = String(h.deptcode ?? "")
+        const eNo = String(h.empno ?? "").trim()
+        const jCode = String(h.jobcode ?? "").trim()
+        const dCode = String(h.deptcode ?? "").trim()
         return [
           eNo,
           empNameMap.get(eNo) ?? eNo,
-          String(h.effdate ?? "—"),
+          String(h.effdate ?? "—").slice(0, 10),
           jobMap.get(jCode) ?? jCode,
           deptMap.get(dCode) ?? dCode,
           formatMoney(h.salary),
@@ -477,13 +583,13 @@ export default function ReportsPage({ role: _role }: { role: Role }) {
     // 7. Top Sales
     const topSalesRows = activeSales
       .map((s) => {
-        const tNo = String(s.transno ?? "")
-        const cNo = String(s.custno ?? "")
-        const eNo = String(s.empno ?? "")
+        const tNo = String(s.transno ?? "").trim()
+        const cNo = String(s.custno ?? "").trim()
+        const eNo = String(s.empno ?? "").trim()
         const total = saleTotalByTrans.get(tNo) ?? 0
         return {
           tNo,
-          date: String(s.salesdate ?? "—"),
+          date: String(s.salesdate ?? "—").slice(0, 10),
           customer: `${cNo} — ${custNameMap.get(cNo) ?? cNo}`,
           employee: `${eNo} — ${empNameMap.get(eNo) ?? eNo}`,
           total,
@@ -532,8 +638,12 @@ export default function ReportsPage({ role: _role }: { role: Role }) {
     }
   }, [rawTables, fromDate, toDate, topN, selectedEmp])
 
-  const report = reports.find((item) => item.key === active) ?? reports[0]
-  const data = computedData[report.key]
+  // Current report metadata and rows
+  const report =
+    available.find((item) => item.key === active) ||
+    available[0] ||
+    reports[0]
+  const data = computedData[report.key] || { headers: [], rows: [] }
   const dated = ["customers", "products", "sales"].includes(report.key)
 
   const filteredRows = useMemo(() => {
@@ -554,6 +664,39 @@ export default function ReportsPage({ role: _role }: { role: Role }) {
     }
     return { qty, amount: formatMoney(amount) }
   }, [filteredRows, report.key])
+
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), [])
+
+  // If user has zero report rights assigned, display permission message
+  if (available.length === 0) {
+    return (
+      <div className="page reports-page">
+        <div className="page-heading">
+          <div>
+            <span>Decision support / Reports</span>
+            <div className="page-title">Reports</div>
+            <p>
+              Read-only operational views. Visibility follows each assigned report
+              right.
+            </p>
+          </div>
+          <div className="rights-counter">
+            <Icon name="shield" />
+            <span>
+              <b>0 of 7</b> reports assigned
+            </span>
+          </div>
+        </div>
+        <EmptyState
+          title="No Reports Assigned"
+          message="You do not have permission to view any reports. Please contact an administrator to request report access."
+        />
+      </div>
+    )
+  }
+
+  const selectedEmpLabel =
+    employeeOptions.find((o) => o.value === selectedEmp)?.label || selectedEmp
 
   return (
     <div className="page reports-page">
@@ -588,16 +731,35 @@ export default function ReportsPage({ role: _role }: { role: Role }) {
       <section className="report-sheet">
         <div className="report-head">
           <div>
-            <span>Hope, Inc. ERP · generated 2026-10-13</span>
+            <span>Hope, Inc. ERP · generated {todayStr}</span>
             <div className="report-title">{report.title}</div>
             <p>{report.subtitle}</p>
+            {(search || (report.key === "history" && selectedEmp !== "ALL") || (dated && (fromDate || toDate))) && (
+              <div
+                style={{
+                  marginTop: "6px",
+                  fontSize: "11px",
+                  color: "var(--brand, #2563eb)",
+                  fontWeight: 600,
+                }}
+              >
+                {report.key === "history" && selectedEmp !== "ALL" && (
+                  <span>Employee: {selectedEmpLabel} </span>
+                )}
+                {dated && fromDate && <span>From: {fromDate} </span>}
+                {dated && toDate && <span>To: {toDate} </span>}
+                {search && <span>Search: &quot;{search}&quot;</span>}
+              </div>
+            )}
           </div>
-          <div>
+          <div className="report-actions">
             <Button variant="secondary" onClick={() => window.print()}>
               <Icon name="report" size={16} />
               Print
             </Button>
-            <Button onClick={() => window.print()}>Save as PDF</Button>
+            <Button onClick={() => window.print()}>
+              Save as PDF
+            </Button>
           </div>
         </div>
         <div className="report-filters">

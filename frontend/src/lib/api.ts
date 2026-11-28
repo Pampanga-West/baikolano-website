@@ -43,6 +43,8 @@ import {
   type PaymentRecord,
   type RecordPaymentPayload,
   type CustomerBalanceSummary,
+  type ReportKey,
+  type ReportResult,
 } from "./types"
 
 // Automatically install global in-browser mock server interceptor
@@ -1301,4 +1303,38 @@ export const salesApi = {
     return apiFetch<CustomerBalanceSummary[]>("/api/sales/reports/customer-balances")
   },
 }
+
+// ============================================================================
+// Sprint 4: Reports Module APIs (S4-DEV-04)
+// ============================================================================
+
+export const reportsApi = {
+  getAvailableReports: (): Promise<{ reports: ReportKey[]; count: number }> => {
+    return apiFetch<{ reports: ReportKey[]; count: number }>("/api/reports/available")
+  },
+
+  getProductMasterReport: (): Promise<ReportResult> => {
+    return apiFetch<ReportResult>("/api/reports/product-master")
+  },
+
+  getActiveEmployeesReport: (): Promise<ReportResult> => {
+    return apiFetch<ReportResult>("/api/reports/active-employees")
+  },
+
+  getAllEmployeesReport: (): Promise<ReportResult> => {
+    return apiFetch<ReportResult>("/api/reports/all-employees")
+  },
+
+  getJobHistoryReport: (empno?: string): Promise<ReportResult> => {
+    const q = empno && empno !== "ALL" ? `?empno=${encodeURIComponent(empno)}` : ""
+    return apiFetch<ReportResult>(`/api/reports/employee-job-history${q}`)
+  },
+
+  getReport: (key: ReportKey, params?: Record<string, string>): Promise<ReportResult> => {
+    const query = new URLSearchParams(params)
+    const qs = query.toString() ? `?${query.toString()}` : ""
+    return apiFetch<ReportResult>(`/api/reports/${encodeURIComponent(key)}${qs}`)
+  },
+}
+
 
