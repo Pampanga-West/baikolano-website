@@ -1211,6 +1211,22 @@ export const salesApi = {
     )
   },
 
+  checkSaleReferences: (
+    transno: string
+  ): Promise<{
+    hasActiveReferences: boolean
+    hasActivePayments: boolean
+    hasActiveDetails: boolean
+    paymentCount: number
+    detailCount: number
+    receipts: string[]
+    lineItems: string[]
+    message?: string
+    reason?: string
+  }> => {
+    return apiFetch(`/api/sales/${encodeURIComponent(transno)}/check-references`)
+  },
+
   // Sale Details (S4-DEV-02)
   listDetails: (transno: string, status?: "active" | "inactive" | "all"): Promise<SaleLineItem[]> => {
     const q = status ? `?status=${encodeURIComponent(status)}` : ""

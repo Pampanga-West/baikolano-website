@@ -3854,36 +3854,85 @@ export async function insertSaleIntoSupabase(
 
 export async function checkSaleHasActiveReferences(
   transno: string
-): Promise<{ hasActivePayments: boolean; paymentCount: number; receipts: string[]; message?: string }> {
+): Promise<{
+  hasActiveReferences: boolean
+  hasActivePayments: boolean
+  hasActiveDetails: boolean
+  paymentCount: number
+  detailCount: number
+  receipts: string[]
+  lineItems: string[]
+  message?: string
+  reason?: string
+}> {
   const code = String(transno).trim().toUpperCase()
-  const receipts = await postgrestFetch<Record<string, any>[]>(
-    `/payment?transno=eq.${encodeURIComponent(code)}&is_deleted=eq.false`
-  ).catch(() => [])
+  const [receipts, details] = await Promise.all([
+    postgrestFetch<Record<string, any>[]>(
+      `/payment?transno=eq.${encodeURIComponent(code)}&is_deleted=eq.false`
+    ).catch(() => []),
+    postgrestFetch<Record<string, any>[]>(
+      `/salesdetail?transno=eq.${encodeURIComponent(code)}&is_deleted=eq.false`
+    ).catch(() => []),
+  ])
 
-  if (receipts && receipts.length > 0) {
-    const ornos = receipts.map((r) => String(r.orno || "")).filter(Boolean)
+  const ornos = (receipts || []).map((r) => String(r.orno || "")).filter(Boolean)
+  const prodcodes = (details || []).map((d) => String(d.prodcode || "")).filter(Boolean)
+  const hasActivePayments = ornos.length > 0
+  const hasActiveDetails = prodcodes.length > 0
+  const hasActiveReferences = hasActivePayments || hasActiveDetails
+
+  if (hasActiveReferences) {
+    const reasons: string[] = []
+    if (hasActiveDetails) {
+      reasons.push(`${prodcodes.length} active line item(s) (${prodcodes.join(", ")})`)
+    }
+    if (hasActivePayments) {
+      reasons.push(`${ornos.length} recorded active payment receipt(s) (${ornos.join(", ")})`)
+    }
+    const message = `Sales transaction ${code} has ${reasons.join(
+      " and "
+    )}. Remove or void all active line items and receipts before deactivating this sales transaction.`
     return {
-      hasActivePayments: true,
-      paymentCount: receipts.length,
+      hasActiveReferences: true,
+      hasActivePayments,
+      hasActiveDetails,
+      paymentCount: ornos.length,
+      detailCount: prodcodes.length,
       receipts: ornos,
-      message: `Sales transaction ${code} has recorded active payment receipts (${ornos.join(
-        ", "
-      )}). Void all related receipts before deactivating this sales transaction.`,
+      lineItems: prodcodes,
+      message,
+      reason: message,
     }
   }
 
-  return { hasActivePayments: false, paymentCount: 0, receipts: [] }
+  return {
+    hasActiveReferences: false,
+    hasActivePayments: false,
+    hasActiveDetails: false,
+    paymentCount: 0,
+    detailCount: 0,
+    receipts: [],
+    lineItems: [],
+  }
 }
 
 export async function softDeleteSaleInSupabase(
   transno: string,
   actionBy: string
-): Promise<{ transno: string; stamp: string }> {
+): Promise<{
+  transno: string
+  is_deleted: boolean
+  status: "Inactive"
+  stamp: string
+  stampAction: string
+  stampUser: string
+  stampDate: string
+}> {
   const code = String(transno).trim().toUpperCase()
 
-  // Guard against active payments
+  // Guard against active child records (line items & payments)
   const refCheck = await checkSaleHasActiveReferences(code)
-  if (refCheck.hasActivePayments) {
+  if (refCheck.hasActiveReferences) {
     const err: any = new Error(refCheck.message)
     err.statusCode = 400
     err.referentialIntegrity = true
@@ -3910,13 +3959,29 @@ export async function softDeleteSaleInSupabase(
     action_by: actionBy,
   }).catch(() => {})
 
-  return { transno: code, stamp }
+  return {
+    transno: code,
+    is_deleted: true,
+    status: "Inactive",
+    stamp,
+    stampAction: "DELETED",
+    stampUser: actionBy,
+    stampDate: dateStr,
+  }
 }
 
 export async function restoreSaleInSupabase(
   transno: string,
   actionBy: string
-): Promise<{ transno: string; stamp: string }> {
+): Promise<{
+  transno: string
+  is_deleted: boolean
+  status: "Active"
+  stamp: string
+  stampAction: string
+  stampUser: string
+  stampDate: string
+}> {
   const code = String(transno).trim().toUpperCase()
 
   const dateStr = formatStampDateTime(new Date())
@@ -3939,7 +4004,15 @@ export async function restoreSaleInSupabase(
     action_by: actionBy,
   }).catch(() => {})
 
-  return { transno: code, stamp }
+  return {
+    transno: code,
+    is_deleted: false,
+    status: "Active",
+    stamp,
+    stampAction: "RESTORED",
+    stampUser: actionBy,
+    stampDate: dateStr,
+  }
 }
 
 // ============================================================================
