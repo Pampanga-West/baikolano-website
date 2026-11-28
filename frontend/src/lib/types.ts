@@ -311,5 +311,51 @@ export interface UpdateJobHistoryPayload {
   salary?: number | string
 }
 
+// Sprint 4 Sales Transaction Types (S4-DEV-01)
+export interface SaleHeader {
+  transno: string
+  salesdate: string
+  custno: string
+  empno: string
+  total?: number
+  formattedTotal?: string
+  customer?: string
+  salesperson?: string
+  is_deleted?: boolean
+  status?: "Active" | "Inactive"
+  stamp?: string
+  stampAction?: string
+  stampUser?: string
+  stampDate?: string
+}
+
+export interface CreateSalePayload {
+  transno?: string
+  salesdate: string
+  custno: string
+  empno: string
+}
+
+export interface CustomerOption {
+  custno: string
+  custname: string
+  label: string
+}
+
+export interface SalespersonOption {
+  empno: string
+  firstname: string
+  lastname: string
+  label: string
+}
+
+export interface SalesQueryParams {
+  search?: string
+  status?: "active" | "inactive" | "all"
+  customer?: string
+  salesperson?: string
+}
+
+
 
 
