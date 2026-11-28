@@ -1005,6 +1005,7 @@ export interface ProductFilterParams {
   search?: string
   status?: "active" | "inactive" | "all"
   unit?: string
+  asOfDate?: string
 }
 
 export async function fetchProductsFromSupabase(
@@ -1020,16 +1021,26 @@ export async function fetchProductsFromSupabase(
     postgrestFetch<Record<string, any>[]>(`/pricehist?select=*&order=effdate.desc&limit=2000`).catch(() => []),
   ])
 
-  // Derive latest active price per product
-  const latestPriceMap = new Map<string, { num: number; formatted: string }>()
-  for (const pr of priceRows) {
+  // Derive latest active price per product effective on or before asOfDate (chronological)
+  const asOf = params.asOfDate || new Date().toISOString().split("T")[0]
+  const sortedPriceRows = [...priceRows].sort((a, b) =>
+    String(b.effdate ?? "").localeCompare(String(a.effdate ?? ""))
+  )
+
+  const latestPriceMap = new Map<string, { num: number; formatted: string; effdate: string }>()
+  for (const pr of sortedPriceRows) {
     if (pr.is_deleted) continue
+    const eff = String(pr.effdate ?? "").trim()
+    // Enforce effective date: only prices effective on or prior to asOf date represent current active price
+    if (eff > asOf) continue
+
     const code = String(pr.prodcode ?? "").trim()
     if (!latestPriceMap.has(code) && pr.unitprice !== undefined && pr.unitprice !== null) {
       const num = Number(pr.unitprice)
       latestPriceMap.set(code, {
         num,
         formatted: formatMoney(num),
+        effdate: eff,
       })
     }
   }
@@ -1067,29 +1078,40 @@ export async function fetchProductsFromSupabase(
         ...r,
         price: priceInfo ? priceInfo.formatted : "—",
         numericPrice: priceInfo ? priceInfo.num : null,
+        currentEffDate: priceInfo ? priceInfo.effdate : null,
       }
     })
 }
 
 export async function fetchProductByProdcodeFromSupabase(
-  prodcode: string
+  prodcode: string,
+  asOfDate?: string
 ): Promise<Record<string, any> | null> {
   const [prodRows, priceRows] = await Promise.all([
     postgrestFetch<Record<string, any>[]>(`/product?prodcode=eq.${encodeURIComponent(prodcode)}&limit=1`),
     postgrestFetch<Record<string, any>[]>(
-      `/pricehist?prodcode=eq.${encodeURIComponent(prodcode)}&order=effdate.desc&limit=10`
+      `/pricehist?prodcode=eq.${encodeURIComponent(prodcode)}&order=effdate.desc&limit=20`
     ).catch(() => []),
   ])
 
   const row = prodRows[0]
   if (!row) return null
 
+  const asOf = asOfDate || new Date().toISOString().split("T")[0]
+  const sortedPriceRows = [...priceRows].sort((a, b) =>
+    String(b.effdate ?? "").localeCompare(String(a.effdate ?? ""))
+  )
+
   let latestPrice = "—"
   let numericPrice: number | null = null
-  for (const pr of priceRows) {
-    if (!pr.is_deleted && pr.unitprice !== undefined && pr.unitprice !== null) {
+  let currentEffDate: string | null = null
+
+  for (const pr of sortedPriceRows) {
+    const eff = String(pr.effdate ?? "").trim()
+    if (!pr.is_deleted && eff <= asOf && pr.unitprice !== undefined && pr.unitprice !== null) {
       numericPrice = Number(pr.unitprice)
       latestPrice = formatMoney(numericPrice)
+      currentEffDate = eff
       break
     }
   }
@@ -1098,6 +1120,7 @@ export async function fetchProductByProdcodeFromSupabase(
     ...row,
     price: latestPrice,
     numericPrice,
+    currentEffDate,
   }
 }
 
