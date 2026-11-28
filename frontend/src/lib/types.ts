@@ -498,3 +498,37 @@ export interface JobHistoryReportItem {
   salaryNum: number
 }
 
+export interface TopCustomerReportItem {
+  rank: number
+  custno: string
+  custname: string
+  totalSales: string
+  totalSalesNum: number
+}
+
+export interface TopProductReportItem {
+  rank: number
+  prodcode: string
+  description: string
+  qtySold: number
+  salesAmount: string
+  salesAmountNum: number
+}
+
+export interface TopSalesReportItem {
+  rank: number
+  transno: string
+  salesdate: string
+  customer: string
+  employee: string
+  total: string
+  totalNum: number
+}
+
+export interface SalesReportQueryParams {
+  fromDate?: string
+  toDate?: string
+  topN?: number | string
+}
+
+

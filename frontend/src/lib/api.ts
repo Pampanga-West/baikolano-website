@@ -45,6 +45,7 @@ import {
   type CustomerBalanceSummary,
   type ReportKey,
   type ReportResult,
+  type SalesReportQueryParams,
 } from "./types"
 
 // Automatically install global in-browser mock server interceptor
@@ -1328,6 +1329,33 @@ export const reportsApi = {
   getJobHistoryReport: (empno?: string): Promise<ReportResult> => {
     const q = empno && empno !== "ALL" ? `?empno=${encodeURIComponent(empno)}` : ""
     return apiFetch<ReportResult>(`/api/reports/employee-job-history${q}`)
+  },
+
+  getTopCustomersReport: (params?: SalesReportQueryParams): Promise<ReportResult> => {
+    const q = new URLSearchParams()
+    if (params?.fromDate) q.set("fromDate", params.fromDate)
+    if (params?.toDate) q.set("toDate", params.toDate)
+    if (params?.topN) q.set("topN", String(params.topN))
+    const qs = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<ReportResult>(`/api/reports/top-customers${qs}`)
+  },
+
+  getTopProductsReport: (params?: SalesReportQueryParams): Promise<ReportResult> => {
+    const q = new URLSearchParams()
+    if (params?.fromDate) q.set("fromDate", params.fromDate)
+    if (params?.toDate) q.set("toDate", params.toDate)
+    if (params?.topN) q.set("topN", String(params.topN))
+    const qs = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<ReportResult>(`/api/reports/top-products${qs}`)
+  },
+
+  getTopSalesReport: (params?: SalesReportQueryParams): Promise<ReportResult> => {
+    const q = new URLSearchParams()
+    if (params?.fromDate) q.set("fromDate", params.fromDate)
+    if (params?.toDate) q.set("toDate", params.toDate)
+    if (params?.topN) q.set("topN", String(params.topN))
+    const qs = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<ReportResult>(`/api/reports/top-sales${qs}`)
   },
 
   getReport: (key: ReportKey, params?: Record<string, string>): Promise<ReportResult> => {
