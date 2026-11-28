@@ -13,6 +13,7 @@ import { useAuth } from "../contexts/AuthContext"
 import DepartmentModal from "../components/DepartmentModal"
 import JobModal from "../components/JobModal"
 import EmployeeModal from "../components/EmployeeModal"
+import EmployeeProfileModal from "../components/EmployeeProfileModal"
 import JobHistoryModal from "../components/JobHistoryModal"
 import Badge from "../components/Badge"
 import BlockedDeleteModal from "../components/BlockedDeleteModal"
@@ -396,6 +397,7 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
   const [filter, setFilter] = useState("active")
   const [search, setSearch] = useState("")
   const [employeeForm, setEmployeeForm] = useState<any | "new" | null>(null)
+  const [profileEmployee, setProfileEmployee] = useState<string[] | null>(null)
   const [historyEmployee, setHistoryEmployee] = useState<string[] | null>(null)
   const [historyRight, setHistoryRight] = useState(true)
   const [deletingEmployee, setDeletingEmployee] = useState<string[] | null>(null)
@@ -1172,9 +1174,35 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
                         className={row[7] === "Inactive" ? "inactive-row" : ""}
                         key={row[0]}
                       >
-                        <td className="code-cell">{row[0]}</td>
+                        <td
+                          className="code-cell"
+                          onClick={() => setProfileEmployee(row)}
+                          style={{ cursor: "pointer" }}
+                          title="Click to view Employee Profile"
+                        >
+                          <span style={{ color: "var(--primary, #2563eb)", textDecoration: "underline" }}>
+                            {row[0]}
+                          </span>
+                        </td>
                         <td>
-                          <b className="record-name">{row[1]}</b>
+                          <button
+                            type="button"
+                            className="link-button"
+                            onClick={() => setProfileEmployee(row)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              padding: 0,
+                              font: "inherit",
+                              fontWeight: 600,
+                              color: "var(--color-primary-text, inherit)",
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                            title="Click to view Employee Profile"
+                          >
+                            <b className="record-name">{row[1]}</b>
+                          </button>
                         </td>
                         <td>{row[2]}</td>
                         <td>
@@ -1222,6 +1250,12 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
                                 )
                               ) : (
                                 <>
+                                  <button
+                                    onClick={() => setProfileEmployee(row)}
+                                    title="View Employee Profile with Career Progression Timeline"
+                                  >
+                                    Profile
+                                  </button>
                                   {historyRight && (
                                     <button
                                       onClick={() => setHistoryEmployee(row)}
@@ -1329,6 +1363,37 @@ export default function HumanResourcesPage({ role }: { role: Role }) {
             if (msg) setSuccess(msg)
             setEmployeeForm(null)
             loadData()
+          }}
+        />
+      )}
+      {profileEmployee && (
+        <EmployeeProfileModal
+          role={role}
+          employee={profileEmployee}
+          canViewSalary={isSuperadmin || isAdminRole || historyRight || hasRight("view job history")}
+          canEditEmployee={canEditEmployee}
+          canManageHistory={isSuperadmin || isAdminRole || hasRight("edit") || hasRight("add")}
+          close={() => setProfileEmployee(null)}
+          onOpenEdit={() => {
+            const target = profileEmployee
+            setProfileEmployee(null)
+            setEmployeeForm({
+              empno: target[0],
+              lastname: target[1],
+              firstname: target[2],
+              gender: target[3],
+              birthdate: target[4],
+              hiredate: target[5],
+              sepdate: target[6] === "—" || target[6] === "â€”" ? "" : target[6],
+              status: target[7],
+              currentDept: target[11],
+              currentJob: target[12],
+            })
+          }}
+          onOpenHistory={() => {
+            const target = profileEmployee
+            setProfileEmployee(null)
+            setHistoryEmployee(target)
           }}
         />
       )}
