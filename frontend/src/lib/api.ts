@@ -18,6 +18,14 @@ import {
   type CreateProductPayload,
   type UpdateProductPayload,
   type PriceHistoryRecord,
+  type Department,
+  type DepartmentQueryParams,
+  type CreateDepartmentPayload,
+  type UpdateDepartmentPayload,
+  type Job,
+  type JobQueryParams,
+  type CreateJobPayload,
+  type UpdateJobPayload,
 } from "./types"
 
 // Automatically install global in-browser mock server interceptor
@@ -812,6 +820,98 @@ export const departmentApi = {
     )
   },
 }
+
+// ============================================================================
+// Job Master Data APIs (Sprint 3 — S3-DEV-02)
+// ============================================================================
+
+export const jobApi = {
+  /**
+   * Fetches the job directory with optional search and status filtering.
+   * Endpoint: GET /api/jobs
+   */
+  listJobs: (
+    params: JobQueryParams = {}
+  ): Promise<Job[]> => {
+    const q = new URLSearchParams()
+    if (params.search) q.set("search", params.search)
+    if (params.status) q.set("status", params.status)
+    const queryString = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<Job[]>(`/api/jobs${queryString}`)
+  },
+
+  /**
+   * Fetches a single job by code.
+   * Endpoint: GET /api/jobs/:jobcode
+   */
+  getJob: (jobcode: string): Promise<Job> => {
+    return apiFetch<Job>(`/api/jobs/${encodeURIComponent(jobcode)}`)
+  },
+
+  /**
+   * Creates a new job record.
+   * Server-side permission check: requires Job - Add (or Admin/Superadmin).
+   * Endpoint: POST /api/jobs
+   */
+  createJob: (
+    data: CreateJobPayload
+  ): Promise<Job> => {
+    return apiFetch<Job>("/api/jobs", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * Updates an existing job title / description.
+   * Server-side permission check: requires Job - Edit (or Admin/Superadmin).
+   * Endpoint: PUT /api/jobs/:jobcode
+   */
+  updateJob: (
+    jobcode: string,
+    data: UpdateJobPayload
+  ): Promise<Job> => {
+    return apiFetch<Job>(
+      `/api/jobs/${encodeURIComponent(jobcode)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }
+    )
+  },
+
+  /**
+   * Soft-deletes a job record (sets is_deleted = true).
+   * Validates child employee references; returns 409 if active employees reference it.
+   * Server-side permission check: requires Job - Delete (or Admin/Superadmin).
+   * Endpoint: DELETE /api/jobs/:jobcode
+   */
+  deleteJob: (
+    jobcode: string
+  ): Promise<{ message: string; blocked?: boolean; reason?: string }> => {
+    return apiFetch<{ message: string; blocked?: boolean; reason?: string }>(
+      `/api/jobs/${encodeURIComponent(jobcode)}`,
+      {
+        method: "DELETE",
+      }
+    )
+  },
+
+  /**
+   * Restores a soft-deleted job record (sets is_deleted = false).
+   * Server-side permission check: requires Job - Edit (or Admin/Superadmin).
+   * Endpoint: POST /api/jobs/:jobcode/restore
+   */
+  restoreJob: (jobcode: string): Promise<{ message: string }> => {
+    return apiFetch<{ message: string }>(
+      `/api/jobs/${encodeURIComponent(jobcode)}/restore`,
+      {
+        method: "POST",
+      }
+    )
+  },
+}
+
 
 // ============================================================================
 // Table Editor APIs (Superadmin Only — All Public Tables Except app_user)

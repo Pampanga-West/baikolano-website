@@ -205,4 +205,30 @@ export interface UpdateDepartmentPayload {
   deptname: string
 }
 
+// Sprint 3 Job Types (S3-DEV-02)
+export interface Job {
+  jobcode: string
+  jobdesc: string
+  is_deleted: boolean
+  status: "Active" | "Inactive"
+  stamp?: string
+  stampAction?: string
+  stampUser?: string
+  stampDate?: string
+}
+
+export interface JobQueryParams {
+  search?: string
+  status?: "active" | "inactive" | "all"
+}
+
+export interface CreateJobPayload {
+  jobcode?: string
+  jobdesc: string
+}
+
+export interface UpdateJobPayload {
+  jobdesc: string
+}
+
 
