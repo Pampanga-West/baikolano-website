@@ -1387,12 +1387,19 @@ export async function fetchProductByProdcodeFromSupabase(
 
 export async function checkProductHasActiveSalesLines(
   prodcode: string
-): Promise<{ hasActiveSales: boolean; salesCount: number; hasActivePrices: boolean; priceCount: number }> {
+): Promise<{
+  hasActiveSales: boolean
+  salesCount: number
+  salesdetailCount: number
+  hasActivePrices: boolean
+  priceCount: number
+}> {
   try {
     if (prodcode === "P-001") {
       return {
         hasActiveSales: true,
         salesCount: 3,
+        salesdetailCount: 3,
         hasActivePrices: true,
         priceCount: 1,
       }
@@ -1413,11 +1420,18 @@ export async function checkProductHasActiveSalesLines(
     return {
       hasActiveSales: activeSales.length > 0,
       salesCount: activeSales.length,
+      salesdetailCount: activeSales.length,
       hasActivePrices: activePrices.length > 0,
       priceCount: activePrices.length,
     }
   } catch {
-    return { hasActiveSales: false, salesCount: 0, hasActivePrices: false, priceCount: 0 }
+    return {
+      hasActiveSales: false,
+      salesCount: 0,
+      salesdetailCount: 0,
+      hasActivePrices: false,
+      priceCount: 0,
+    }
   }
 }
 
