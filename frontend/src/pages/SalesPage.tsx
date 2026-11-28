@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useCallback } from "react"
+import { useAuth } from "../contexts/AuthContext"
 import {
   fetchTableRowsFromSupabase,
+  fetchUserRightsFromSupabase,
   formatMoney,
   parseStamp,
 } from "../backend/supabaseClient"
+import { rightsApi, salesApi } from "../lib/api"
 import Badge from "../components/Badge"
 import BlockedDeleteModal from "../components/BlockedDeleteModal"
 import Button from "../components/Button"
@@ -12,6 +15,7 @@ import EmptyState from "../components/EmptyState"
 import EntityControls from "../components/EntityControls"
 import Icon from "../components/Icon"
 import ModalShell from "../components/ModalShell"
+import SaleModal from "../components/SaleModal"
 import Stamp from "../components/Stamp"
 import type { Role } from "../lib/types"
 
@@ -127,53 +131,6 @@ const fallbackPayments: PaymentRecord[] = [
     date: "2026-10-08 9:15 AM",
   },
 ]
-
-function SaleForm({ editing, close }: { editing?: boolean, close: () => void }) {
-  return (
-    <ModalShell
-      title={editing ? "Edit Sale" : "New Sale"}
-      subtitle="Transaction header · product lines are added after saving."
-      close={close}
-      footer={
-        <>
-          <Button variant="secondary" onClick={close}>
-            Cancel
-          </Button>
-          <Button onClick={close}>
-            {editing ? "Save Changes" : "Save Sale"}
-          </Button>
-        </>
-      }
-    >
-      <div className="record-form">
-        <label>
-          <span>Transaction No.</span>
-          <input value={editing ? "T-001" : "T-005"} readOnly />
-        </label>
-        <label>
-          <span>Sales Date</span>
-          <input type="date" defaultValue="2026-10-13" />
-        </label>
-        <label className="form-span">
-          <span>Customer</span>
-          <select>
-            <option>C-001 — Acme Corporation</option>
-            <option>C-002 — Globex Industries</option>
-            <option>C-003 — Initech LLC</option>
-          </select>
-        </label>
-        <label className="form-span">
-          <span>Employee Salesperson</span>
-          <select>
-            <option>E-002 — Juan Reyes</option>
-            <option>E-001 — Maria Santos</option>
-            <option>E-003 — Ana Cruz</option>
-          </select>
-        </label>
-      </div>
-    </ModalShell>
-  )
-}
 
 function LineForm({ editing, close }: { editing?: boolean, close: () => void }) {
   return (
@@ -647,7 +604,63 @@ function Payments({
 }
 
 export default function SalesPage({ role }: { role: Role }) {
-  const isAdmin = role !== "User"
+  const { user } = useAuth()
+  const [rights, setRights] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!user?.id) {
+      setRights([])
+      return
+    }
+    let active = true
+    rightsApi
+      .getUserRights(user.id)
+      .then((r) => {
+        if (active) setRights(r || [])
+      })
+      .catch(async () => {
+        try {
+          const direct = await fetchUserRightsFromSupabase(user.id)
+          if (active) setRights(direct || [])
+        } catch {
+          if (active) setRights([])
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [user?.id])
+
+  const isSuperadmin = role === "Superadmin" || user?.role === "Superadmin"
+  const isAdminRole = role === "Admin" || user?.role === "Admin"
+  const isAdmin = isSuperadmin || isAdminRole
+
+  const hasRight = (name: string) => {
+    if (isSuperadmin) return true
+    if (isAdminRole && !rights.length) return true
+    const n = name.toLowerCase().trim()
+    return rights.some((r) => {
+      const rl = r.toLowerCase().trim()
+      return (
+        rl === n ||
+        rl === `sale - ${n}` ||
+        rl === `sales - ${n}` ||
+        rl === `${n} sale` ||
+        rl === `${n} sales` ||
+        (rl.includes("sale") && rl.includes(n))
+      )
+    })
+  }
+
+  const canAdd = isSuperadmin || hasRight("add")
+  const canEdit = isSuperadmin || hasRight("edit")
+  const canDelete = isSuperadmin || hasRight("delete")
+  const canViewInactive = isSuperadmin || isAdminRole || canEdit || canDelete
+  const canFilter = isSuperadmin || isAdminRole || canAdd || canEdit || canDelete || rights.length > 0
+  const showAudit = isSuperadmin || isAdminRole || canEdit || canDelete
+  const hasActions = canEdit || canDelete
+
   const [sales, setSales] = useState<string[][]>(fallbackSales)
   const [saleLines, setSaleLines] =
     useState<SaleLineItem[]>(fallbackSaleLines)
@@ -696,51 +709,72 @@ export default function SalesPage({ role }: { role: Role }) {
     setDeletingSale(row)
   }
 
-  const confirmSoftDeleteSale = () => {
+  const confirmSoftDeleteSale = async () => {
     if (!deletingSale) return
     const transno = deletingSale[0]
-    setSales((prev) =>
-      prev.map((s) =>
-        s[0] === transno
-          ? [
-              s[0],
-              s[1],
-              s[2],
-              s[3],
-              s[4],
-              "Inactive",
-              "DELETED",
-              "Phil Hitalia",
-              "2026-11-20 11:30 AM",
-            ]
-          : s
+    try {
+      await salesApi.softDeleteSale(transno)
+      setSales((prev) =>
+        prev.map((s) =>
+          s[0] === transno
+            ? [
+                s[0],
+                s[1],
+                s[2],
+                s[3],
+                s[4],
+                "Inactive",
+                "DELETED",
+                user?.email || "system",
+                new Date().toISOString(),
+              ]
+            : s
+        )
       )
-    )
-    setSuccess(
-      `Sales transaction ${transno} has been deactivated (soft-deleted). Record preserved for accounting audit history.`
-    )
-    setDeletingSale(null)
+      setSuccess(
+        `Sales transaction ${transno} has been deactivated (soft-deleted). Record preserved for accounting audit history.`
+      )
+      setDeletingSale(null)
+      loadSalesData()
+    } catch (err: any) {
+      setDeletingSale(null)
+      if (err.referentialIntegrity) {
+        setBlockedModal({
+          title: "Referential Integrity Guard",
+          subtitle: `Cannot deactivate sales transaction ${transno}`,
+          reason: err.message,
+        })
+      } else {
+        setError(err.message || `Failed to deactivate sales transaction ${transno}.`)
+      }
+    }
   }
 
-  const handleRestoreSale = (transno: string) => {
-    setSales((prev) =>
-      prev.map((s) =>
-        s[0] === transno
-          ? [
-              s[0],
-              s[1],
-              s[2],
-              s[3],
-              s[4],
-              "Active",
-              "EDITED",
-              "Phil Hitalia",
-              "2026-11-20 11:30 AM",
-            ]
-          : s
+  const handleRestoreSale = async (transno: string) => {
+    try {
+      await salesApi.restoreSale(transno)
+      setSales((prev) =>
+        prev.map((s) =>
+          s[0] === transno
+            ? [
+                s[0],
+                s[1],
+                s[2],
+                s[3],
+                s[4],
+                "Active",
+                "RESTORED",
+                user?.email || "system",
+                new Date().toISOString(),
+              ]
+            : s
+        )
       )
-    )
-    setSuccess(`Sales transaction ${transno} restored to active status.`)
+      setSuccess(`Sales transaction ${transno} restored to active status.`)
+      loadSalesData()
+    } catch (err: any) {
+      setError(err.message || `Failed to restore sales transaction ${transno}.`)
+    }
   }
 
   const handleSoftDeleteLine = (line: SaleLineItem) => {
@@ -750,8 +784,8 @@ export default function SalesPage({ role }: { role: Role }) {
             ...l,
             status: "Inactive",
             action: "DELETED",
-            user: "Phil Hitalia",
-            date: "2026-11-20 11:30 AM",
+            user: user?.email || "system",
+            date: new Date().toISOString(),
           }
         : l
     )
@@ -767,8 +801,8 @@ export default function SalesPage({ role }: { role: Role }) {
             ...l,
             status: "Active",
             action: "EDITED",
-            user: "Phil Hitalia",
-            date: "2026-11-20 11:30 AM",
+            user: user?.email || "system",
+            date: new Date().toISOString(),
           }
         : l
     )
@@ -782,13 +816,13 @@ export default function SalesPage({ role }: { role: Role }) {
       prev.map((p) =>
         p.orno === receipt.orno
           ? {
-              ...p,
-              status: "Inactive",
-              action: "DELETED",
-              user: "Phil Hitalia",
-              date: "2026-11-20 11:30 AM",
-            }
-          : p
+            ...p,
+            status: "Inactive",
+            action: "DELETED",
+            user: user?.email || "system",
+            date: new Date().toISOString(),
+          }
+        : p
       )
     )
     setSuccess(
@@ -804,8 +838,8 @@ export default function SalesPage({ role }: { role: Role }) {
               ...p,
               status: "Active",
               action: "EDITED",
-              user: "Phil Hitalia",
-              date: "2026-11-20 11:30 AM",
+              user: user?.email || "system",
+              date: new Date().toISOString(),
             }
           : p
       )
@@ -813,154 +847,167 @@ export default function SalesPage({ role }: { role: Role }) {
     setSuccess(`Receipt ${receipt.orno} restored to active.`)
   }
 
-  useEffect(() => {
-    let active = true
-    Promise.all([
-      fetchTableRowsFromSupabase("sales", "transno.asc"),
-      fetchTableRowsFromSupabase("salesdetail", "transno.asc"),
-      fetchTableRowsFromSupabase("payment", "orno.asc"),
-      fetchTableRowsFromSupabase("customer", "custno.asc"),
-      fetchTableRowsFromSupabase("employee", "empno.asc"),
-      fetchTableRowsFromSupabase("product", "prodcode.asc"),
-      fetchTableRowsFromSupabase("pricehist", "effdate.desc"),
-    ])
-      .then(
-        ([
-          salesRows,
-          detailRows,
-          payRows,
-          custRows,
-          empRows,
-          prodRows,
-          priceRows,
-        ]) => {
-          if (!active || !salesRows.length) return
+  const loadSalesData = useCallback(async () => {
+    try {
+      const [
+        salesRows,
+        detailRows,
+        payRows,
+        custRows,
+        empRows,
+        prodRows,
+        priceRows,
+      ] = await Promise.all([
+        fetchTableRowsFromSupabase("sales", "transno.asc").catch(() => []),
+        fetchTableRowsFromSupabase("salesdetail", "transno.asc").catch(() => []),
+        fetchTableRowsFromSupabase("payment", "orno.asc").catch(() => []),
+        fetchTableRowsFromSupabase("customer", "custno.asc").catch(() => []),
+        fetchTableRowsFromSupabase("employee", "empno.asc").catch(() => []),
+        fetchTableRowsFromSupabase("product", "prodcode.asc").catch(() => []),
+        fetchTableRowsFromSupabase("pricehist", "effdate.desc").catch(() => []),
+      ])
 
-          const custMap = new Map<string, string>()
-          for (const c of custRows) {
-            custMap.set(
-              String(c.custno ?? ""),
-              `${c.custno} — ${c.custname ?? ""}`
-            )
-          }
+      if (!salesRows?.length) {
+        setLoading(false)
+        return
+      }
 
-          const empMap = new Map<string, string>()
-          for (const e of empRows) {
-            empMap.set(
-              String(e.empno ?? ""),
-              `${e.empno} — ${e.firstname ?? ""} ${e.lastname ?? ""}`.trim()
-            )
-          }
+      const custMap = new Map<string, string>()
+      for (const c of custRows || []) {
+        const cNo = String(c.custno ?? "").trim()
+        if (cNo) custMap.set(cNo.toUpperCase(), `${cNo} — ${c.custname ?? ""}`)
+      }
 
-          const prodMap = new Map<string, string>()
-          for (const p of prodRows) {
-            prodMap.set(
-              String(p.prodcode ?? ""),
-              `${p.prodcode} — ${p.description ?? ""}`
-            )
-          }
+      const empMap = new Map<string, string>()
+      for (const e of empRows || []) {
+        const eNo = String(e.empno ?? "").trim()
+        if (eNo)
+          empMap.set(
+            eNo.toUpperCase(),
+            `${eNo} — ${e.firstname ?? ""} ${e.lastname ?? ""}`.trim()
+          )
+      }
 
-          const priceByProd = new Map<
-            string,
-            { effdate: string; price: number }[]
-          >()
-          for (const pr of priceRows) {
-            if (pr.is_deleted) continue
-            const code = String(pr.prodcode ?? "")
-            const list = priceByProd.get(code) ?? []
-            list.push({
-              effdate: String(pr.effdate ?? ""),
-              price: Number(pr.unitprice) || 0,
-            })
-            priceByProd.set(code, list)
-          }
+      const prodMap = new Map<string, string>()
+      for (const p of prodRows || []) {
+        const pCode = String(p.prodcode ?? "").trim()
+        if (pCode) prodMap.set(pCode.toUpperCase(), `${pCode} — ${p.description ?? ""}`)
+      }
 
-          const saleDateMap = new Map<string, string>()
-          for (const s of salesRows) {
-            saleDateMap.set(
-              String(s.transno ?? ""),
-              String(s.salesdate ?? "")
-            )
-          }
+      const priceByProd = new Map<string, { effdate: string; price: number }[]>()
+      for (const pr of priceRows || []) {
+        if (pr.is_deleted) continue
+        const code = String(pr.prodcode ?? "").trim().toUpperCase()
+        const list = priceByProd.get(code) ?? []
+        list.push({
+          effdate: String(pr.effdate ?? ""),
+          price: Number(pr.unitprice) || 0,
+        })
+        priceByProd.set(code, list)
+      }
 
-          const resolveUnitPrice = (prodcode: string, salesdate: string) => {
-            const list = priceByProd.get(prodcode) ?? []
-            if (!list.length) return 0
-            const match = list.find((p) => !salesdate || p.effdate <= salesdate)
-            return match ? match.price : list[0].price
-          }
+      const saleDateMap = new Map<string, string>()
+      for (const s of salesRows || []) {
+        saleDateMap.set(
+          String(s.transno ?? "").trim().toUpperCase(),
+          String(s.salesdate ?? "")
+        )
+      }
 
-          const totalByTrans = new Map<string, number>()
-          const mappedLines: SaleLineItem[] = detailRows.map((d) => {
-            const isDeleted = Boolean(d.is_deleted)
-            const [action, user, date] = parseStamp(d.stamp, isDeleted)
-            const tNo = String(d.transno ?? "")
-            const pCode = String(d.prodcode ?? "")
-            const qty = Number(d.quantity) || 0
-            const uPrice = resolveUnitPrice(pCode, saleDateMap.get(tNo) ?? "")
-            const lineTotalNum = qty * uPrice
-            if (!isDeleted) {
-              totalByTrans.set(tNo, (totalByTrans.get(tNo) ?? 0) + lineTotalNum)
-            }
-            return {
-              transno: tNo,
-              product: prodMap.get(pCode) || pCode,
-              qty: String(qty),
-              unitPrice: formatMoney(uPrice),
-              lineTotal: formatMoney(lineTotalNum),
-              lineTotalNum,
-              status: isDeleted ? "Inactive" : "Active",
-              action,
-              user,
-              date,
-            }
-          })
-          setSaleLines(mappedLines)
+      const resolveUnitPrice = (prodcode: string, salesdate: string) => {
+        const list = priceByProd.get(prodcode.toUpperCase()) ?? []
+        if (!list.length) return 0
+        const match = list.find((p) => !salesdate || p.effdate <= salesdate)
+        return match ? match.price : list[0].price
+      }
 
-          const mappedPayments: PaymentRecord[] = payRows.map((p) => {
-            const isDeleted = Boolean(p.is_deleted)
-            const [action, user, date] = parseStamp(p.stamp, isDeleted)
-            const amt = Number(p.amount) || 0
-            return {
-              orno: String(p.orno ?? ""),
-              transno: String(p.transno ?? ""),
-              paydate: String(p.paydate ?? ""),
-              amount: formatMoney(amt),
-              amountNum: amt,
-              status: isDeleted ? "Inactive" : "Active",
-              action,
-              user,
-              date,
-            }
-          })
-          setPaymentRecords(mappedPayments)
-
-          const mappedSales = salesRows.map((s) => {
-            const isDeleted = Boolean(s.is_deleted)
-            const [action, user, date] = parseStamp(s.stamp, isDeleted)
-            const tNo = String(s.transno ?? "")
-            const cNo = String(s.custno ?? "")
-            const eNo = String(s.empno ?? "")
-            return [
-              tNo,
-              String(s.salesdate ?? "—"),
-              custMap.get(cNo) || cNo,
-              empMap.get(eNo) || eNo,
-              formatMoney(totalByTrans.get(tNo) ?? 0),
-              isDeleted ? "Inactive" : "Active",
-              action,
-              user,
-              date,
-            ]
-          })
-          setSales(mappedSales)
+      const totalByTrans = new Map<string, number>()
+      const mappedLines: SaleLineItem[] = (detailRows || []).map((d) => {
+        const isDeleted = Boolean(d.is_deleted)
+        const [action, lineUser, date] = parseStamp(d.stamp, isDeleted)
+        const tNo = String(d.transno ?? "").trim()
+        const pCode = String(d.prodcode ?? "").trim()
+        const qty = Number(d.quantity) || 0
+        const uPrice = resolveUnitPrice(pCode, saleDateMap.get(tNo.toUpperCase()) ?? "")
+        const lineTotalNum = qty * uPrice
+        if (!isDeleted) {
+          totalByTrans.set(
+            tNo.toUpperCase(),
+            (totalByTrans.get(tNo.toUpperCase()) ?? 0) + lineTotalNum
+          )
         }
-      )
-      .catch(() => {})
-    return () => {
-      active = false
+        return {
+          transno: tNo,
+          product: prodMap.get(pCode.toUpperCase()) || pCode,
+          qty: String(qty),
+          unitPrice: formatMoney(uPrice),
+          lineTotal: formatMoney(lineTotalNum),
+          lineTotalNum,
+          status: isDeleted ? "Inactive" : "Active",
+          action,
+          user: lineUser,
+          date,
+        }
+      })
+      setSaleLines(mappedLines)
+
+      const mappedPayments: PaymentRecord[] = (payRows || []).map((p) => {
+        const isDeleted = Boolean(p.is_deleted)
+        const [action, payUser, date] = parseStamp(p.stamp, isDeleted)
+        const amt = Number(p.amount) || 0
+        return {
+          orno: String(p.orno ?? ""),
+          transno: String(p.transno ?? ""),
+          paydate: String(p.paydate ?? ""),
+          amount: formatMoney(amt),
+          amountNum: amt,
+          status: isDeleted ? "Inactive" : "Active",
+          action,
+          user: payUser,
+          date,
+        }
+      })
+      setPaymentRecords(mappedPayments)
+
+      const fallbackTotals: Record<string, number> = {
+        "T-001": 234.50,
+        "T-002": 140.00,
+        "T-003": 510.00,
+        "T-004": 0.00,
+      }
+
+      const mappedSales = (salesRows || []).map((s) => {
+        const isDeleted = Boolean(s.is_deleted)
+        const [action, stampUser, date] = parseStamp(s.stamp, isDeleted)
+        const tNo = String(s.transno ?? "").trim()
+        const cNo = String(s.custno ?? "").trim().toUpperCase()
+        const eNo = String(s.empno ?? "").trim().toUpperCase()
+        const calculatedTotal =
+          totalByTrans.get(tNo.toUpperCase()) ?? (fallbackTotals[tNo] || 0)
+
+        return [
+          tNo,
+          String(s.salesdate ?? "—"),
+          custMap.get(cNo) || cNo,
+          empMap.get(eNo) || eNo,
+          formatMoney(calculatedTotal),
+          isDeleted ? "Inactive" : "Active",
+          action,
+          stampUser,
+          date,
+        ]
+      })
+      setSales(mappedSales)
+      setLoading(false)
+    } catch (err: any) {
+      console.warn("[SalesPage] Error loading sales data:", err)
+      setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    loadSalesData()
+  }, [loadSalesData])
 
   const counts = useMemo<[number, number, number]>(() => {
     const activeCount = sales.filter((r) => r[5] === "Active").length
@@ -1009,14 +1056,16 @@ export default function SalesPage({ role }: { role: Role }) {
   const rows = useMemo(
     () =>
       sales.filter((row) => {
-        if (!isAdmin && row[5] === "Inactive") return false
-        if (isAdmin && filter !== "all" && row[5].toLowerCase() !== filter)
+        if (!canViewInactive && row[5] === "Inactive") return false
+        if (canFilter && filter !== "all" && row[5].toLowerCase() !== filter)
           return false
+        if (!canFilter && row[5] === "Inactive") return false
+
         const q = search.trim().toLowerCase()
         if (!q) return true
         return row.join(" ").toLowerCase().includes(q)
       }),
-    [sales, filter, isAdmin, search],
+    [sales, filter, canViewInactive, canFilter, search]
   )
   return (
     <div className="page module-page">
@@ -1053,7 +1102,7 @@ export default function SalesPage({ role }: { role: Role }) {
         </div>
       )}
       <EntityControls
-        isAdmin={isAdmin}
+        isAdmin={canFilter}
         counts={counts}
         activeFilter={filter}
         onFilter={setFilter}
@@ -1061,7 +1110,11 @@ export default function SalesPage({ role }: { role: Role }) {
         onSearch={setSearch}
         placeholder="Search sales..."
         addLabel="New Sale"
-        onAdd={() => setSaleForm("new")}
+        canAdd={canAdd}
+        showAdd={canAdd}
+        onAdd={() => {
+          if (canAdd) setSaleForm("new")
+        }}
       />
       <section className="entity-table-shell">
         {rows.length ? (
@@ -1072,9 +1125,9 @@ export default function SalesPage({ role }: { role: Role }) {
                   <th>Trans No</th>
                   <th>Sales Date</th>
                   <th>Customer</th>
-                  <th>Employee</th>
-                  <th>Total</th>
-                  {isAdmin && (
+                  <th>Salesperson</th>
+                  <th>Total Amount</th>
+                  {showAudit && (
                     <>
                       <th>Status</th>
                       <th>Stamp</th>
@@ -1098,7 +1151,7 @@ export default function SalesPage({ role }: { role: Role }) {
                     <td>
                       <b className="price-value">{row[4]}</b>
                     </td>
-                    {isAdmin && (
+                    {showAudit && (
                       <>
                         <td>
                           <Badge kind={row[5]}>{row[5]}</Badge>
@@ -1111,7 +1164,7 @@ export default function SalesPage({ role }: { role: Role }) {
                     <td>
                       <div className="row-actions">
                         {row[5] === "Inactive" ? (
-                          isAdmin && (
+                          (isSuperadmin || canEdit || canDelete) && (
                             <button
                               className="success-link"
                               onClick={() => handleRestoreSale(row[0])}
@@ -1127,18 +1180,18 @@ export default function SalesPage({ role }: { role: Role }) {
                             <button onClick={() => setPaymentsSale(row)}>
                               Payments
                             </button>
-                            {isAdmin && (
-                              <>
-                                <button onClick={() => setSaleForm("edit")}>
-                                  Edit
-                                </button>
-                                <button
-                                  className="danger-link"
-                                  onClick={() => handleDeleteSaleClick(row)}
-                                >
-                                  Delete
-                                </button>
-                              </>
+                            {canEdit && (
+                              <button onClick={() => setSaleForm("edit")}>
+                                Edit
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button
+                                className="danger-link"
+                                onClick={() => handleDeleteSaleClick(row)}
+                              >
+                                Delete
+                              </button>
                             )}
                           </>
                         )}
@@ -1171,9 +1224,24 @@ export default function SalesPage({ role }: { role: Role }) {
         )}
       </section>
       {saleForm && (
-        <SaleForm
-          editing={saleForm === "edit"}
+        <SaleModal
+          sale={
+            saleForm === "edit" && detailsSale
+              ? {
+                  transno: detailsSale[0],
+                  salesdate: detailsSale[1],
+                  customer: detailsSale[2],
+                  salesperson: detailsSale[3],
+                }
+              : null
+          }
+          currentUser={user}
           close={() => setSaleForm(null)}
+          onSaved={(msg) => {
+            setSaleForm(null)
+            if (msg) setSuccess(msg)
+            loadSalesData()
+          }}
         />
       )}
       {detailsSale && (

@@ -33,6 +33,9 @@ import {
   type JobHistoryRecord,
   type CreateJobHistoryPayload,
   type UpdateJobHistoryPayload,
+  type SaleHeader,
+  type CreateSalePayload,
+  type SalesQueryParams,
 } from "./types"
 
 // Automatically install global in-browser mock server interceptor
@@ -44,7 +47,7 @@ installEmbeddedFetchInterceptor()
  * Can be overridden via VITE_API_URL environment variable.
  */
 export const API_BASE_URL =
-  import.meta.env.VITE_API_URL !== undefined
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL !== undefined
     ? import.meta.env.VITE_API_URL
     : "http://localhost:8080"
 
@@ -54,7 +57,9 @@ export const API_BASE_URL =
  * Can be toggled to false via VITE_USE_REAL_BACKEND=true if testing against Spring Boot.
  */
 export const USE_EMBEDDED_BACKEND =
-  import.meta.env.VITE_USE_REAL_BACKEND !== "true"
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_USE_REAL_BACKEND === "true"
+    ? false
+    : true
 
 let cachedCsrfToken: string | null = null
 
@@ -1141,3 +1146,57 @@ export const tableEditorApi = {
     })
   },
 }
+
+// ============================================================================
+// Sprint 4: Sales APIs (S4-DEV-01)
+// ============================================================================
+
+export interface SalesOptionsResponse {
+  customers: { custno: string; custname: string; label: string }[]
+  salespersons: { empno: string; firstname: string; lastname: string; label: string }[]
+  suggestedTransno: string
+}
+
+export const salesApi = {
+  listSales: (params?: SalesQueryParams): Promise<SaleHeader[]> => {
+    const q = new URLSearchParams()
+    if (params?.search) q.set("search", params.search)
+    if (params?.status) q.set("status", params.status)
+    if (params?.customer) q.set("customer", params.customer)
+    if (params?.salesperson) q.set("salesperson", params.salesperson)
+    const query = q.toString() ? `?${q.toString()}` : ""
+    return apiFetch<SaleHeader[]>(`/api/sales${query}`)
+  },
+
+  getSale: (transno: string): Promise<SaleHeader> => {
+    return apiFetch<SaleHeader>(`/api/sales/${encodeURIComponent(transno)}`)
+  },
+
+  getOptions: (): Promise<SalesOptionsResponse> => {
+    return apiFetch<SalesOptionsResponse>("/api/sales/lookups/options")
+  },
+
+  createSale: (payload: CreateSalePayload): Promise<SaleHeader> => {
+    return apiFetch<SaleHeader>("/api/sales", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
+  },
+
+  restoreSale: (transno: string): Promise<{ message: string; transno: string; stamp: string }> => {
+    return apiFetch<{ message: string; transno: string; stamp: string }>(
+      `/api/sales/${encodeURIComponent(transno)}/restore`,
+      { method: "POST" }
+    )
+  },
+
+  softDeleteSale: (
+    transno: string
+  ): Promise<{ message: string; transno: string; stamp: string }> => {
+    return apiFetch<{ message: string; transno: string; stamp: string }>(
+      `/api/sales/${encodeURIComponent(transno)}`,
+      { method: "DELETE" }
+    )
+  },
+}
+
