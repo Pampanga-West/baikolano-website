@@ -4438,9 +4438,52 @@ export interface RecordPaymentPayload {
 
 export interface CustomerBalanceSummary {
   customer: string
+  custno?: string
+  custname?: string
   billed: number
   paid: number
   open: number
+  billedFormatted?: string
+  paidFormatted?: string
+  openFormatted?: string
+  status?: "Settled" | "Outstanding"
+}
+
+export interface TransactionBalanceSummary {
+  transno: string
+  salesdate: string
+  custno: string
+  customer: string
+  totalAmount: string
+  totalAmountNum: number
+  totalPaid: string
+  totalPaidNum: number
+  remainingBalance: string
+  remainingBalanceNum: number
+  status: "PAID" | "PARTIAL" | "UNPAID"
+  isPaid: boolean
+  paymentCount: number
+}
+
+export interface CustomerDetailedBalance {
+  custno: string
+  customer: string
+  totalBilled: string
+  totalBilledNum: number
+  totalPaid: string
+  totalPaidNum: number
+  openBalance: string
+  openBalanceNum: number
+  activeTransactionsCount: number
+  status: "Settled" | "Outstanding"
+  transactions: Array<{
+    transno: string
+    salesdate: string
+    total: string
+    paid: string
+    balance: string
+    status: "PAID" | "PARTIAL" | "UNPAID"
+  }>
 }
 
 export async function generateNextOrno(): Promise<string> {
@@ -4738,10 +4781,11 @@ export async function fetchCustomerBalancesFromSupabase(): Promise<CustomerBalan
     postgrestFetch<Record<string, any>[]>("/pricehist?is_deleted=eq.false&order=effdate.desc").catch(() => []),
   ])
 
-  const custMap = new Map<string, string>()
+  const custMap = new Map<string, { custno: string; custname: string; label: string }>()
   for (const c of custRows || []) {
     const cNo = String(c.custno ?? "").trim().toUpperCase()
-    if (cNo) custMap.set(cNo, `${cNo} — ${c.custname ?? ""}`)
+    const cName = String(c.custname ?? "").trim()
+    if (cNo) custMap.set(cNo, { custno: cNo, custname: cName, label: `${cNo} — ${cName}` })
   }
 
   const priceByProd = new Map<string, { effdate: string; price: number }[]>()
@@ -4777,8 +4821,8 @@ export async function fetchCustomerBalancesFromSupabase(): Promise<CustomerBalan
     const qty = Number(d.quantity) || 0
     const uPrice = resolveUnitPrice(pCode, sInfo.salesdate)
     const lineTotal = qty * uPrice
-    const custLabel = custMap.get(sInfo.custno) || sInfo.custno
-    billedByCust.set(custLabel, (billedByCust.get(custLabel) ?? 0) + lineTotal)
+    const custKey = sInfo.custno
+    billedByCust.set(custKey, (billedByCust.get(custKey) ?? 0) + lineTotal)
   }
 
   const paidByCust = new Map<string, number>()
@@ -4787,21 +4831,151 @@ export async function fetchCustomerBalancesFromSupabase(): Promise<CustomerBalan
     const sInfo = salesMap.get(tNo)
     if (!sInfo) continue
     const amt = Number(p.amount) || 0
-    const custLabel = custMap.get(sInfo.custno) || sInfo.custno
-    paidByCust.set(custLabel, (paidByCust.get(custLabel) ?? 0) + amt)
+    const custKey = sInfo.custno
+    paidByCust.set(custKey, (paidByCust.get(custKey) ?? 0) + amt)
   }
 
-  const allCusts = new Set([...billedByCust.keys(), ...paidByCust.keys()])
-  return Array.from(allCusts).map((customer) => {
-    const billed = billedByCust.get(customer) ?? 0
-    const paid = paidByCust.get(customer) ?? 0
+  const allCustCodes = new Set([...billedByCust.keys(), ...paidByCust.keys()])
+  const results = Array.from(allCustCodes).map((cCode) => {
+    const info = custMap.get(cCode)
+    const label = info ? info.label : cCode
+    const billed = billedByCust.get(cCode) ?? 0
+    const paid = paidByCust.get(cCode) ?? 0
+    const open = Math.max(0, billed - paid)
     return {
-      customer,
+      customer: label,
+      custno: cCode,
+      custname: info?.custname || "",
       billed,
       paid,
-      open: Math.max(0, billed - paid),
+      open,
+      billedFormatted: formatMoney(billed),
+      paidFormatted: formatMoney(paid),
+      openFormatted: formatMoney(open),
+      status: open > 0 ? ("Outstanding" as const) : ("Settled" as const),
     }
   })
+
+  return results.sort((a, b) => a.customer.localeCompare(b.customer))
+}
+
+export async function fetchTransactionBalanceFromSupabase(
+  transno: string
+): Promise<TransactionBalanceSummary> {
+  const tCode = String(transno || "").trim().toUpperCase()
+  if (!tCode) {
+    const err: any = new Error("Transaction number is required.")
+    err.statusCode = 400
+    throw err
+  }
+
+  const sales = await postgrestFetch<Record<string, any>[]>(
+    `/sales?transno=eq.${encodeURIComponent(tCode)}&limit=1`
+  ).catch(() => [])
+
+  if (!sales.length) {
+    const err: any = new Error(`Transaction ${tCode} not found.`)
+    err.statusCode = 404
+    throw err
+  }
+
+  const s = sales[0]
+  const [details, payments, custRows] = await Promise.all([
+    fetchSaleDetailsFromSupabase(tCode),
+    fetchPaymentsForSaleFromSupabase(tCode),
+    postgrestFetch<Record<string, any>[]>(
+      `/customer?custno=eq.${encodeURIComponent(s.custno)}&limit=1`
+    ).catch(() => []),
+  ])
+
+  const custName = custRows?.[0]?.custname || ""
+  const customer = custName ? `${s.custno} — ${custName}` : s.custno
+
+  const activeLines = details.filter((d) => !d.is_deleted)
+  const totalAmountNum = activeLines.reduce((sum, d) => sum + d.lineTotalNum, 0)
+
+  const activePayments = payments.filter((p) => !p.is_deleted)
+  const totalPaidNum = activePayments.reduce((sum, p) => sum + p.amountNum, 0)
+
+  const remainingBalanceNum = Math.max(0, totalAmountNum - totalPaidNum)
+  const isPaid = totalAmountNum > 0 && remainingBalanceNum <= 0.001
+  const status: "PAID" | "PARTIAL" | "UNPAID" = isPaid
+    ? "PAID"
+    : totalPaidNum > 0
+    ? "PARTIAL"
+    : "UNPAID"
+
+  return {
+    transno: tCode,
+    salesdate: String(s.salesdate || "").slice(0, 10),
+    custno: String(s.custno || "").trim().toUpperCase(),
+    customer,
+    totalAmount: formatMoney(totalAmountNum),
+    totalAmountNum,
+    totalPaid: formatMoney(totalPaidNum),
+    totalPaidNum,
+    remainingBalance: formatMoney(remainingBalanceNum),
+    remainingBalanceNum,
+    status,
+    isPaid,
+    paymentCount: activePayments.length,
+  }
+}
+
+export async function fetchCustomerDetailedBalanceFromSupabase(
+  custno: string
+): Promise<CustomerDetailedBalance> {
+  const cNo = String(custno || "").trim().toUpperCase()
+  if (!cNo) {
+    const err: any = new Error("Customer number is required.")
+    err.statusCode = 400
+    throw err
+  }
+
+  const custRows = await postgrestFetch<Record<string, any>[]>(
+    `/customer?custno=eq.${encodeURIComponent(cNo)}&limit=1`
+  ).catch(() => [])
+
+  const custName = custRows?.[0]?.custname || ""
+  const customerLabel = custName ? `${cNo} — ${custName}` : cNo
+
+  const salesRows = await postgrestFetch<Record<string, any>[]>(
+    `/sales?custno=eq.${encodeURIComponent(cNo)}&is_deleted=eq.false&order=salesdate.desc,transno.desc`
+  ).catch(() => [])
+
+  const transactions = []
+  let totalBilledNum = 0
+  let totalPaidNum = 0
+
+  for (const s of salesRows || []) {
+    const tNo = String(s.transno || "").trim().toUpperCase()
+    const balance = await fetchTransactionBalanceFromSupabase(tNo)
+    totalBilledNum += balance.totalAmountNum
+    totalPaidNum += balance.totalPaidNum
+    transactions.push({
+      transno: tNo,
+      salesdate: balance.salesdate,
+      total: balance.totalAmount,
+      paid: balance.totalPaid,
+      balance: balance.remainingBalance,
+      status: balance.status,
+    })
+  }
+
+  const openBalanceNum = Math.max(0, totalBilledNum - totalPaidNum)
+  return {
+    custno: cNo,
+    customer: customerLabel,
+    totalBilled: formatMoney(totalBilledNum),
+    totalBilledNum,
+    totalPaid: formatMoney(totalPaidNum),
+    totalPaidNum,
+    openBalance: formatMoney(openBalanceNum),
+    openBalanceNum,
+    activeTransactionsCount: transactions.length,
+    status: openBalanceNum > 0 ? "Outstanding" : "Settled",
+    transactions,
+  }
 }
 
 // ============================================================================

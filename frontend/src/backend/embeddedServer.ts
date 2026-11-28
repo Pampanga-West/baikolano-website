@@ -98,6 +98,8 @@ import {
   softDeletePaymentInSupabase,
   restorePaymentInSupabase,
   fetchCustomerBalancesFromSupabase,
+  fetchTransactionBalanceFromSupabase,
+  fetchCustomerDetailedBalanceFromSupabase,
   fetchProductMasterReportFromSupabase,
   fetchActiveEmployeesReportFromSupabase,
   fetchAllEmployeesReportFromSupabase,
@@ -249,9 +251,17 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
   const body = options.body ? (typeof options.body === "string" ? JSON.parse(options.body) : options.body) : {}
 
   const reqHeaders = new Headers(options.headers)
-  const testRole = reqHeaders.get("x-test-role")
-  const testRightsHeader = reqHeaders.get("x-test-rights")
-  const testRights = testRightsHeader !== null ? testRightsHeader.split(",").map((s) => s.trim()) : null
+  const testRole = reqHeaders.get("x-test-role") || reqHeaders.get("x-test-user-role")
+  const testRightsHeader = reqHeaders.get("x-test-rights") || reqHeaders.get("x-test-user-rights")
+  let testRights: string[] | null = null
+  if (testRightsHeader !== null) {
+    try {
+      const parsed = JSON.parse(testRightsHeader)
+      testRights = Array.isArray(parsed) ? parsed : [String(parsed)]
+    } catch {
+      testRights = testRightsHeader.split(",").map((s) => s.trim())
+    }
+  }
 
   const currentUserId = getSessionUserId()
   let currentUser: DbUser | null = null
@@ -2578,7 +2588,13 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
 
   // 3. Single Sale Endpoints (/api/sales/:transno, /api/sales/:transno/restore)
   const saleMatch = pathname.match(/^\/api\/sales\/([^/]+)(?:\/(restore))?$/)
-  if (saleMatch) {
+  if (
+    saleMatch &&
+    saleMatch[1] !== "customer-balances" &&
+    saleMatch[1] !== "lookups" &&
+    saleMatch[1] !== "payments" &&
+    saleMatch[1] !== "reports"
+  ) {
     const transno = decodeURIComponent(saleMatch[1])
     const subAction = saleMatch[2]
 
@@ -3099,16 +3115,68 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
     }
   }
 
-  // Customer Balances Summary (GET /api/sales/reports/customer-balances)
-  if (pathname === "/api/sales/reports/customer-balances" && method === "GET") {
+  // Customer Balances Summary (GET /api/sales/reports/customer-balances or /api/sales/customer-balances)
+  if (
+    (pathname === "/api/sales/reports/customer-balances" ||
+      pathname === "/api/sales/customer-balances" ||
+      pathname === "/api/reports/customer-balances") &&
+    method === "GET"
+  ) {
     try {
       await ensurePaymentPermission("View")
-      const balances = await fetchCustomerBalancesFromSupabase()
+      let balances = await fetchCustomerBalancesFromSupabase()
+      const searchParam = parsedUrl.searchParams.get("search")?.toLowerCase().trim()
+      if (searchParam) {
+        balances = balances.filter(
+          (b) =>
+            b.customer.toLowerCase().includes(searchParam) ||
+            (b.custno && b.custno.toLowerCase().includes(searchParam)) ||
+            (b.custname && b.custname.toLowerCase().includes(searchParam))
+        )
+      }
+      const statusParam = parsedUrl.searchParams.get("status")?.toLowerCase().trim()
+      if (statusParam === "owing" || statusParam === "outstanding") {
+        balances = balances.filter((b) => b.open > 0)
+      } else if (statusParam === "settled" || statusParam === "paid") {
+        balances = balances.filter((b) => b.open === 0)
+      }
       return jsonResponse(balances)
     } catch (e: any) {
       if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
       if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
       return jsonResponse({ message: e.message || "Failed to fetch customer balance summary." }, 500)
+    }
+  }
+
+  // Transaction Balance View (GET /api/sales/:transno/balance)
+  const saleBalanceMatch = pathname.match(/^\/api\/sales\/([^/]+)\/balance$/)
+  if (saleBalanceMatch && method === "GET") {
+    const transno = decodeURIComponent(saleBalanceMatch[1])
+    try {
+      await ensurePaymentPermission("View")
+      const balance = await fetchTransactionBalanceFromSupabase(transno)
+      return jsonResponse(balance)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+      return jsonResponse({ message: e.message || "Failed to fetch transaction balance." }, 500)
+    }
+  }
+
+  // Single Customer Detailed Balance (GET /api/customers/:custno/balance)
+  const custBalanceMatch = pathname.match(/^\/api\/customers\/([^/]+)\/balance$/)
+  if (custBalanceMatch && method === "GET") {
+    const custno = decodeURIComponent(custBalanceMatch[1])
+    try {
+      await ensurePaymentPermission("View")
+      const balance = await fetchCustomerDetailedBalanceFromSupabase(custno)
+      return jsonResponse(balance)
+    } catch (e: any) {
+      if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+      if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+      if (e.statusCode === 404) return jsonResponse({ message: e.message }, 404)
+      return jsonResponse({ message: e.message || "Failed to fetch customer detailed balance." }, 500)
     }
   }
 
