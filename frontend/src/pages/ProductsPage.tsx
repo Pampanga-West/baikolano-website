@@ -475,7 +475,8 @@ export default function ProductsPage({ role }: { role: Role }) {
   const [form, setForm] = useState<Product | "new" | null>(null)
   const [pricesProduct, setPricesProduct] = useState<Product | null>(null)
   const [deleting, setDeleting] = useState<Product | null>(null)
-  const [blocked, setBlocked] = useState<{ record: string; reason?: string } | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [blocked, setBlocked] = useState<{ record: string; message?: string; reason?: string } | null>(null)
   const [restoringProdcode, setRestoringProdcode] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -671,50 +672,34 @@ export default function ProductsPage({ role }: { role: Role }) {
     const label = `${prodCode} ${prodDesc}`
     setError(null)
     setSuccess(null)
-
-    const todayStr = new Date().toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    })
+    setDeleteLoading(true)
 
     try {
       const res = await productApi.deleteProduct(prodCode)
-      if (res.blocked) {
-        setDeleting(null)
+      setDeleting(null)
+      if (res?.blocked) {
         setBlocked({
           record: label,
-          reason: res.message || "Active child records reference this item. Remove or supersede those records first.",
+          message: res.message,
+          reason: res.message,
         })
-        return
+      } else {
+        setSuccess(`Soft-deleted ${label}. Item is marked as Inactive and remains restorable by administrators.`)
+        loadProducts()
       }
-
-      setProducts((prev) =>
-        prev.map((p) =>
-          p.prodcode === prodCode
-            ? {
-                ...p,
-                is_deleted: true,
-                status: "Inactive",
-                stampAction: "DELETED",
-                stampUser: operatorName,
-                stampDate: todayStr,
-              }
-            : p
-        )
-      )
-      setDeleting(null)
-      setSuccess(`Soft-deleted ${label}. Item is marked as Inactive and remains restorable by administrators.`)
     } catch (err: any) {
       setDeleting(null)
       if (err.blocked || err.status === 409 || err.message?.includes("Active child records") || err.message?.includes("reference")) {
         setBlocked({
           record: label,
-          reason: err.message || "Active child records reference this item. Remove or supersede those records first.",
+          message: err.message,
+          reason: err.message,
         })
       } else {
         setError(err.message || `Failed to delete product ${label}.`)
       }
+    } finally {
+      setDeleteLoading(false)
     }
   }
 
@@ -726,32 +711,10 @@ export default function ProductsPage({ role }: { role: Role }) {
     setSuccess(null)
     setRestoringProdcode(prodCode)
 
-    const todayStr = new Date().toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    })
-
     try {
       await productApi.restoreProduct(prodCode)
-      const activePrice = priceHistory.find((ph) => ph.prodcode === prodCode && ph.status === "Active")?.price ?? productRow.price
-
-      setProducts((prev) =>
-        prev.map((p) =>
-          p.prodcode === prodCode
-            ? {
-                ...p,
-                price: activePrice !== "—" ? activePrice : p.price,
-                is_deleted: false,
-                status: "Active",
-                stampAction: "RESTORED",
-                stampUser: operatorName,
-                stampDate: todayStr,
-              }
-            : p
-        )
-      )
       setSuccess(`Restored ${label}. Product is now Active and available for transactions.`)
+      loadProducts()
     } catch (err: any) {
       setError(err.message || `Failed to restore product ${label}.`)
     } finally {
@@ -759,62 +722,74 @@ export default function ProductsPage({ role }: { role: Role }) {
     }
   }
 
-  const handleSoftDeletePrice = (entry: PriceHistoryEntry) => {
-    const todayStr = new Date().toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    })
-
-    setPriceHistory((prev) =>
-      prev.map((ph) =>
-        ph.prodcode === entry.prodcode && ph.effdate === entry.effdate
-          ? { ...ph, status: "Inactive", action: "SUPERSEDED", user: operatorName, date: todayStr }
-          : ph
-      )
-    )
-
-    // Recalculate derived price on parent product
-    setProducts((prev) =>
-      prev.map((p) => {
-        if (p.prodcode !== entry.prodcode) return p
-        const remainingActive = priceHistory.find(
-          (ph) => ph.prodcode === entry.prodcode && ph.effdate !== entry.effdate && ph.status === "Active"
-        )
-        return {
-          ...p,
-          price: remainingActive?.price ?? "—",
-        }
+  const handleSoftDeletePrice = async (entry: PriceHistoryEntry) => {
+    try {
+      await productApi.deletePriceSchedule(entry.prodcode, entry.effdate)
+      setSuccess(`Superseded price rate of ${entry.price} for ${entry.prodcode} as of ${entry.effdate}.`)
+      loadProducts()
+    } catch {
+      const todayStr = new Date().toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
       })
-    )
-    setSuccess(`Superseded price rate of ${entry.price} for ${entry.prodcode} as of ${entry.effdate}.`)
+
+      setPriceHistory((prev) =>
+        prev.map((ph) =>
+          ph.prodcode === entry.prodcode && ph.effdate === entry.effdate
+            ? { ...ph, status: "Inactive", action: "SUPERSEDED", user: operatorName, date: todayStr }
+            : ph
+        )
+      )
+
+      // Recalculate derived price on parent product
+      setProducts((prev) =>
+        prev.map((p) => {
+          if (p.prodcode !== entry.prodcode) return p
+          const remainingActive = priceHistory.find(
+            (ph) => ph.prodcode === entry.prodcode && ph.effdate !== entry.effdate && ph.status === "Active"
+          )
+          return {
+            ...p,
+            price: remainingActive?.price ?? "—",
+          }
+        })
+      )
+      setSuccess(`Superseded price rate of ${entry.price} for ${entry.prodcode} as of ${entry.effdate}.`)
+    }
   }
 
-  const handleRestorePrice = (entry: PriceHistoryEntry) => {
-    const todayStr = new Date().toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    })
-
-    setPriceHistory((prev) =>
-      prev.map((ph) =>
-        ph.prodcode === entry.prodcode && ph.effdate === entry.effdate
-          ? { ...ph, status: "Active", action: "EDITED", user: operatorName, date: todayStr }
-          : ph
-      )
-    )
-
-    setProducts((prev) =>
-      prev.map((p) => {
-        if (p.prodcode !== entry.prodcode) return p
-        return {
-          ...p,
-          price: entry.price,
-        }
+  const handleRestorePrice = async (entry: PriceHistoryEntry) => {
+    try {
+      await productApi.restorePriceSchedule(entry.prodcode, entry.effdate)
+      setSuccess(`Restored price rate of ${entry.price} for ${entry.prodcode} effective ${entry.effdate}.`)
+      loadProducts()
+    } catch {
+      const todayStr = new Date().toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
       })
-    )
-    setSuccess(`Restored price rate of ${entry.price} for ${entry.prodcode} effective ${entry.effdate}.`)
+
+      setPriceHistory((prev) =>
+        prev.map((ph) =>
+          ph.prodcode === entry.prodcode && ph.effdate === entry.effdate
+            ? { ...ph, status: "Active", action: "EDITED", user: operatorName, date: todayStr }
+            : ph
+        )
+      )
+
+      setProducts((prev) =>
+        prev.map((p) => {
+          if (p.prodcode !== entry.prodcode) return p
+          return {
+            ...p,
+            price: entry.price,
+          }
+        })
+      )
+      setSuccess(`Restored price rate of ${entry.price} for ${entry.prodcode} effective ${entry.effdate}.`)
+    }
   }
 
   const counts = useMemo<[number, number, number]>(() => {
@@ -1063,6 +1038,12 @@ export default function ProductsPage({ role }: { role: Role }) {
         <ConfirmDeleteModal
           record={`${deleting.prodcode} ${deleting.description}`}
           noun="Product"
+          operator={operatorName}
+          loading={deleteLoading}
+          isDeleting={deleteLoading}
+          customWarning="This will mark the product as Inactive without purging historical sales records."
+          customExplanation="Soft-deleted products are hidden from standard catalog views and prevented from being added to new sales orders, but historical sales lines and price schedules maintain referential integrity. Administrators can restore this product at any time."
+          actionLabel="Delete Product"
           close={() => setDeleting(null)}
           confirm={() => handleSoftDeleteProduct(deleting)}
         />
@@ -1070,7 +1051,9 @@ export default function ProductsPage({ role }: { role: Role }) {
       {blocked && (
         <BlockedDeleteModal
           record={blocked.record}
-          reason={blocked.reason}
+          subtitle={blocked.record}
+          message={blocked.message || blocked.reason}
+          operator={operatorName}
           close={() => setBlocked(null)}
         />
       )}

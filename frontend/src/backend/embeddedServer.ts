@@ -46,6 +46,8 @@ import {
   updateProductInSupabase,
   softDeleteProductInSupabase,
   restoreProductInSupabase,
+  softDeletePriceScheduleInSupabase,
+  restorePriceScheduleInSupabase,
   parseStamp,
   type SupabaseUserRow,
 } from "./supabaseClient.ts"
@@ -1363,6 +1365,38 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
           return jsonResponse({ message: e.message, blocked: true }, 409)
         }
         return jsonResponse({ message: e.message || "Failed to delete product." }, 400)
+      }
+    }
+  }
+
+  // 2b. Price Schedule Sub-actions (/api/products/:prodcode/prices/:effdate)
+  const priceScheduleMatch = pathname.match(/^\/api\/products\/([^/]+)\/prices\/([^/]+)(?:\/(restore))?$/)
+  if (priceScheduleMatch) {
+    const prodcode = decodeURIComponent(priceScheduleMatch[1])
+    const effdate = decodeURIComponent(priceScheduleMatch[2])
+    const subAction = priceScheduleMatch[3]
+
+    if (subAction === "restore" && method === "POST") {
+      try {
+        const caller = await ensureProductPermission("Edit")
+        await restorePriceScheduleInSupabase(prodcode, effdate, caller.email)
+        return jsonResponse({ message: `Price schedule for ${prodcode} (${effdate}) restored.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to restore price schedule." }, 400)
+      }
+    }
+
+    if (!subAction && method === "DELETE") {
+      try {
+        const caller = await ensureProductPermission("Edit")
+        await softDeletePriceScheduleInSupabase(prodcode, effdate, caller.email)
+        return jsonResponse({ message: `Price schedule for ${prodcode} (${effdate}) superseded.` })
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to supersede price schedule." }, 400)
       }
     }
   }
