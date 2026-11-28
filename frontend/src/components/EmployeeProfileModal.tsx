@@ -511,38 +511,44 @@ export default function EmployeeProfileModal({
                   return (
                     <article
                       key={`${row.empno}-${row.effdate}`}
-                      className={`${isCurrent ? "current-tier" : ""} ${row.is_deleted ? "inactive-timeline-item" : ""}`}
-                      style={{
-                        position: "relative",
-                        paddingBottom: "1.25rem",
-                      }}
+                      className={`timeline-item ${isCurrent ? "is-latest current-tier" : ""} ${row.is_deleted ? "inactive-timeline-item" : ""}`}
                     >
-                      <div className="timeline-rail">
-                        <span>{index + 1}</span>
+                      <div className="timeline-rail" aria-hidden="true">
+                        <span className="timeline-node">{index + 1}</span>
                       </div>
 
-                      <div className="timeline-date">
-                        <b>{row.effdate}</b>
-                        <small style={{ display: "block" }}>
-                          {isCurrent ? "Current Active Tier" : index === visibleHistory.length - 1 ? "Initial Placement" : "Career Progression"}
-                        </small>
-                      </div>
+                      <div className={`timeline-card ${isCurrent ? "is-latest" : ""}`}>
+                        <div className="timeline-card-head">
+                          <span className="timeline-date">{row.effdate}</span>
+                          <span className={`timeline-badge ${isCurrent ? "latest" : ""}`}>
+                            {row.is_deleted
+                              ? "Inactive"
+                              : isCurrent
+                              ? "Current Active Tier"
+                              : index === visibleHistory.length - 1
+                              ? "Initial Placement"
+                              : "Career Progression"}
+                          </span>
+                        </div>
 
-                      <div className="timeline-role">
-                        <b>{row.job || `${row.jobcode} — ${row.jobdesc || ""}`}</b>
-                        <span>{row.department || `${row.deptcode} — ${row.deptname || ""}`}</span>
-                      </div>
+                        <div className="timeline-card-body">
+                          <div className="timeline-role">
+                            <b>{row.job || `${row.jobcode} — ${row.jobdesc || ""}`}</b>
+                            <span>{row.department || `${row.deptcode} — ${row.deptname || ""}`}</span>
+                          </div>
 
-                      <div className="timeline-salary">
-                        <small>Annual Compensation</small>
-                        <b className="salary-value">
-                          {canViewSalary ? row.formattedSalary || formatMoney(row.salary) : "Restricted"}
-                        </b>
-                        {stepDelta && (
-                          <small style={{ color: "#16a34a", fontWeight: 600, display: "block" }}>
-                            {stepDelta}
-                          </small>
-                        )}
+                          <div className="timeline-salary">
+                            <small>Annual Compensation</small>
+                            <b className="salary-value">
+                              {canViewSalary ? row.formattedSalary || formatMoney(row.salary) : "Restricted"}
+                            </b>
+                            {stepDelta && (
+                              <small style={{ color: "#16a34a", fontWeight: 600, display: "block" }}>
+                                {stepDelta}
+                              </small>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </article>
                   )

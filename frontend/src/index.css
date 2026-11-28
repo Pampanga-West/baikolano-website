@@ -533,17 +533,30 @@ td { height: 67px; padding: 0 17px; border-top: 1px solid var(--border); color: 
 .view-switch { display: flex; padding: 3px; border: 1px solid var(--border); background: var(--surface); }
 .view-switch button { height: 32px; padding: 0 11px; display: flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--muted); font-size: 10px; font-weight: 700; }
 .view-switch button.selected { color: var(--brand); background: var(--white); box-shadow: 0 1px 4px rgba(30,41,59,.08); }
-.career-timeline { border-top: 1px solid var(--border); }
-.career-timeline article { min-height: 112px; display: grid; grid-template-columns: 45px 150px 1fr 135px; align-items: center; border-bottom: 1px solid var(--border); }
-.timeline-rail { align-self: stretch; position: relative; display: grid; place-items: center; }
-.timeline-rail::before { content: ""; position: absolute; top: 0; bottom: 0; width: 1px; background: #b8c8ec; }
-.timeline-rail span { position: relative; z-index: 1; width: 25px; height: 25px; display: grid; place-items: center; border-radius: 50%; color: var(--white); background: var(--brand); font-size: 9px; font-weight: 800; }
-.timeline-date { color: var(--brand); font: 800 11px "Inter", sans-serif; }
-.timeline-date small, .timeline-role span, .timeline-salary small { display: block; margin-top: 5px; color: var(--muted); font: 9px "Inter", sans-serif; }
-.timeline-role b { font: 700 12px "Inter", sans-serif; }
-.timeline-salary { padding-left: 18px; border-left: 1px solid var(--border); }
-.timeline-salary b { display: inline-block; margin-top: 3px; font: 800 15px "Inter", sans-serif; }
+.career-timeline { display: flex; flex-direction: column; gap: 14px; padding: 14px 4px 6px; border-top: 1px solid var(--border); }
+.timeline-item { position: relative; display: grid; grid-template-columns: 38px 1fr; gap: 14px; align-items: stretch; }
+.timeline-rail { position: relative; display: flex; justify-content: center; padding-top: 16px; }
+.timeline-rail::before { content: ""; position: absolute; top: 0; bottom: -14px; left: 50%; transform: translateX(-50%); width: 2px; background: #cbd5e1; }
+.timeline-item:first-child .timeline-rail::before { top: 28px; }
+.timeline-item:last-child .timeline-rail::before { bottom: auto; height: 28px; }
+.timeline-item:only-child .timeline-rail::before { display: none; }
+.timeline-node { position: relative; z-index: 1; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; border: 2px solid #94a3b8; background: var(--white); color: var(--muted); font: 800 10px "Inter", sans-serif; transition: all 0.15s ease; }
+.timeline-item.is-latest .timeline-node { border-color: var(--brand); background: var(--brand); color: var(--white); box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.16); }
+.timeline-card { background: var(--white); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.timeline-card:hover { border-color: #cbd5e1; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05); }
+.timeline-card.is-latest { border-left: 3px solid var(--brand); background: linear-gradient(to right, rgba(37, 99, 235, 0.03), var(--white) 35%); }
+.timeline-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--border); }
+.timeline-date { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 5px; background: var(--surface); border: 1px solid var(--border); color: var(--brand); font: 800 11px "Inter", monospace; }
+.timeline-badge { padding: 3px 8px; border-radius: 999px; background: var(--surface); color: var(--muted); font: 700 9px "Inter", sans-serif; text-transform: uppercase; letter-spacing: .05em; }
+.timeline-badge.latest { background: #dbeafe; color: #1d4ed8; }
+.timeline-card-body { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.timeline-role b { display: block; color: var(--ink); font: 700 14px "Inter", sans-serif; }
+.timeline-role span { display: block; margin-top: 3px; color: var(--muted); font: 500 11px "Inter", sans-serif; }
+.timeline-salary { text-align: right; padding-left: 18px; border-left: 1px solid var(--border); flex-shrink: 0; }
+.timeline-salary small { display: block; color: var(--muted); font: 700 9px "Inter", sans-serif; text-transform: uppercase; letter-spacing: .05em; }
+.timeline-salary b { display: inline-block; margin-top: 3px; color: var(--ink); font: 800 16px "Inter", sans-serif; font-variant-numeric: tabular-nums; }
 .timeline-salary em { margin-left: 7px; padding: 2px 5px; border-radius: 3px; color: var(--active-text); background: var(--active-bg); font-size: 8px; font-style: normal; }
+.timeline-empty { padding: 28px 16px; text-align: center; color: var(--muted); font-size: 12px; }
 
 .balance-strip { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 24px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .balance-strip div { padding: 15px 18px; border-right: 1px solid var(--border); }
@@ -622,9 +635,9 @@ td { height: 67px; padding: 0 17px; border-top: 1px solid var(--border); color: 
   .module-modal-body { padding: 17px; }
   .record-form, .record-form-three { grid-template-columns: 1fr; }
   .record-form .form-span { grid-column: auto; }
-  .career-timeline article { grid-template-columns: 38px 1fr; padding: 14px 0; }
-  .timeline-role, .timeline-salary { grid-column: 2; margin-top: 10px; }
-  .timeline-salary { padding-left: 0; border-left: 0; }
+  .timeline-item { grid-template-columns: 30px 1fr; gap: 10px; }
+  .timeline-card-body { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .timeline-salary { text-align: left; padding-left: 0; padding-top: 8px; border-left: 0; border-top: 1px solid var(--border); width: 100%; }
   .payments-layout { grid-template-columns: 1fr; }
   .balance-strip { grid-template-columns: 1fr; }
   .balance-strip div { border-right: 0; border-bottom: 1px solid var(--border); }
@@ -1543,6 +1556,49 @@ td, .entity-table td { border-color: #edf1f5; }
 [data-theme="dark"] .timeline-salary em {
   background: rgba(34, 197, 94, 0.2) !important;
   color: #4ade80 !important;
+}
+
+[data-theme="dark"] .timeline-rail::before {
+  background: #334155 !important;
+}
+
+[data-theme="dark"] .timeline-node {
+  background: #1e293b !important;
+  border-color: #475569 !important;
+  color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .timeline-item.is-latest .timeline-node {
+  background: #2563eb !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.25) !important;
+}
+
+[data-theme="dark"] .timeline-card {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+[data-theme="dark"] .timeline-card.is-latest {
+  border-left-color: #3b82f6 !important;
+  background: linear-gradient(to right, rgba(37, 99, 235, 0.14), #1e293b 40%) !important;
+}
+
+[data-theme="dark"] .timeline-date {
+  background: #0f172a !important;
+  border-color: #334155 !important;
+  color: #60a5fa !important;
+}
+
+[data-theme="dark"] .timeline-badge {
+  background: #0f172a !important;
+  color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .timeline-badge.latest {
+  background: rgba(59, 130, 246, 0.2) !important;
+  color: #93c5fd !important;
 }
 
 

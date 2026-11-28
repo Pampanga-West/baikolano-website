@@ -600,31 +600,51 @@ export default function JobHistoryModal({
         </div>
       ) : (
         <div className="career-timeline">
-          {visibleEntries.map((row, index) => (
-            <article key={`${row.empno}-${row.effdate}`} className={row.is_deleted ? "inactive-timeline-item" : ""}>
-              <div className="timeline-rail">
-                <span>{index + 1}</span>
-              </div>
-              <div className="timeline-date">
-                {row.effdate}
-                <small>
-                  {index === 0 ? "Latest assignment" : "Career progression"}
-                </small>
-              </div>
-              <div className="timeline-role">
-                <b>{row.job || `${row.jobcode} — ${row.jobdesc || ""}`}</b>
-                <span>{row.department || `${row.deptcode} — ${row.deptname || ""}`}</span>
-              </div>
-              <div className="timeline-salary">
-                <small>Annual salary</small>
-                <b className="salary-value">
-                  {canViewSalary
-                    ? row.formattedSalary || (row.salary !== undefined ? `$${row.salary?.toLocaleString()}` : "—")
-                    : "Restricted"}
-                </b>
-              </div>
-            </article>
-          ))}
+          {visibleEntries.length ? (
+            visibleEntries.map((row, index) => {
+              const isLatest = index === 0 && !row.is_deleted
+              return (
+                <article
+                  key={`${row.empno}-${row.effdate}`}
+                  className={`timeline-item ${isLatest ? "is-latest" : ""} ${row.is_deleted ? "inactive-timeline-item" : ""}`}
+                >
+                  <div className="timeline-rail" aria-hidden="true">
+                    <span className="timeline-node">{index + 1}</span>
+                  </div>
+                  <div className={`timeline-card ${isLatest ? "is-latest" : ""}`}>
+                    <div className="timeline-card-head">
+                      <span className="timeline-date">{row.effdate}</span>
+                      <span className={`timeline-badge ${isLatest ? "latest" : ""}`}>
+                        {row.is_deleted
+                          ? "Inactive"
+                          : isLatest
+                          ? "Latest assignment"
+                          : "Career progression"}
+                      </span>
+                    </div>
+                    <div className="timeline-card-body">
+                      <div className="timeline-role">
+                        <b>{row.job || `${row.jobcode} — ${row.jobdesc || ""}`}</b>
+                        <span>{row.department || `${row.deptcode} — ${row.deptname || ""}`}</span>
+                      </div>
+                      <div className="timeline-salary">
+                        <small>Annual salary</small>
+                        <b className="salary-value">
+                          {canViewSalary
+                            ? row.formattedSalary || (row.salary !== undefined ? `$${row.salary?.toLocaleString()}` : "—")
+                            : "Restricted"}
+                        </b>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              )
+            })
+          ) : (
+            <div className="timeline-empty">
+              No job history entries found for {employee.empno}.
+            </div>
+          )}
         </div>
       )}
 
