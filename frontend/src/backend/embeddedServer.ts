@@ -82,6 +82,7 @@ import {
   insertSaleIntoSupabase,
   softDeleteSaleInSupabase,
   restoreSaleInSupabase,
+  checkSaleHasActiveReferences,
   fetchActiveCustomersForDropdown,
   fetchActiveSalespersonsForDropdown,
   generateNextTransno,
@@ -2432,6 +2433,7 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
       const n = name.toLowerCase().trim()
       return effectiveRights.some((r) => {
         const rl = r.toLowerCase().trim()
+        if (rl.includes("detail")) return false
         return (
           rl === n ||
           rl === `sale - ${n}` ||
@@ -2586,8 +2588,8 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
     }
   }
 
-  // 3. Single Sale Endpoints (/api/sales/:transno, /api/sales/:transno/restore)
-  const saleMatch = pathname.match(/^\/api\/sales\/([^/]+)(?:\/(restore))?$/)
+  // 3. Single Sale Endpoints (/api/sales/:transno, /api/sales/:transno/restore, /check-references)
+  const saleMatch = pathname.match(/^\/api\/sales\/([^/]+)(?:\/(restore|check-references))?$/)
   if (
     saleMatch &&
     saleMatch[1] !== "customer-balances" &&
@@ -2597,6 +2599,19 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
   ) {
     const transno = decodeURIComponent(saleMatch[1])
     const subAction = saleMatch[2]
+
+    // Check Active References (GET /api/sales/:transno/check-references)
+    if (subAction === "check-references" && method === "GET") {
+      try {
+        await ensureSalePermission("View")
+        const result = await checkSaleHasActiveReferences(transno)
+        return jsonResponse(result)
+      } catch (e: any) {
+        if (e.message === "UNAUTHORIZED") return jsonResponse({ message: "Not authenticated." }, 401)
+        if (e.statusCode === 403 || e.permissionDenied) return jsonResponse({ message: e.message }, 403)
+        return jsonResponse({ message: e.message || "Failed to check sales references." }, 500)
+      }
+    }
 
     // Restore Sale (POST /api/sales/:transno/restore)
     if (subAction === "restore" && method === "POST") {
@@ -2692,8 +2707,6 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
           rl === `sale details - ${n}` ||
           rl === `${n} sale detail` ||
           rl === `${n} sale details` ||
-          rl === `sale - ${n}` ||
-          rl === `sales - ${n}` ||
           (rl.includes("sale") && rl.includes("detail") && rl.includes(n))
         )
       })
@@ -2705,7 +2718,16 @@ export async function handleEmbeddedRequest(urlPath: string, options: RequestIni
         hasRight("view") ||
         hasRight("add") ||
         hasRight("edit") ||
-        hasRight("delete")
+        hasRight("delete") ||
+        effectiveRights.some((r) => {
+          const rl = r.toLowerCase().trim()
+          return (
+            rl === "sales - view" ||
+            rl === "sale - view" ||
+            rl === "view sale" ||
+            rl === "view sales"
+          )
+        })
       ) {
         return currentUser
       }

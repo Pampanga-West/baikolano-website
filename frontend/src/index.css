@@ -245,7 +245,7 @@ td { height: 67px; padding: 0 17px; border-top: 1px solid var(--border); color: 
 .user-cell small { color: #98a2b3; font-size: 9px; margin-top: 3px; }
 .badge { display: inline-block; padding: 4px 8px; border-radius: 99px; font-size: 8px; font-weight: 800; letter-spacing: .04em; }
 .badge-active { color: var(--active-text); background: var(--active-bg); }
-.badge-blocked, .badge-inactive { color: var(--danger-text); background: var(--danger-bg); }
+.badge-blocked, .badge-inactive, .badge-deleted { color: var(--danger-text); background: var(--danger-bg); }
 .badge-pending { color: var(--pending-text); background: var(--pending-bg); }
 .badge-superadmin { color: var(--gold-text); background: var(--gold); }
 .badge-admin { color: var(--slate-text); background: var(--slate); }

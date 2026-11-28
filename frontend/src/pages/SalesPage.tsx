@@ -1146,6 +1146,7 @@ export default function SalesPage({ role }: { role: Role }) {
     const n = name.toLowerCase().trim()
     return rights.some((r) => {
       const rl = r.toLowerCase().trim()
+      if (rl.includes("detail")) return false
       return (
         rl === n ||
         rl === `sale - ${n}` ||
@@ -1288,16 +1289,35 @@ export default function SalesPage({ role }: { role: Role }) {
   }
 
   const handleDeleteSaleClick = (row: string[]) => {
-    const activePayments = paymentRecords.filter(
-      (p) => p.transno === row[0] && p.status === "Active"
+    const transno = row[0]
+    const activeLines = saleLines.filter(
+      (l) => l.transno === transno && l.status === "Active"
     )
-    if (activePayments.length > 0) {
+    const activePayments = paymentRecords.filter(
+      (p) => p.transno === transno && p.status === "Active"
+    )
+    if (activeLines.length > 0 || activePayments.length > 0) {
+      const reasons: string[] = []
+      if (activeLines.length > 0) {
+        reasons.push(
+          `${activeLines.length} active line item(s) (${activeLines
+            .map((l) => l.product || l.prodcode)
+            .join(", ")})`
+        )
+      }
+      if (activePayments.length > 0) {
+        reasons.push(
+          `${activePayments.length} recorded active payment receipt(s) (${activePayments
+            .map((p) => p.orno)
+            .join(", ")})`
+        )
+      }
       setBlockedModal({
         title: "Referential Integrity Guard",
-        subtitle: `Cannot deactivate sales transaction ${row[0]}`,
-        reason: `Sales transaction ${row[0]} has recorded active payment receipts (${activePayments
-          .map((p) => p.orno)
-          .join(", ")}). Void all related receipts before deactivating this sales transaction.`,
+        subtitle: `Cannot deactivate sales transaction ${transno}`,
+        reason: `Sales transaction ${transno} has ${reasons.join(
+          " and "
+        )}. Remove or void all active line items and receipts before deactivating this sales transaction.`,
       })
       return
     }
@@ -1333,7 +1353,12 @@ export default function SalesPage({ role }: { role: Role }) {
       loadSalesData()
     } catch (err: any) {
       setDeletingSale(null)
-      if (err.referentialIntegrity) {
+      if (
+        err.referentialIntegrity ||
+        err.message?.includes("active related record") ||
+        err.message?.includes("line item") ||
+        err.message?.includes("receipt")
+      ) {
         setBlockedModal({
           title: "Referential Integrity Guard",
           subtitle: `Cannot deactivate sales transaction ${transno}`,
@@ -1740,12 +1765,8 @@ export default function SalesPage({ role }: { role: Role }) {
                   <th>Customer</th>
                   <th>Salesperson</th>
                   <th>Total Amount</th>
-                  {showAudit && (
-                    <>
-                      <th>Status</th>
-                      <th>Stamp</th>
-                    </>
-                  )}
+                  <th>Status</th>
+                  {showAudit && <th>Stamp</th>}
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -1781,15 +1802,13 @@ export default function SalesPage({ role }: { role: Role }) {
                         )
                       })()}
                     </td>
+                    <td>
+                      <Badge kind={row[5].toLowerCase()}>{row[5]}</Badge>
+                    </td>
                     {showAudit && (
-                      <>
-                        <td>
-                          <Badge kind={row[5]}>{row[5]}</Badge>
-                        </td>
-                        <td>
-                          <Stamp action={row[6]} user={row[7]} date={row[8]} />
-                        </td>
-                      </>
+                      <td>
+                        <Stamp action={row[6]} user={row[7]} date={row[8]} />
+                      </td>
                     )}
                     <td>
                       <div className="row-actions">
