@@ -1164,6 +1164,101 @@ export async function restoreCustomerInSupabase(
 }
 
 // ----------------------------------------------------------------------------
+// Price as of Date Operations (S2-DBA-04)
+// ----------------------------------------------------------------------------
+
+/**
+ * Fetch effective unit price of a product as of a specific date using PostgreSQL RPC
+ */
+export async function fetchPriceAsOfDateFromSupabase(
+  prodcode: string,
+  asOfDate: string = new Date().toISOString().slice(0, 10)
+): Promise<number | null> {
+  try {
+    // 1. Try PostgreSQL RPC function
+    const res = await postgrestFetch<number | null>("/rpc/get_price_as_of_date", {
+      method: "POST",
+      body: JSON.stringify({
+        p_prodcode: prodcode,
+        p_as_of_date: asOfDate,
+      }),
+    })
+    if (res !== null && res !== undefined) return Number(res)
+  } catch (err) {
+    console.warn("[supabaseClient] get_price_as_of_date RPC error, falling back to REST filter:", err)
+  }
+
+  // 2. Fallback to direct PostgREST query on pricehist
+  try {
+    const rows = await postgrestFetch<Record<string, any>[]>(
+      `/pricehist?prodcode=eq.${encodeURIComponent(prodcode)}&effdate=lte.${encodeURIComponent(
+        asOfDate
+      )}&is_deleted=eq.false&order=effdate.desc&limit=1`
+    )
+    if (rows && rows.length > 0 && rows[0].unitprice != null) {
+      return Number(rows[0].unitprice)
+    }
+  } catch (fallbackErr) {
+    console.warn("[supabaseClient] fallback pricehist query failed:", fallbackErr)
+  }
+
+  return null
+}
+
+/**
+ * Fetch all active products joined with effective price as of given date
+ */
+export async function fetchProductPricesAsOfDateFromSupabase(
+  asOfDate: string = new Date().toISOString().slice(0, 10)
+): Promise<
+  {
+    prodcode: string
+    description: string
+    unit: string
+    unitprice: number | null
+    effdate: string | null
+  }[]
+> {
+  try {
+    const res = await postgrestFetch<any[]>("/rpc/get_product_prices_as_of_date", {
+      method: "POST",
+      body: JSON.stringify({
+        p_as_of_date: asOfDate,
+      }),
+    })
+    if (Array.isArray(res)) {
+      return res.map((r) => ({
+        prodcode: r.prodcode,
+        description: r.description,
+        unit: r.unit,
+        unitprice: r.unitprice != null ? Number(r.unitprice) : null,
+        effdate: r.effdate,
+      }))
+    }
+  } catch (err) {
+    console.warn("[supabaseClient] get_product_prices_as_of_date RPC error:", err)
+  }
+
+  // Fallback to active view
+  try {
+    const rows = await postgrestFetch<any[]>("/product_current_price?select=*&order=prodcode.asc")
+    if (Array.isArray(rows)) {
+      return rows.map((r) => ({
+        prodcode: r.prodcode,
+        description: r.description,
+        unit: r.unit,
+        unitprice: r.current_price != null ? Number(r.current_price) : null,
+        effdate: r.price_effdate,
+      }))
+    }
+  } catch {
+    // Return empty on error
+  }
+
+  return []
+}
+
+// ----------------------------------------------------------------------------
 // Sprint 2 Product Catalog Operations (S2-DEV-04)
 // ----------------------------------------------------------------------------
 
@@ -5916,12 +6011,4 @@ export async function fetchTopSalesReportFromSupabase(params?: {
     filtersApplied: { fromDate: fromDate || undefined, toDate: toDate || undefined, topN: limitN },
   }
 }
-
-
-
-
-
-
-
-
 
